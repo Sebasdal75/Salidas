@@ -1,0 +1,194 @@
+# Manual del operador — Salidas ESCANEOS UPS
+
+Guía práctica para quien escanea. No hace falta saber nada de programación.
+
+---
+
+## 1. Qué hace el sistema
+
+Tú escaneas guías con la pistola en la **columna A**. El sistema responde en la
+**columna B**, al instante, contestando tres preguntas:
+
+1. ¿Esta guía es válida?
+2. ¿Ya estaba escaneada en otro lado?
+3. ¿Este pedimento está completo?
+
+Tú **solo escribes en la columna A** (y en la O si estás capturando preforma).
+Todo lo demás lo escribe el sistema solo. **No hay que escribir nada en la
+columna B.**
+
+---
+
+## 2. Las pestañas
+
+| Pestaña | Para qué es | ¿Lleva preforma? |
+|---|---|---|
+| **GLOBAL PENDIENTE** y similares | Salida final. Aquí se cuadra contra la preforma | Sí (columna O) |
+| **M-S T1**, **M-S GLOBALES**, **M-S A1**, **M-S SEGUIMIENTOS**, **M-S CUENTAS ESPECIALES** | Bodegas de paso | **No** |
+| **INVENTARIO...** | Ubicaciones finales (empiezan con `IW`) | No |
+| **MACHO** | Lista de guías retenidas por la Guardia Nacional | — |
+| **CACHE_SISTEMA**, **HISTORIAL_BORRADOS** | Del sistema. **No tocar** | — |
+
+Una guía **puede** estar en una bodega y luego en una Global: eso es normal y no
+da alerta. Lo que sí avisa es la misma guía **dos veces en el mismo tipo de
+sitio**.
+
+---
+
+## 3. Cómo se escanea
+
+1. Escanea el **pedimento** (7 dígitos, por ejemplo `6100166`). Eso abre el bloque.
+2. Escanea debajo todas las **guías** de ese pedimento.
+3. Repite con el siguiente pedimento.
+
+El sistema entiende que todo lo que va debajo de un pedimento pertenece a ese
+pedimento, hasta que aparece el siguiente.
+
+La **hora** se guarda sola en la columna L. Se pone una sola vez, cuando escaneas;
+después ya no cambia.
+
+---
+
+## 4. Qué significa cada mensaje
+
+### Todo va bien
+
+| Mensaje | Qué significa | Qué hacer |
+|---|---|---|
+| **✅ Ok** | La guía estaba en la preforma. Cuadra | Nada |
+| **✅ Guía** | Guía correcta, pero ese pedimento no tiene preforma cargada | Nada. Si debería tenerla, avisa |
+| **✅ Ok (Escaneado en M-S T1)** | Además ya había pasado por esa bodega | Nada. Es lo esperado |
+| **✅ COMPLETO** | En la cabecera: llegaron todas las guías del pedimento | Cerrar el pedimento |
+| **✅ TODO MOVIDO** | En bodega: todas las guías ya salieron a una Global | Nada |
+
+### Ojo con esto
+
+| Mensaje | Qué significa | Qué hacer |
+|---|---|---|
+| **⛔ DUPLICADO (En: ...)** | Esta guía **ya está escaneada en otra pestaña** del mismo tipo. Te dice cuál y en qué fila | Ve a esa fila. Decide cuál es la buena y **borra la otra** |
+| **🔄 Duplicado local** | La escaneaste **dos veces seguidas aquí mismo** | Borra la repetida |
+| **⛔ Duplicado local (Ya en Ped: X)** | La misma guía está en dos pedimentos distintos de esta hoja | Averigua a cuál pertenece y borra la otra |
+| **❌ Va en: 6098352** | La guía es buena, pero pertenece a **otro pedimento** | Muévela al bloque correcto |
+| **⚠️ Sobra (Ajena)** | Esta guía no está en ninguna preforma | Verifica el paquete. Puede ser de otro embarque |
+| **❌ Faltan 3 (1ZAB..., 1ZCD...)** | En la cabecera: faltan por llegar esas guías | Búscalas. El pedimento no está completo |
+| **⚠️ Sobran 2** | Hay más guías escaneadas que las que dice la preforma | Revisa cuáles sobran |
+
+### Errores que hay que corregir
+
+| Mensaje | Qué significa | Qué hacer |
+|---|---|---|
+| **❌ Guía Inválida** | El código no pasa la validación. Suele ser una lectura mala de la pistola | **Vuelve a escanear.** Si insiste, tecléala |
+| **🛑 ERROR: Faltan 2 números** | Escribiste un pedimento incompleto | Complétalo a 7 dígitos |
+| **🛑 PEDIMENTO REPETIDO** | El mismo pedimento aparece dos veces en la hoja | Junta los dos bloques en uno |
+| **⚠️ PEDIMENTO REPETIDO** | Lo mismo, pero en la preforma (columna P) | Corrige la preforma |
+
+### Informativos
+
+| Mensaje | Qué significa | Qué hacer |
+|---|---|---|
+| **⏳ Esperando guías...** | Pedimento escaneado, todavía sin guías debajo | Nada, sigue escaneando |
+| **➡ Movido a GLOBAL PENDIENTE** | En bodega: esa guía ya salió a esa Global. Sale tachada y en gris | Nada. Puedes limpiarla con el menú |
+| **⚠️ Faltan 3 por mover** | En bodega: quedan 3 guías sin salir | Nada, es informativo |
+| **⚠️ Sin escaneo en Bodegas** | Llegó a la Global sin haber pasado por ninguna bodega | Verifica si se saltó un paso |
+| **⚠️ No en preforma** | El pedimento no aparece en ninguna preforma | Verifica que sea el pedimento correcto |
+| **⏳ Pendiente (reintenta)** | El sistema estaba ocupado y no alcanzó a validar | **Vuelve a escribir la guía.** Se corrige solo en 5 minutos |
+
+### Solo en pestañas de REZAGO
+
+| Mensaje | Qué significa |
+|---|---|
+| **✅ Recuperado (Ped: X)** | Guía de rezago recuperada, pertenece a ese pedimento |
+| **🌟 COMPLETO** | Con esa, el pedimento quedó completo |
+| **❌ Va en: OTRA HOJA (Ped: X)** | Esa guía es de otro rezago |
+| **⚠️ Ajena (No es de rezago)** | No pertenece a ningún rezago |
+
+---
+
+## 5. Los colores
+
+| Color | Significa |
+|---|---|
+| 🟩 Verde | Correcto, cuadra |
+| 🟦 Azul claro | Guía correcta, sin preforma que comparar |
+| 🟧 Naranja | Duplicado — **hay que resolverlo** |
+| 🟨 Amarillo | Aviso: error de captura o falta un paso |
+| 🟥 Rojo | Guía inválida o ajena |
+| 🩶 Gris | Repetida en la misma hoja, o ya movida |
+
+**Regla rápida: verde y azul, sigues. Naranja y rojo, te detienes y revisas.**
+
+---
+
+## 6. Los contadores de arriba
+
+**Columna C (filas 1 a 3):**
+- `Total bultos: 67` — guías distintas escaneadas
+- `Total pedimentos: 3`
+- En bodegas: `M-S T1: 92` — pedimentos de esa bodega
+- En bodegas, si hay movidas: `Total bultos: 120 (movidos: 45 | en bodega: 75)`
+- En inventarios: `Ubicaciones (IW): 12`
+
+**Columna Q (filas 1 y 2), solo en Globales:**
+- `Bultos (Preforma): 67` — lo que **debería** llegar
+- `Pedimentos (Preforma): 3`
+
+Si `Total bultos` y `Bultos (Preforma)` coinciden, llegó todo.
+
+---
+
+## 7. La preforma (solo Globales)
+
+La preforma es la lista de lo que **debería** venir. Va en la **columna O**, con
+el mismo formato: pedimento y debajo sus guías. El sistema compara la columna A
+contra la O y te dice qué falta y qué sobra.
+
+**Columna N:** poniendo `a`, `b` o `c` junto al pedimento, su bloque en la
+preforma se pinta de otro color. Sirve para distinguir grupos de un vistazo.
+
+**Costales:** en la columna Q se marca `COSTALES` donde empieza el costal y `FIN`
+donde termina. Escribiendo `COSTALES` en la **columna D** el sistema copia ese
+bloque a la columna A ya ordenado. Si debajo hay datos, avisa
+`⚠️ SIN ESPACIO` y **no borra nada** — haz espacio primero.
+
+---
+
+## 8. El menú `📦 Opciones Avanzadas`
+
+| Opción | Qué hace |
+|---|---|
+| **📋 Agrupar Guías por Pedimento** | Reordena la columna A juntando cada guía con su pedimento y sube todo arriba |
+| **🧹 Limpiar guías movidas** | En bodegas: selecciona un rango y borra las que ya salieron. Queda registro en el historial |
+| **🔄 Forzar Actualización** | Recalcula la pestaña actual. Úsalo si algo se ve raro |
+| **♻️ Reconstruir caché completo** | Rehace el índice de duplicados desde cero. Solo si los duplicados dejan de detectarse |
+
+---
+
+## 9. Si algo se ve mal
+
+1. **Menú → 🔄 Forzar Actualización.** Resuelve casi todo.
+2. Si los duplicados no salen o salen de más: **♻️ Reconstruir caché completo**.
+3. Si una guía marca `⛔ DUPLICADO` de una fila que ya está vacía: reconstruye el
+   caché. No debería pasar, pero se arregla así.
+4. Si el archivo va lento, cierra pestañas del navegador. Sheets es pesado.
+
+---
+
+## 10. Lo que NO hay que hacer
+
+- ❌ **No escribas en la columna B.** El sistema la sobrescribe.
+- ❌ **No borres ni edites `CACHE_SISTEMA` ni `HISTORIAL_BORRADOS`.**
+- ❌ **No borres la columna M.** Es la lista de la Guardia Nacional.
+- ❌ **No pegues guías con formato** desde otro lado. Pega solo valores
+  (`Ctrl+Shift+V`).
+- ❌ **No renombres las pestañas** sin avisar. El sistema las reconoce por su
+  nombre: `M-S ...` son bodegas, las que dicen `INVENTARIO` son inventarios.
+
+---
+
+## 11. Se queda registrado
+
+Cada vez que alguien **borra** una guía, queda anotado en `HISTORIAL_BORRADOS`:
+fecha, hora, usuario, pestaña, fila, qué se borró y qué estado tenía.
+
+No es para vigilar a nadie: sirve para reconstruir qué pasó cuando un bulto no
+aparece.
