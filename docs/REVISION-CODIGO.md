@@ -1,5 +1,9 @@
 # Revisión del WMS (Apps Script) — 2026-08-09
 
+> **Estado: todos los hallazgos de este documento fueron corregidos el 2026-08-09.**
+> El registro de qué cambió está en [`CORRECCIONES-APLICADAS.md`](CORRECCIONES-APLICADAS.md).
+> Las referencias de línea de abajo apuntan al código **anterior** a la corrección.
+
 Revisión del script `Codigo.gs` contra las reglas de negocio declaradas
 (caché híbrido, batch writes, aislamiento Globales / Bodegas / Inventarios,
 historial auditado).
