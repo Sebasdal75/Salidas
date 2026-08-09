@@ -50,6 +50,12 @@ ok("una plantilla MACHO NO es interna (sí recibe la columna M)", !esHojaInterna
 ok("GLOBAL PENDIENTE no es interna ni MACHO",
    !esHojaInterna("GLOBAL PENDIENTE") && !esHojaMacho("GLOBAL PENDIENTE"));
 
+console.log("\n=== 1c. Red de seguridad de escaneos pendientes ===");
+ok("dato sin estado = sin validar", filaSinValidar("1Z999AA10123456784", "") === true);
+ok("marcado como pendiente = sin validar", filaSinValidar("1Z999AA10123456784", "⏳ Pendiente (reintenta)") === true);
+ok("dato ya validado = no se toca", filaSinValidar("1Z999AA10123456784", "✅ Ok") === false);
+ok("fila vacía = no se toca", filaSinValidar("", "") === false);
+
 console.log("\n=== 2. Validación de guías UPS ===");
 ok("TEST_guias sin fallos", TEST_guias().length === 0);
 

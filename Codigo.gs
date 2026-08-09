@@ -165,13 +165,21 @@ function instalarTriggerAvanzado() {
     ScriptApp.newTrigger('alEditar').forSpreadsheet(ss).onEdit().create();
     PropertiesService.getScriptProperties().setProperty(PROP_TRIGGER, '1');
     globalTriggerInstalable = true;
-    ss.toast('✅ Trigger avanzado activo: límite de 6 minutos y registro del usuario en el historial.', 'Listo', 8);
+
+    // Red de seguridad: recoge los escaneos que se perdieron por lock ocupado.
+    ScriptApp.getProjectTriggers().forEach(t => {
+        if (t.getHandlerFunction() === 'actualizadorAutomaticoGlobal') ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('actualizadorAutomaticoGlobal').timeBased().everyMinutes(5).create();
+
+    ss.toast('✅ Trigger avanzado activo (6 min de límite y usuario en el historial) + repaso automático cada 5 min.', 'Listo', 8);
 }
 
 function desinstalarTriggerAvanzado() {
     const ss = obtenerArchivo();
     ScriptApp.getProjectTriggers().forEach(t => {
-        if (t.getHandlerFunction() === 'alEditar') ScriptApp.deleteTrigger(t);
+        if (t.getHandlerFunction() === 'alEditar' ||
+            t.getHandlerFunction() === 'actualizadorAutomaticoGlobal') ScriptApp.deleteTrigger(t);
     });
     PropertiesService.getScriptProperties().deleteProperty(PROP_TRIGGER);
     globalTriggerInstalable = false;
@@ -374,6 +382,19 @@ function intentarLock(lock) {
     }
 }
 
+const TXT_PENDIENTE = "⏳ Pendiente (reintenta)";
+
+// Una fila está sin validar si tiene dato pero no estado, o si quedó marcada
+// como pendiente porque el lock estaba ocupado. Lo segundo importa: si solo se
+// mirara "estado vacío", las filas que marcamos como pendientes serían
+// precisamente las que la red de seguridad dejaría de recoger.
+function filaSinValidar(valDato, valEstado) {
+    let d = String(valDato).trim();
+    if (d === "") return false;
+    let e = String(valEstado).trim();
+    return e === "" || e === TXT_PENDIENTE;
+}
+
 function marcarPendiente(hoja, filaInicial, numRows, colInicial, numCols) {
     try {
         if (colInicial > 1 || colInicial + numCols - 1 < 1) return;
@@ -381,7 +402,7 @@ function marcarPendiente(hoja, filaInicial, numRows, colInicial, numCols) {
         let vals = rango.getValues();
         let cambio = false;
         for (let r = 0; r < numRows; r++) {
-            if (String(vals[r][0]).trim() === "") { vals[r][0] = "⏳ Pendiente (reintenta)"; cambio = true; }
+            if (String(vals[r][0]).trim() === "") { vals[r][0] = TXT_PENDIENTE; cambio = true; }
         }
         if (cambio) rango.setValues(vals);
     } catch (err) {
@@ -1855,15 +1876,15 @@ function actualizadorAutomaticoGlobal() {
         if (esHojaBodega(nombreHoja) || esHojaInventario(nombreHoja)) {
             let datos = hoja.getRange(2, 1, lr - 1, 2).getValues();
             for (let i = 0; i < datos.length; i++) {
-                if (String(datos[i][0]).trim() !== "" && String(datos[i][1]).trim() === "") { necesitaActualizar = true; break; }
+                if (filaSinValidar(datos[i][0], datos[i][1])) { necesitaActualizar = true; break; }
             }
         } else if (esHojaPrincipal(nombreHoja)) {
             if (hoja.getMaxColumns() >= 16) {
                 let datosFisicos = hoja.getRange(2, 1, lr - 1, 2).getValues();
                 let datosPreforma = hoja.getRange(2, 15, lr - 1, 2).getValues();
                 for (let i = 0; i < datosFisicos.length; i++) {
-                    if (String(datosFisicos[i][0]).trim() !== "" && String(datosFisicos[i][1]).trim() === "") { necesitaActualizar = true; break; }
-                    if (String(datosPreforma[i][0]).trim() !== "" && String(datosPreforma[i][1]).trim() === "") { necesitaActualizar = true; break; }
+                    if (filaSinValidar(datosFisicos[i][0], datosFisicos[i][1])) { necesitaActualizar = true; break; }
+                    if (filaSinValidar(datosPreforma[i][0], datosPreforma[i][1])) { necesitaActualizar = true; break; }
                 }
             } else {
                 necesitaActualizar = true;
