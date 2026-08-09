@@ -1,0 +1,380 @@
+<title>Hoja rápida — Escaneos UPS</title>
+<style>
+  :root {
+    --ground:      #F4F5F3;
+    --paper:       #FFFFFF;
+    --paper-alt:   #ECEEEB;
+    --ink:         #171A19;
+    --muted:       #5A625F;
+    --line:        #CDD3D0;
+    --accent:      #1F5F63;
+
+    --ok:      #07c369;
+    --guia:    #71b3e6;
+    --cabeza:  #178ccc;
+    --dup:     #ff9800;
+    --aviso:   #ffc107;
+    --malo:    #df5f6b;
+    --otro:    #f5c6cb;
+    --gris:    #acacac;
+    --movido:  #e0e0e0;
+    --repe:    #dc3545;
+    --espera:  #e2e3e5;
+
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:    #121514;
+      --paper:     #1B1F1E;
+      --paper-alt: #232827;
+      --ink:       #E8EBE9;
+      --muted:     #9AA39F;
+      --line:      #333A38;
+      --accent:    #63B7BC;
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:    #121514;
+    --paper:     #1B1F1E;
+    --paper-alt: #232827;
+    --ink:       #E8EBE9;
+    --muted:     #9AA39F;
+    --line:      #333A38;
+    --accent:    #63B7BC;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .screenbar {
+    max-width: 8.5in;
+    margin: 0 auto;
+    padding: 1.25rem 1rem .5rem;
+    display: flex;
+    flex-wrap: wrap;
+    gap: .75rem;
+    align-items: center;
+    justify-content: space-between;
+    color: var(--muted);
+    font-size: .85rem;
+  }
+  .screenbar button {
+    font: inherit;
+    font-weight: 600;
+    color: var(--paper);
+    background: var(--accent);
+    border: none;
+    border-radius: 5px;
+    padding: .45rem 1rem;
+    cursor: pointer;
+  }
+  .screenbar button:hover { filter: brightness(1.08); }
+  .screenbar button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+
+  .sheet {
+    background: var(--paper);
+    color: var(--ink);
+    width: 8.5in;
+    min-height: 11in;
+    margin: 0 auto 3rem;
+    padding: .5in .55in;
+    box-shadow: 0 2px 4px rgba(0,0,0,.08), 0 24px 48px -24px rgba(0,0,0,.3);
+    font-size: 9.6pt;
+    line-height: 1.4;
+  }
+
+  /* ---------- Cabecera ---------- */
+  .head {
+    display: flex; align-items: flex-end; justify-content: space-between;
+    gap: 1rem; border-bottom: 2.5px solid var(--ink);
+    padding-bottom: .3rem; margin-bottom: .55rem;
+  }
+  .head h1 { font-size: 17pt; margin: 0; letter-spacing: -.02em; line-height: 1; }
+  .head .sub {
+    font-family: var(--mono); font-size: 7.2pt; letter-spacing: .12em;
+    text-transform: uppercase; color: var(--muted); text-align: right; line-height: 1.5;
+  }
+
+  /* ---------- Regla grande ---------- */
+  .regla {
+    display: grid; grid-template-columns: 1fr 1fr; gap: .3rem;
+    margin-bottom: .6rem;
+  }
+  .regla div {
+    border: 1.5px solid var(--line); border-radius: 5px;
+    padding: .4rem .55rem; display: flex; align-items: center; gap: .5rem;
+  }
+  .regla .chips { display: flex; gap: .18rem; flex-shrink: 0; }
+  .regla .c { width: .82rem; height: .82rem; border-radius: 2.5px; border: .5px solid rgba(0,0,0,.2); }
+  .regla b { font-size: 10.5pt; display: block; line-height: 1.15; }
+  .regla span { font-size: 8pt; color: var(--muted); }
+
+  /* ---------- Columnas ---------- */
+  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+
+  h2 {
+    font-size: 8pt; text-transform: uppercase; letter-spacing: .1em;
+    color: var(--paper); background: var(--accent);
+    margin: 0 0 .3rem; padding: .18rem .45rem; border-radius: 3px;
+  }
+  .block { margin-bottom: .55rem; break-inside: avoid; }
+
+  /* ---------- Filas de mensaje ---------- */
+  .row {
+    display: grid; grid-template-columns: 4px 1fr; gap: .45rem;
+    padding: .28rem 0; border-bottom: .75px solid var(--line);
+  }
+  .row:last-child { border-bottom: none; }
+  .row .bar { border-radius: 2px; }
+  .row .m { font-family: var(--mono); font-size: 8pt; font-weight: 700; line-height: 1.3; }
+  .row .d { font-size: 8pt; color: var(--muted); line-height: 1.35; }
+  .row .d b { color: var(--ink); }
+
+  /* ---------- Leyenda de color ---------- */
+  .leyenda { display: grid; grid-template-columns: 1fr 1fr; gap: .12rem .55rem; }
+  .leyenda div { display: flex; align-items: center; gap: .35rem; font-size: 8pt; }
+  .leyenda .c { width: .8rem; height: .8rem; border-radius: 2.5px; border: .5px solid rgba(0,0,0,.2); flex-shrink: 0; }
+
+  /* ---------- Listas ---------- */
+  ul { margin: 0; padding-left: .9rem; }
+  li { font-size: 8pt; margin-bottom: .14rem; line-height: 1.35; }
+  .no li::marker { color: var(--malo); }
+  code {
+    font-family: var(--mono); font-size: 7.6pt;
+    background: var(--paper-alt); padding: 0 .2em; border-radius: 2px;
+  }
+
+  .pie {
+    margin-top: .5rem; padding-top: .3rem;
+    border-top: 1.5px solid var(--ink);
+    font-size: 7.5pt; color: var(--muted);
+    display: flex; justify-content: space-between; gap: 1rem;
+  }
+
+  /* ---------- Impresión ---------- */
+  @page { size: letter portrait; margin: 0; }
+  @media print {
+    body { background: #FFFFFF; }
+    .screenbar { display: none; }
+    .sheet {
+      width: auto; min-height: 0; margin: 0;
+      box-shadow: none; padding: .42in .45in;
+      background: #FFFFFF; color: #000000;
+    }
+    h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    .row .bar, .leyenda .c, .regla .c { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  }
+</style>
+
+<div class="screenbar">
+  <span>Diseñada para imprimirse en una hoja carta y pegarse junto a la estación de escaneo.</span>
+  <button onclick="window.print()">Imprimir</button>
+</div>
+
+<div class="sheet">
+
+  <div class="head">
+    <h1>Escaneos UPS · Hoja rápida</h1>
+    <div class="sub">Escribes en la columna A<br>El sistema contesta en la B</div>
+  </div>
+
+  <div class="regla">
+    <div>
+      <div class="chips">
+        <span class="c" style="background:#07c369"></span>
+        <span class="c" style="background:#71b3e6"></span>
+        <span class="c" style="background:#178ccc"></span>
+      </div>
+      <div><b>Verde y azul → sigues</b><span>La guía cuadra</span></div>
+    </div>
+    <div>
+      <div class="chips">
+        <span class="c" style="background:#ff9800"></span>
+        <span class="c" style="background:#df5f6b"></span>
+        <span class="c" style="background:#ffc107"></span>
+      </div>
+      <div><b>Naranja y rojo → te detienes</b><span>Revisa antes de seguir</span></div>
+    </div>
+  </div>
+
+  <div class="cols">
+
+    <!-- ================= Columna izquierda ================= -->
+    <div>
+
+      <div class="block">
+        <h2>Detente y resuelve</h2>
+        <div class="row">
+          <div class="bar" style="background:#ff9800"></div>
+          <div>
+            <div class="m">⛔ DUPLICADO (En: M-S T1 Fila 45)</div>
+            <div class="d">Ya está escaneada en otra pestaña. <b>Ve a esa fila, decide cuál vale y borra la otra.</b></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#f5c6cb"></div>
+          <div>
+            <div class="m">❌ Va en: 6098352</div>
+            <div class="d">Guía buena, pedimento equivocado. <b>Muévela al bloque correcto.</b></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#df5f6b"></div>
+          <div>
+            <div class="m">❌ Guía Inválida</div>
+            <div class="d">Mala lectura de la pistola. <b>Vuelve a escanear; si insiste, tecléala.</b></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#e2e3e5"></div>
+          <div>
+            <div class="m">⏳ Pendiente (reintenta)</div>
+            <div class="d">No alcanzó a validar. <b>Reescribe la guía</b>, o espera 5 min.</div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#acacac"></div>
+          <div>
+            <div class="m">🔄 Duplicado local</div>
+            <div class="d">La escaneaste dos veces aquí. <b>Borra la repetida.</b></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#dc3545"></div>
+          <div>
+            <div class="m">🛑 PEDIMENTO REPETIDO</div>
+            <div class="d">El pedimento está dos veces. <b>Junta los bloques en uno.</b></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#ffc107"></div>
+          <div>
+            <div class="m">🛑 ERROR: Faltan 2 números</div>
+            <div class="d">Pedimento incompleto. <b>Complétalo a 7 dígitos.</b></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <h2>Descuadres</h2>
+        <div class="row">
+          <div class="bar" style="background:#FFF3CD"></div>
+          <div>
+            <div class="m">❌ Faltan 3 (1ZAB…, 1ZCD…)</div>
+            <div class="d">Te lista las que faltan. <b>Búscalas.</b></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#df5f6b"></div>
+          <div>
+            <div class="m">⚠️ Sobra (Ajena)</div>
+            <div class="d">No está en ninguna preforma. <b>Verifica el paquete.</b></div>
+          </div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#ffc107"></div>
+          <div>
+            <div class="m">⚠️ Sin escaneo en Bodegas</div>
+            <div class="d">Llegó sin pasar por bodega. Puede faltar un paso.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="block">
+        <h2>Cómo se escanea</h2>
+        <ul>
+          <li>Escanea el <b>pedimento</b> (7 dígitos). Eso abre el bloque.</li>
+          <li>Escanea debajo sus <b>guías</b>.</li>
+          <li>Repite con el siguiente pedimento.</li>
+          <li>La hora se guarda sola en la columna L.</li>
+        </ul>
+      </div>
+
+    </div>
+
+    <!-- ================= Columna derecha ================= -->
+    <div>
+
+      <div class="block">
+        <h2>Todo bien, sigue</h2>
+        <div class="row">
+          <div class="bar" style="background:#07c369"></div>
+          <div><div class="m">✅ Ok</div><div class="d">Estaba en la preforma. Cuadra.</div></div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#71b3e6"></div>
+          <div><div class="m">✅ Guía</div><div class="d">Correcta, pero ese pedimento no trae preforma.</div></div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#07c369"></div>
+          <div><div class="m">Bultos: 30 | ✅ COMPLETO</div><div class="d">Llegaron todas. Se puede cerrar.</div></div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#07c369"></div>
+          <div><div class="m">✅ TODO MOVIDO</div><div class="d">En bodega: todas ya salieron.</div></div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#e0e0e0"></div>
+          <div><div class="m">➡ Movido a GLOBAL PENDIENTE</div><div class="d">Ya salió. Sale tachada y en gris.</div></div>
+        </div>
+        <div class="row">
+          <div class="bar" style="background:#e2e3e5"></div>
+          <div><div class="m">⏳ Esperando guías...</div><div class="d">Pedimento sin guías todavía. Sigue.</div></div>
+        </div>
+      </div>
+
+      <div class="block">
+        <h2>Los colores</h2>
+        <div class="leyenda">
+          <div><span class="c" style="background:#07c369"></span> Correcto, cuadra</div>
+          <div><span class="c" style="background:#71b3e6"></span> Guía sin preforma</div>
+          <div><span class="c" style="background:#178ccc"></span> Cabecera / ubicación</div>
+          <div><span class="c" style="background:#ff9800"></span> Duplicado — resuélvelo</div>
+          <div><span class="c" style="background:#ffc107"></span> Aviso o error de captura</div>
+          <div><span class="c" style="background:#FFF3CD"></span> Faltan o sobran</div>
+          <div><span class="c" style="background:#df5f6b"></span> Inválida o ajena</div>
+          <div><span class="c" style="background:#f5c6cb"></span> Va en otro pedimento</div>
+          <div><span class="c" style="background:#acacac"></span> Repetida aquí mismo</div>
+          <div><span class="c" style="background:#e0e0e0"></span> Ya movida</div>
+        </div>
+      </div>
+
+      <div class="block">
+        <h2>Si algo se ve raro</h2>
+        <ul>
+          <li>Menú <code>📦 Opciones Avanzadas</code> → <b>🔄 Forzar Actualización</b>. Resuelve casi todo.</li>
+          <li>Si los duplicados fallan → <b>♻️ Reconstruir caché completo</b>.</li>
+          <li>Si va lento, cierra pestañas del navegador.</li>
+        </ul>
+      </div>
+
+      <div class="block">
+        <h2>Nunca</h2>
+        <ul class="no">
+          <li>Escribir en la <b>columna B</b>. Se sobrescribe sola.</li>
+          <li>Tocar <code>CACHE_SISTEMA</code> ni <code>HISTORIAL_BORRADOS</code>.</li>
+          <li>Borrar la <b>columna M</b> (Guardia Nacional).</li>
+          <li>Pegar con formato. Usa <code>Ctrl+Shift+V</code>.</li>
+          <li>Renombrar pestañas sin avisar.</li>
+        </ul>
+      </div>
+
+    </div>
+  </div>
+
+  <div class="pie">
+    <span>Una guía puede estar en bodega y luego en Global: eso es normal. Solo avisa si se repite en el mismo tipo de sitio.</span>
+    <span>Todo borrado queda registrado</span>
+  </div>
+
+</div>

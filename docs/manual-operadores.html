@@ -1,0 +1,610 @@
+<title>Manual del operador — Escaneos UPS</title>
+<style>
+  :root {
+    --ground:      #F4F5F3;
+    --surface:     #FFFFFF;
+    --surface-alt: #ECEEEB;
+    --ink:         #171A19;
+    --muted:       #5A625F;
+    --line:        #D9DDDA;
+    --accent:      #1F5F63;
+    --accent-soft: #E1EDED;
+    --shadow:      0 1px 2px rgba(23,26,25,.06), 0 8px 24px -16px rgba(23,26,25,.25);
+
+    --ok:      #07c369;
+    --guia:    #71b3e6;
+    --cabeza:  #178ccc;
+    --dup:     #ff9800;
+    --aviso:   #ffc107;
+    --malo:    #df5f6b;
+    --otro:    #f5c6cb;
+    --gris:    #acacac;
+    --movido:  #e0e0e0;
+    --repe:    #dc3545;
+    --espera:  #e2e3e5;
+    --falta:   #FFF3CD;
+
+    --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
+  }
+
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --ground:      #121514;
+      --surface:     #1B1F1E;
+      --surface-alt: #232827;
+      --ink:         #E8EBE9;
+      --muted:       #9AA39F;
+      --line:        #2E3533;
+      --accent:      #63B7BC;
+      --accent-soft: #17302F;
+      --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    --ground:      #121514;
+    --surface:     #1B1F1E;
+    --surface-alt: #232827;
+    --ink:         #E8EBE9;
+    --muted:       #9AA39F;
+    --line:        #2E3533;
+    --accent:      #63B7BC;
+    --accent-soft: #17302F;
+    --shadow:      0 1px 2px rgba(0,0,0,.4), 0 8px 24px -16px rgba(0,0,0,.8);
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    background: var(--ground);
+    color: var(--ink);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  .wrap {
+    max-width: 46rem;
+    margin: 0 auto;
+    padding: 2.5rem 1.25rem 6rem;
+  }
+
+  /* ---------- Encabezado ---------- */
+  header { margin-bottom: 3rem; }
+
+  .eyebrow {
+    font-family: var(--mono);
+    font-size: .72rem;
+    letter-spacing: .14em;
+    text-transform: uppercase;
+    color: var(--accent);
+    margin: 0 0 .75rem;
+  }
+  h1 {
+    font-size: clamp(1.9rem, 5vw, 2.7rem);
+    line-height: 1.1;
+    letter-spacing: -.022em;
+    font-weight: 700;
+    margin: 0 0 .85rem;
+    text-wrap: balance;
+  }
+  .lede {
+    font-size: 1.06rem;
+    color: var(--muted);
+    margin: 0;
+    max-width: 34rem;
+  }
+
+  /* ---------- Secciones ---------- */
+  section { margin-top: 3.25rem; }
+
+  h2 {
+    font-size: 1.28rem;
+    letter-spacing: -.012em;
+    font-weight: 680;
+    margin: 0 0 1rem;
+    padding-bottom: .55rem;
+    border-bottom: 2px solid var(--line);
+    text-wrap: balance;
+  }
+  h3 {
+    font-size: .8rem;
+    font-weight: 700;
+    letter-spacing: .1em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin: 2rem 0 .8rem;
+  }
+  p { margin: 0 0 1rem; }
+  p:last-child { margin-bottom: 0; }
+
+  code, .lit {
+    font-family: var(--mono);
+    font-size: .88em;
+    background: var(--surface-alt);
+    padding: .1em .38em;
+    border-radius: 3px;
+    white-space: nowrap;
+  }
+
+  /* ---------- La regla ---------- */
+  .regla {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+    margin: 1.5rem 0;
+  }
+  .regla > div {
+    background: var(--surface);
+    padding: 1.15rem 1.25rem;
+    display: flex;
+    flex-direction: column;
+    gap: .5rem;
+  }
+  .regla .swatches { display: flex; gap: .35rem; }
+  .regla .sw { width: 1.6rem; height: 1.6rem; border-radius: 4px; border: 1px solid rgba(0,0,0,.14); }
+  .regla strong { font-size: 1.05rem; letter-spacing: -.01em; }
+  .regla span { color: var(--muted); font-size: .92rem; line-height: 1.45; }
+  @media (max-width: 34rem) { .regla { grid-template-columns: 1fr; } }
+
+  /* ---------- Mensajes ---------- */
+  .msgs {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--line);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    overflow: hidden;
+  }
+  .msg {
+    background: var(--surface);
+    display: grid;
+    grid-template-columns: 5px 1fr;
+    gap: 0;
+  }
+  .msg .bar { background: var(--gris); }
+  .msg .body { padding: .9rem 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
+  .msg .txt {
+    font-family: var(--mono);
+    font-size: .88rem;
+    font-weight: 600;
+    line-height: 1.35;
+    word-break: break-word;
+  }
+  .msg .sig { color: var(--muted); font-size: .93rem; line-height: 1.5; }
+  .msg .act {
+    font-size: .89rem;
+    line-height: 1.5;
+    padding-left: .8rem;
+    border-left: 2px solid var(--accent);
+  }
+  .msg .act b { color: var(--accent); font-weight: 650; }
+
+  /* ---------- Tablas ---------- */
+  .tablewrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; font-size: .93rem; }
+  th, td { text-align: left; padding: .7rem .9rem; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th {
+    font-size: .7rem; text-transform: uppercase; letter-spacing: .09em;
+    color: var(--muted); font-weight: 700; background: var(--surface-alt);
+    white-space: nowrap;
+  }
+  tr:last-child td { border-bottom: none; }
+  td .lit { background: var(--surface-alt); }
+
+  /* ---------- Aviso ---------- */
+  .nota {
+    background: var(--accent-soft);
+    border-left: 3px solid var(--accent);
+    padding: 1rem 1.15rem;
+    border-radius: 0 6px 6px 0;
+    margin: 1.5rem 0;
+    font-size: .95rem;
+  }
+  .nota p:last-child { margin-bottom: 0; }
+
+  /* ---------- Listas ---------- */
+  ol.pasos { counter-reset: p; list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-direction: column; gap: .8rem; }
+  ol.pasos li {
+    counter-increment: p;
+    display: grid; grid-template-columns: 1.6rem 1fr; gap: .8rem;
+    align-items: start;
+  }
+  ol.pasos li::before {
+    content: counter(p);
+    font-family: var(--mono); font-size: .78rem; font-weight: 700;
+    color: var(--surface); background: var(--accent);
+    width: 1.6rem; height: 1.6rem; border-radius: 50%;
+    display: grid; place-items: center;
+    margin-top: .12rem;
+  }
+
+  ul.nope { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-direction: column; gap: .65rem; }
+  ul.nope li {
+    display: grid; grid-template-columns: 1.3rem 1fr; gap: .7rem;
+    font-size: .96rem; line-height: 1.5;
+  }
+  ul.nope li::before { content: "✕"; color: var(--malo); font-weight: 700; }
+
+  footer {
+    margin-top: 4rem; padding-top: 1.5rem;
+    border-top: 1px solid var(--line);
+    color: var(--muted); font-size: .85rem;
+  }
+</style>
+
+<div class="wrap">
+
+<header>
+  <p class="eyebrow">Salidas Escaneos UPS</p>
+  <h1>Manual del operador</h1>
+  <p class="lede">Tú escaneas en la columna A. El sistema contesta en la columna B. Esto es lo que significa cada respuesta.</p>
+</header>
+
+<section>
+  <h2>La regla de un vistazo</h2>
+  <div class="regla">
+    <div>
+      <div class="swatches">
+        <span class="sw" style="background:var(--ok)"></span>
+        <span class="sw" style="background:var(--guia)"></span>
+        <span class="sw" style="background:var(--cabeza)"></span>
+      </div>
+      <strong>Verde y azul → sigues</strong>
+      <span>La guía cuadra. No hay nada que hacer.</span>
+    </div>
+    <div>
+      <div class="swatches">
+        <span class="sw" style="background:var(--dup)"></span>
+        <span class="sw" style="background:var(--malo)"></span>
+        <span class="sw" style="background:var(--aviso)"></span>
+      </div>
+      <strong>Naranja, rojo y amarillo → te detienes</strong>
+      <span>Algo no cuadra. Revísalo antes de continuar.</span>
+    </div>
+  </div>
+  <div class="nota">
+    <p><strong>Tú solo escribes en la columna A</strong> (y en la O si capturas preforma). Todo lo demás lo escribe el sistema. Nunca escribas en la columna B: se sobrescribe sola.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Cómo se escanea</h2>
+  <ol class="pasos">
+    <li>Escanea el <strong>pedimento</strong> — 7 dígitos, por ejemplo <span class="lit">6100166</span>. Eso abre el bloque.</li>
+    <li>Escanea debajo todas las <strong>guías</strong> de ese pedimento.</li>
+    <li>Repite con el siguiente pedimento.</li>
+  </ol>
+  <p style="margin-top:1.25rem">Todo lo que va debajo de un pedimento pertenece a ese pedimento, hasta que aparece el siguiente. La <strong>hora</strong> se guarda sola en la columna L, una sola vez, cuando escaneas.</p>
+</section>
+
+<section>
+  <h2>Cuando algo no cuadra</h2>
+  <p>Estas cuatro son las que exigen que hagas algo. Si te aprendes solo esta sección, ya vas bien.</p>
+
+  <div class="msgs" style="margin-top:1.25rem">
+    <div class="msg">
+      <div class="bar" style="background:var(--dup)"></div>
+      <div class="body">
+        <div class="txt">⛔ DUPLICADO (En: M-S T1 Fila 45)</div>
+        <div class="sig">Esta guía ya está escaneada en otra pestaña del mismo tipo. Te dice cuál y en qué fila.</div>
+        <div class="act"><b>Haz:</b> ve a esa fila, decide cuál es la buena y <b>borra la otra</b>.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--otro)"></div>
+      <div class="body">
+        <div class="txt">❌ Va en: 6098352</div>
+        <div class="sig">La guía es buena, pero pertenece a otro pedimento.</div>
+        <div class="act"><b>Haz:</b> muévela al bloque correcto.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--malo)"></div>
+      <div class="body">
+        <div class="txt">❌ Guía Inválida</div>
+        <div class="sig">El código no pasa la validación. Casi siempre es una mala lectura de la pistola.</div>
+        <div class="act"><b>Haz:</b> vuelve a escanear. Si insiste, tecléala.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--espera)"></div>
+      <div class="body">
+        <div class="txt">⏳ Pendiente (reintenta)</div>
+        <div class="sig">El sistema estaba ocupado y no alcanzó a validar esa fila.</div>
+        <div class="act"><b>Haz:</b> vuelve a escribir la guía. Si no, se corrige solo en 5 minutos.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Todos los mensajes</h2>
+
+  <h3>Todo va bien</h3>
+  <div class="msgs">
+    <div class="msg">
+      <div class="bar" style="background:var(--ok)"></div>
+      <div class="body">
+        <div class="txt">✅ Ok</div>
+        <div class="sig">La guía estaba en la preforma. Cuadra.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--guia)"></div>
+      <div class="body">
+        <div class="txt">✅ Guía</div>
+        <div class="sig">Guía correcta, pero ese pedimento no tiene preforma cargada. Si debería tenerla, avisa.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--ok)"></div>
+      <div class="body">
+        <div class="txt">✅ Ok (Escaneado en M-S T1)</div>
+        <div class="sig">Además ya había pasado por esa bodega. Es lo esperado.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--ok)"></div>
+      <div class="body">
+        <div class="txt">Bultos: 30 | ✅ COMPLETO</div>
+        <div class="sig">En la cabecera del pedimento: llegaron todas sus guías. Se puede cerrar.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--ok)"></div>
+      <div class="body">
+        <div class="txt">Bultos: 12 (M-S T1) | ✅ TODO MOVIDO</div>
+        <div class="sig">En bodega: todas las guías ya salieron a una Global.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Duplicados</h3>
+  <div class="msgs">
+    <div class="msg">
+      <div class="bar" style="background:var(--gris)"></div>
+      <div class="body">
+        <div class="txt">🔄 Duplicado local</div>
+        <div class="sig">La escaneaste dos veces seguidas aquí mismo.</div>
+        <div class="act"><b>Haz:</b> borra la repetida.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--dup)"></div>
+      <div class="body">
+        <div class="txt">⛔ Duplicado local (Ya en Ped: 6098352)</div>
+        <div class="sig">La misma guía aparece en dos pedimentos distintos de esta hoja.</div>
+        <div class="act"><b>Haz:</b> averigua a cuál pertenece y borra la otra.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--dup)"></div>
+      <div class="body">
+        <div class="txt">⛔ DUPLICADO (En: IW-B-07, fila 55)</div>
+        <div class="sig">En inventario: la misma guía está en otra ubicación IW, o en otra pestaña de inventario.</div>
+        <div class="act"><b>Haz:</b> revisa las dos ubicaciones. Ambas filas quedan marcadas a propósito: el sistema no sabe cuál es la correcta.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Descuadres</h3>
+  <div class="msgs">
+    <div class="msg">
+      <div class="bar" style="background:var(--falta)"></div>
+      <div class="body">
+        <div class="txt">❌ Faltan 3 (1ZAB…, 1ZCD…, 1ZEF…)</div>
+        <div class="sig">En la cabecera: faltan por llegar esas guías, y te las lista.</div>
+        <div class="act"><b>Haz:</b> búscalas. El pedimento no está completo.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--falta)"></div>
+      <div class="body">
+        <div class="txt">⚠️ Sobran 2</div>
+        <div class="sig">Hay más guías escaneadas de las que dice la preforma.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--malo)"></div>
+      <div class="body">
+        <div class="txt">⚠️ Sobra (Ajena)</div>
+        <div class="sig">Esta guía no está en ninguna preforma. Puede ser de otro embarque.</div>
+        <div class="act"><b>Haz:</b> verifica el paquete.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--aviso)"></div>
+      <div class="body">
+        <div class="txt">⚠️ Sin escaneo en Bodegas</div>
+        <div class="sig">Llegó a la Global sin haber pasado por ninguna bodega. Puede que se saltara un paso.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--falta)"></div>
+      <div class="body">
+        <div class="txt">⚠️ No en preforma</div>
+        <div class="sig">Ese pedimento no aparece en ninguna preforma.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Errores de captura</h3>
+  <div class="msgs">
+    <div class="msg">
+      <div class="bar" style="background:var(--aviso)"></div>
+      <div class="body">
+        <div class="txt">🛑 ERROR: Faltan 2 números</div>
+        <div class="sig">Escribiste un pedimento incompleto.</div>
+        <div class="act"><b>Haz:</b> complétalo a 7 dígitos.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--repe)"></div>
+      <div class="body">
+        <div class="txt">🛑 PEDIMENTO REPETIDO</div>
+        <div class="sig">El mismo pedimento aparece dos veces en la hoja.</div>
+        <div class="act"><b>Haz:</b> junta los dos bloques en uno solo.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--aviso)"></div>
+      <div class="body">
+        <div class="txt">⚠️ PEDIMENTO REPETIDO</div>
+        <div class="sig">Lo mismo, pero en la preforma (columna P).</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Informativos</h3>
+  <div class="msgs">
+    <div class="msg">
+      <div class="bar" style="background:var(--espera)"></div>
+      <div class="body">
+        <div class="txt">⏳ Esperando guías...</div>
+        <div class="sig">Pedimento escaneado, todavía sin guías debajo. Sigue escaneando.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--movido)"></div>
+      <div class="body">
+        <div class="txt">➡ Movido a GLOBAL PENDIENTE</div>
+        <div class="sig">En bodega: esa guía ya salió a esa Global. Sale tachada y en gris. Puedes limpiarla desde el menú.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--aviso)"></div>
+      <div class="body">
+        <div class="txt">Bultos: 8 (M-S GLOBALES) | ⚠️ Faltan 3 por mover</div>
+        <div class="sig">En bodega: quedan 3 guías sin salir. Solo informativo.</div>
+      </div>
+    </div>
+  </div>
+
+  <h3>Solo en pestañas de rezago</h3>
+  <div class="msgs">
+    <div class="msg">
+      <div class="bar" style="background:var(--ok)"></div>
+      <div class="body">
+        <div class="txt">✅ Recuperado (Ped: 6098352)</div>
+        <div class="sig">Guía de rezago recuperada. Si además dice <span class="lit">🌟 COMPLETO</span>, con esa se cerró el pedimento.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--otro)"></div>
+      <div class="body">
+        <div class="txt">❌ Va en: REZAGO 2 (Ped: 6098441)</div>
+        <div class="sig">Esa guía es de otro rezago.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--malo)"></div>
+      <div class="body">
+        <div class="txt">⚠️ Ajena (No es de rezago)</div>
+        <div class="sig">No pertenece a ningún rezago.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Las pestañas</h2>
+  <div class="tablewrap">
+    <table>
+      <thead>
+        <tr><th>Pestaña</th><th>Para qué es</th><th>¿Preforma?</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><strong>GLOBAL PENDIENTE</strong> y similares</td><td>Salida final. Aquí se cuadra contra la preforma</td><td>Sí, columna O</td></tr>
+        <tr><td><strong>M-S T1</strong>, <strong>M-S GLOBALES</strong>, <strong>M-S A1</strong>, <strong>M-S SEGUIMIENTOS</strong>, <strong>M-S CUENTAS ESPECIALES</strong></td><td>Bodegas de paso</td><td>No</td></tr>
+        <tr><td><strong>INVENTARIO…</strong></td><td>Ubicaciones finales, empiezan con <span class="lit">IW</span></td><td>No</td></tr>
+        <tr><td><strong>MACHO</strong></td><td>Guías retenidas por la Guardia Nacional</td><td>—</td></tr>
+        <tr><td><strong>CACHE_SISTEMA</strong>, <strong>HISTORIAL_BORRADOS</strong></td><td>Del sistema. No tocar</td><td>—</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="nota">
+    <p>Una guía <strong>puede</strong> estar en una bodega y luego en una Global: eso es normal y no da alerta. Lo que sí avisa es la misma guía dos veces <strong>en el mismo tipo de sitio</strong>.</p>
+  </div>
+</section>
+
+<section>
+  <h2>Los contadores de arriba</h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Dónde</th><th>Qué dice</th></tr></thead>
+      <tbody>
+        <tr><td>C1</td><td><span class="lit">Total bultos: 67</span> — guías distintas escaneadas</td></tr>
+        <tr><td>C2</td><td><span class="lit">Total pedimentos: 3</span></td></tr>
+        <tr><td>C3 en bodegas</td><td><span class="lit">M-S T1: 92</span> — pedimentos de esa bodega</td></tr>
+        <tr><td>C1 en bodegas con movidas</td><td><span class="lit">Total bultos: 120 (movidos: 45 | en bodega: 75)</span></td></tr>
+        <tr><td>C2 en inventarios</td><td><span class="lit">Ubicaciones (IW): 12</span></td></tr>
+        <tr><td>Q1 y Q2, solo Globales</td><td><span class="lit">Bultos (Preforma): 67</span> — lo que <em>debería</em> llegar</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="margin-top:1rem">Si <span class="lit">Total bultos</span> y <span class="lit">Bultos (Preforma)</span> coinciden, llegó todo.</p>
+</section>
+
+<section>
+  <h2>La preforma y los costales</h2>
+  <p>La preforma es la lista de lo que <strong>debería</strong> venir. Va en la <strong>columna O</strong>, con el mismo formato: pedimento y debajo sus guías. El sistema compara la columna A contra la O y te dice qué falta y qué sobra. Solo existe en las Globales.</p>
+  <p>En la <strong>columna N</strong>, poniendo <span class="lit">a</span>, <span class="lit">b</span> o <span class="lit">c</span> junto al pedimento, su bloque en la preforma se pinta de otro color. Sirve para distinguir grupos de un vistazo.</p>
+  <p><strong>Costales:</strong> en la columna Q se marca <span class="lit">COSTALES</span> donde empieza el costal y <span class="lit">FIN</span> donde termina. Escribiendo <span class="lit">COSTALES</span> en la <strong>columna D</strong>, el sistema copia ese bloque a la columna A ya ordenado. Si debajo hay datos avisa <span class="lit">⚠️ SIN ESPACIO</span> y no borra nada: haz espacio primero.</p>
+</section>
+
+<section>
+  <h2>El menú <span class="lit">📦 Opciones Avanzadas</span></h2>
+  <div class="tablewrap">
+    <table>
+      <thead><tr><th>Opción</th><th>Qué hace</th></tr></thead>
+      <tbody>
+        <tr><td>📋 Agrupar Guías por Pedimento</td><td>Reordena la columna A juntando cada guía con su pedimento y sube todo arriba</td></tr>
+        <tr><td>🧹 Limpiar guías movidas</td><td>En bodegas: selecciona un rango y borra las que ya salieron. Queda registro en el historial</td></tr>
+        <tr><td>🔄 Forzar Actualización</td><td>Recalcula la pestaña actual. Úsalo si algo se ve raro</td></tr>
+        <tr><td>♻️ Reconstruir caché completo</td><td>Rehace el índice de duplicados desde cero</td></tr>
+        <tr><td>🩺 Diagnóstico del sistema</td><td>Informe del estado: caché, filas sin validar, duplicados, disparadores</td></tr>
+      </tbody>
+    </table>
+  </div>
+</section>
+
+<section>
+  <h2>Si algo se ve mal</h2>
+  <ol class="pasos">
+    <li>Menú → <strong>🔄 Forzar Actualización</strong>. Resuelve casi todo.</li>
+    <li>Si los duplicados no salen o salen de más: <strong>♻️ Reconstruir caché completo</strong>.</li>
+    <li>Si una guía marca duplicado contra una fila que ya está vacía: reconstruye el caché. No debería pasar, pero se arregla así.</li>
+    <li>Si el archivo va lento, cierra pestañas del navegador. Sheets es pesado.</li>
+  </ol>
+</section>
+
+<section>
+  <h2>Lo que no hay que hacer</h2>
+  <ul class="nope">
+    <li>No escribas en la <strong>columna B</strong>. El sistema la sobrescribe.</li>
+    <li>No borres ni edites <strong>CACHE_SISTEMA</strong> ni <strong>HISTORIAL_BORRADOS</strong>.</li>
+    <li>No borres la <strong>columna M</strong>. Es la lista de la Guardia Nacional.</li>
+    <li>No pegues guías con formato desde otro lado. Pega solo valores, con <span class="lit">Ctrl+Shift+V</span>.</li>
+    <li>No renombres las pestañas sin avisar. El sistema las reconoce por su nombre: las que empiezan por <span class="lit">M-S</span> son bodegas, las que dicen <span class="lit">INVENTARIO</span> son inventarios.</li>
+  </ul>
+</section>
+
+<section>
+  <h2>Queda registrado</h2>
+  <p>Cada vez que alguien <strong>borra</strong> una guía queda anotado en <span class="lit">HISTORIAL_BORRADOS</span>: fecha, hora, usuario, pestaña, fila, qué se borró y qué estado tenía.</p>
+  <p>No es para vigilar a nadie: sirve para reconstruir qué pasó cuando un bulto no aparece.</p>
+</section>
+
+<footer>
+  Salidas ESCANEOS UPS — manual del operador. Si algo de aquí no coincide con lo que ves en pantalla, avisa: el manual está mal, no tú.
+</footer>
+
+</div>
