@@ -14,7 +14,15 @@
 // donde getActiveSpreadsheet() puede devolver null.
 const ID_ARCHIVO = '';
 
-const HOJAS_SISTEMA = ["MACHO", "CACHE_SISTEMA", "HISTORIAL_BORRADOS"];
+// Hojas internas del motor. Nunca se escanean y NUNCA reciben el volcado de la
+// columna M: la M de CACHE_SISTEMA guarda datos de caché, no la lista FEMAD.
+const HOJAS_INTERNAS = ["CACHE_SISTEMA", "HISTORIAL_BORRADOS"];
+
+// Hoja origen de la lista FEMAD (guías retenidas por la Guardia Nacional).
+// Su columna M alimenta la validación de datos y los colores del resto de
+// pestañas; se edita una vez al día y algún añadido suelto.
+const HOJA_MACHO = "MACHO";
+
 const PROP_TRIGGER = 'TRIGGER_EDICION_INSTALADO';
 
 // Variables globales de memoria (sobreviven entre escaneos dentro de una
@@ -34,9 +42,23 @@ function claveHoja(nombre) {
     return String(nombre).trim().toUpperCase();
 }
 
-function esHojaSistema(nombreHoja) {
+// Motor: caché e historial. Ni se escanean ni reciben la columna M.
+function esHojaInterna(nombreHoja) {
     let n = claveHoja(nombreHoja);
-    return HOJAS_SISTEMA.indexOf(n) !== -1 || n.indexOf("HISTORIAL") !== -1;
+    return HOJAS_INTERNAS.indexOf(n) !== -1 || n.indexOf("HISTORIAL") !== -1;
+}
+
+// Cualquier pestaña con "MACHO" en el nombre: o es la lista FEMAD, o es una
+// plantilla de inventario. Ninguna se escanea ni entra al índice de duplicados,
+// pero las plantillas SÍ reciben el volcado de la columna M (las copias que
+// salgan de ellas ya vienen con la validación puesta).
+function esHojaMacho(nombreHoja) {
+    return claveHoja(nombreHoja).indexOf("MACHO") !== -1;
+}
+
+// "De sistema" = todo lo que el motor de escaneo debe ignorar.
+function esHojaSistema(nombreHoja) {
+    return esHojaInterna(nombreHoja) || esHojaMacho(nombreHoja);
 }
 
 function esHojaBodega(nombreHoja) {
@@ -177,7 +199,7 @@ function procesarEdicion(e) {
   for (let c = 0; c < numCols; c++) {
       if (colsValidas.indexOf(colInicial + c) !== -1) tocaValida = true;
   }
-  const tocaMacho = (nombreHoja === "MACHO" && colInicial <= 13 && (colInicial + numCols - 1) >= 13);
+  const tocaMacho = (nombreHoja === HOJA_MACHO && colInicial <= 13 && (colInicial + numCols - 1) >= 13);
   if (!tocaValida && !tocaMacho) return;
   if (esHojaSistema(nombreHoja) && !tocaMacho) return;
 
@@ -822,9 +844,15 @@ function sincronizarMacho(hojaMacho, source) {
     let hojas = source.getSheets();
     for (let i = 0; i < hojas.length; i++) {
         let hojaDestino = hojas[i];
-        // CACHE_SISTEMA e HISTORIAL_BORRADOS quedan fuera: su columna M guarda
-        // datos del sistema, no la letra del MACHO.
-        if (esHojaSistema(hojaDestino.getName())) continue;
+        let n = claveHoja(hojaDestino.getName());
+
+        // La propia MACHO es el origen, no destino.
+        if (n === HOJA_MACHO) continue;
+        // CACHE_SISTEMA e HISTORIAL_BORRADOS quedan fuera: la columna M de
+        // CACHE_SISTEMA es una columna de caché, no la lista FEMAD.
+        if (esHojaInterna(n)) continue;
+        // Las plantillas de inventario SÍ la reciben, para que sus copias
+        // nazcan con la validación y los colores ya puestos.
 
         let maxRows = hojaDestino.getMaxRows();
         if (maxRows > 0) hojaDestino.getRange(1, 13, maxRows, 1).clearContent();

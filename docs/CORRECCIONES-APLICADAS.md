@@ -136,3 +136,40 @@ eso no se puede recuperar desde el código. Formatea las columnas A y O como
 ### Sobre las guías faltantes
 
 Confirmado que se siguen listando: `❌ Faltan 3 (1ZAB..., 1ZCD..., 1ZEF...)`. Sin cambios.
+
+---
+
+## Hojas MACHO (lista FEMAD) y plantillas
+
+Con la aclaración de que **MACHO es la lista de guías retenidas por la Guardia
+Nacional** y que las pestañas con "MACHO" en el nombre son plantillas de
+inventario, los roles quedan separados en tres:
+
+| Rol | Qué es | ¿Se escanea / indexa? | ¿Recibe la columna M? |
+|---|---|---|---|
+| `MACHO` | Origen de la lista FEMAD | No | No (es el origen) |
+| Cualquier pestaña con "MACHO" en el nombre | Plantilla de inventario | **No** | **Sí** |
+| `CACHE_SISTEMA`, `HISTORIAL_BORRADOS` | Internas del motor | No | **No** |
+| El resto | Globales, bodegas, inventarios reales | Sí | Sí |
+
+Tres consecuencias:
+
+1. **`INVENTARIO MACHO NO BORRAR` sale del índice de duplicados.** Es una
+   plantilla: no debe generar alertas contra los inventarios reales. Al ejecutar
+   `RECONSTRUIR_CACHE_TOTAL` (o `podarCacheHuerfano` desde el trigger por tiempo)
+   sus columnas desaparecen del caché, lo que además **desactiva definitivamente**
+   el problema de la columna M descrito arriba.
+2. **Las plantillas siguen recibiendo el volcado de la columna M**, para que las
+   copias que salgan de ellas nazcan con la validación y los colores puestos.
+   Solo `CACHE_SISTEMA` e `HISTORIAL_BORRADOS` quedan excluidas.
+3. `sincronizarMacho` ya no depende de una comparación exacta con `"MACHO"`.
+
+### ⚠️ Cuidado al copiar la plantilla
+
+La regla es **por nombre**: cualquier pestaña cuyo nombre contenga "MACHO" queda
+fuera del escaneo. Si duplicas la plantilla, Sheets la llamará
+`Copia de INVENTARIO MACHO NO BORRAR` — y seguiría sin escanearse.
+**Renómbrala** (por ejemplo `INVENTARIO 12 AGO`) antes de usarla.
+
+Si prefieres una marca explícita en lugar del nombre (una celda con `PLANTILLA`,
+o un prefijo tipo `ZZ_`), se cambia en una línea: la regla vive en `esHojaMacho()`.

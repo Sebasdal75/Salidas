@@ -39,6 +39,17 @@ ok("MACHO no es principal", !esHojaPrincipal("MACHO"));
 ok("GLOBALES sí es principal", esHojaPrincipal("GLOBALES"));
 ok("Rezago 2 sí es principal", esHojaPrincipal("Rezago 2"));
 
+console.log("\n=== 1b. MACHO (FEMAD) y plantillas de inventario ===");
+ok("MACHO no se escanea", esHojaSistema("MACHO"));
+ok("'INVENTARIO MACHO NO BORRAR' es plantilla, no se escanea", esHojaSistema("INVENTARIO MACHO NO BORRAR"));
+ok("...y por tanto no es un inventario operativo", !esHojaPrincipal("INVENTARIO MACHO NO BORRAR"));
+ok("'INVENTARIO A' sí es inventario operativo", esHojaInventario("INVENTARIO A") && !esHojaSistema("INVENTARIO A"));
+ok("CACHE_SISTEMA es interna", esHojaInterna("CACHE_SISTEMA"));
+ok("HISTORIAL_BORRADOS es interna", esHojaInterna("HISTORIAL_BORRADOS"));
+ok("una plantilla MACHO NO es interna (sí recibe la columna M)", !esHojaInterna("INVENTARIO MACHO NO BORRAR"));
+ok("GLOBAL PENDIENTE no es interna ni MACHO",
+   !esHojaInterna("GLOBAL PENDIENTE") && !esHojaMacho("GLOBAL PENDIENTE"));
+
 console.log("\n=== 2. Validación de guías UPS ===");
 ok("TEST_guias sin fallos", TEST_guias().length === 0);
 
