@@ -105,7 +105,35 @@ ok("conserva la hora original", horaPreservada(filas, 0, 11, "1Z...", "12:00:00"
 ok("sella hora nueva si estaba vacía", horaPreservada(filas, 1, 11, "1Z...", "12:00:00") === "12:00:00");
 ok("celda vacía => sin hora", horaPreservada(filas, 0, 11, "", "12:00:00") === "");
 
-console.log("\n=== 6. HISTORIAL_BORRADOS respeta el layout existente ===");
+console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
+["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>
+  ok("acepta guía corta " + g, esGuiaUPSValida(g) === true));
+ok("7 dígitos sigue siendo pedimento, no guía", esGuiaUPSValida("1234567") === false);
+ok("6 dígitos no es guía válida", esGuiaUPSValida("123456") === false);
+
+console.log("\n=== 7. Marcadores estructurales no son guías ===");
+["SIN PEDIMENTO", "⚠️ SIN PEDIMENTO", "COSTALES", "FIN"].forEach(m =>
+  ok("'" + m + "' no cuenta como guía", esGuiaUPSValida(m) === false));
+ok("'SIN PEDIMENTO' abre bloque", esCabeceraBloque("SIN PEDIMENTO") === true);
+ok("un pedimento abre bloque", esCabeceraBloque("6100166") === true);
+ok("una guía NO abre bloque", esCabeceraBloque("1Z999AA10123456784") === false);
+ok("una guía corta NO abre bloque", esCabeceraBloque("1234567890") === false);
+
+// El marcador no debe entrar al índice de duplicados entre pestañas.
+const cacheMarcador = {
+  map: new Map([["SIN PEDIMENTO", [
+    { hoja: "GLOBAL PENDIENTE", fila: 5,  isBodega: false, isInventario: false },
+    { hoja: "AGA",              fila: 12, isBodega: false, isInventario: false }
+  ]]]),
+  headers: [], data: []
+};
+const datosMarcador = [];
+for (let i = 0; i < 20; i++) datosMarcador.push([""]);
+datosMarcador[5] = ["SIN PEDIMENTO"];
+ok("'SIN PEDIMENTO' no se marca duplicado entre pestañas",
+   calcularDuplicadosExternos(datosMarcador, 20, "GLOBAL PENDIENTE", cacheMarcador).size === 0);
+
+console.log("\n=== 8. HISTORIAL_BORRADOS respeta el layout existente ===");
 // Layout real del archivo de producción: USUARIO es la columna B, no la H.
 function hojaFalsa(titulos) {
   const escrito = [];

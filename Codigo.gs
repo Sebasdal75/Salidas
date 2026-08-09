@@ -56,6 +56,21 @@ function esHojaPrincipal(nombreHoja) {
     return true;
 }
 
+// Textos que el propio script escribe en la columna A como separadores de
+// bloque. NO son guías: si se tratan como tales cuentan como bultos, entran al
+// índice del caché y acaban marcándose como duplicados entre pestañas.
+function esMarcadorEstructural(v) {
+    let s = String(v).trim().toUpperCase();
+    if (s === "") return false;
+    return s === "COSTALES" || s === "FIN" || s === "SIN_CABECERA" || s.indexOf("SIN PEDIMENTO") !== -1;
+}
+
+// Una fila de columna A es cabecera de bloque si es un pedimento de 7 dígitos
+// o uno de esos marcadores.
+function esCabeceraBloque(v) {
+    return /^\d{7}$/.test(String(v).trim()) || esMarcadorEstructural(v);
+}
+
 function asegurarColumnas(hoja, minimo) {
     let max = hoja.getMaxColumns();
     if (max < minimo) hoja.insertColumnsAfter(max, minimo - max);
@@ -411,7 +426,7 @@ function getCacheData(source) {
 
         for (let r = 1; r < globalCacheData.length; r++) {
             let v = String(globalCacheData[r][c]).trim().toUpperCase();
-            if (v === "") continue;
+            if (v === "" || esMarcadorEstructural(v)) continue;
             let arr = globalCacheMap.get(v) || [];
             arr.push({ hoja: hojaHeader, fila: r, isBodega: isBodegaHeader, isInventario: isInventarioHeader });
             globalCacheMap.set(v, arr);
@@ -497,7 +512,7 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
 
     for (let i = 0; i < ultimaFila; i++) {
         let v = String(datosMasivos[i][0]).trim().toUpperCase();
-        if (v === "" || v.startsWith("IW") || /^\d{7}$/.test(v)) continue;
+        if (v === "" || v.startsWith("IW") || esCabeceraBloque(v)) continue;
 
         let matches = cacheInfo.map.get(v);
         if (!matches) continue;
@@ -826,6 +841,7 @@ function sincronizarMacho(hojaMacho, source) {
 function esGuiaUPSValida(guia) {
   let g = String(guia).trim().toUpperCase();
   if (g === "" || /^\d{7}$/.test(g)) return false;
+  if (esMarcadorEstructural(g)) return false;
   if (g.startsWith("1Z")) {
       if (g.length !== 18) return false;
       const mapa = { 'A':2, 'B':3, 'C':4, 'D':5, 'E':6, 'F':7, 'G':8, 'H':9, 'I':0, 'J':1, 'K':2, 'L':3, 'M':4, 'N':5, 'O':6, 'P':7, 'Q':8, 'R':9, 'S':0, 'T':1, 'U':2, 'V':3, 'W':4, 'X':5, 'Y':6, 'Z':7 };
@@ -877,7 +893,7 @@ function obtenerGuiasRezagoDesdeCache(cacheInfo) {
         for (let r = 1; r < cacheInfo.data.length; r++) {
             let v = String(cacheInfo.data[r][c]).trim().toUpperCase();
             if (/^\d{7}$/.test(v)) pedActual = v;
-            else if (v !== "") guias.set(v, { hoja: nombreHoja, pedimento: pedActual });
+            else if (v !== "" && !esMarcadorEstructural(v)) guias.set(v, { hoja: nombreHoja, pedimento: pedActual });
         }
     }
     return guias;
@@ -920,7 +936,7 @@ function obtenerDatosBodegaDesdeCache(cacheInfo, nombreHojaActual) {
             if (/^\d{7}$/.test(v)) {
                 pedActual = v;
                 if (!preformaBodega.has(pedActual)) preformaBodega.set(pedActual, new Set());
-            } else if (v !== "") {
+            } else if (v !== "" && !esMarcadorEstructural(v)) {
                 if (!guiasOrigen.has(v)) guiasOrigen.set(v, origen);
                 if (pedActual !== "") preformaBodega.get(pedActual).add(v);
             }
@@ -948,7 +964,7 @@ function sincronizarMovidosBodegaDesdeCache(source, cacheInfo, guiasAfectadas) {
 
         for (let r = 1; r < cacheInfo.data.length; r++) {
             let v = String(cacheInfo.data[r][c]).trim().toUpperCase();
-            if (v !== "" && !/^\d{7}$/.test(v)) escaneadosDestino.set(v, n);
+            if (v !== "" && !esCabeceraBloque(v)) escaneadosDestino.set(v, n);
         }
     }
 
@@ -974,7 +990,7 @@ function sincronizarMovidosBodegaDesdeCache(source, cacheInfo, guiasAfectadas) {
 
         for (let r = 0; r < lr; r++) {
             let v = String(vals[r][0]).trim().toUpperCase();
-            if (v === "" || /^\d{7}$/.test(v)) continue;
+            if (v === "" || esCabeceraBloque(v)) continue;
 
             let statusActual = String(vals[r][1]).trim();
             let destino = escaneadosDestino.get(v);
@@ -1286,9 +1302,14 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
       let esErr = resultadosB[i][0] !== '';
       let forz = String(datosMasivos[i][3]).trim().toUpperCase() === "T1" ? "T1" : "";
 
-      if (/^\d{7}$/.test(v)) {
-          if (!esErr) totalPedimentos++;
-          if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
+      if (esCabeceraBloque(v)) {
+          // "SIN PEDIMENTO" y demás marcadores abren bloque pero no son pedimentos:
+          // no se cuentan ni pueden salir como "PEDIMENTO REPETIDO".
+          let esPedimento = /^\d{7}$/.test(v);
+          if (esPedimento) {
+              if (!esErr) totalPedimentos++;
+              if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
+          }
           if (bAAct) bloquesFisicos.push(bAAct);
           bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], forzado: forz, esErr: esErr };
       } else {
@@ -1503,9 +1524,12 @@ function actualizarConteos(hoja, source, cacheInfo) {
       let v = String(datosMasivos[i][0]).trim().toUpperCase(); if (v === "") continue;
       let esErr = resultadosB[i][0] !== '' && !resultadosB[i][0].startsWith("➡ Movido a");
 
-      if (/^\d{7}$/.test(v)) {
-          if (!esErr) totalPedimentos++;
-          if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
+      if (esCabeceraBloque(v)) {
+          let esPedimento = /^\d{7}$/.test(v);
+          if (esPedimento) {
+              if (!esErr) totalPedimentos++;
+              if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
+          }
           if (bAAct) bloquesFisicos.push(bAAct);
           bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErr };
       } else {
@@ -1641,7 +1665,7 @@ function actualizarInventario(hoja, cacheInfo) {
   if (cacheInfo && cacheInfo.map) {
       for (let i = 0; i < ultimaFila; i++) {
           let v = String(datosMasivos[i][0]).trim().toUpperCase();
-          if (v === "" || v.startsWith("IW") || /^\d{7}$/.test(v)) continue;
+          if (v === "" || v.startsWith("IW") || esCabeceraBloque(v)) continue;
 
           let matches = cacheInfo.map.get(v);
           if (!matches) continue;

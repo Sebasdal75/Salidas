@@ -82,3 +82,57 @@ El harness cubre la lógica pura. **Todo lo que llama a la API de Sheets solo se
 3. Menú → **Instalar trigger avanzado**. Si tras instalarlo ves estados escritos dos veces, significa que `PropertiesService` no está disponible en el trigger simple de tu archivo: avísame y cambio el guard por otro método.
 4. Comprueba en este orden: escaneo normal → escaneo duplicado → **borrar la guía duplicada y verificar que la marca desaparece** → costales → agrupar → limpiar movidas.
 5. Cronometra un escaneo en la Global más pesada, antes y después. Es la única medida real de la mejora.
+
+---
+
+## Hallazgos del archivo real (`Salidas ESCANEOS UPS`)
+
+Tras revisar el archivo de producción aparecieron tres cosas que el código por sí solo no revelaba.
+
+### El bug de `sincronizarMacho` estaba armado, no era teórico
+
+La columna M de tu `CACHE_SISTEMA` es exactamente `INVENTARIO MACHO NO BORRAR_FISICO`.
+Como el volcado de MACHO empieza en la **fila 1**, la siguiente edición de la columna M
+habría sustituido ese encabezado por una guía y esa pestaña habría desaparecido del
+índice de duplicados. Todavía no había ocurrido: la columna solo contenía el encabezado.
+
+### El historial tiene `USUARIO` en la columna B
+
+Layout real: `FECHA Y HORA | USUARIO | PESTAÑA | FILA | COLUMNA | GUÍA | ESTADO ANTERIOR | MOTIVO`.
+`registrarEnHistorialLote` lee ahora los encabezados y coloca cada campo donde
+corresponde en lugar de asumir un orden. Escribir con orden fijo habría descuadrado
+todo el registro de auditoría.
+
+Dato relacionado: **el script desplegado no es el que se revisó**. El de producción ya
+registra el usuario y escribe `Ubicaciones:` donde el revisado escribe `Ubicaciones (IW):`.
+Conviene exportar el código real antes del próximo cambio.
+
+### Los marcadores de bloque contaban como guías
+
+`agruparPorPedimento` escribe `SIN PEDIMENTO` en la columna A y `procesarCostales`
+escribe `⚠️ SIN PEDIMENTO`. Como `esGuiaUPSValida` acepta cualquier cadena de más de
+7 caracteres, esas filas:
+
+- sumaban a `Total bultos`,
+- recibían estado de guía,
+- **entraban al índice del caché**, así que dos pestañas con esa fila se marcaban
+  `⛔ DUPLICADO` mutuamente.
+
+Ahora `esMarcadorEstructural()` los reconoce y `esCabeceraBloque()` los trata como
+apertura de bloque: no cuentan como bultos, no se indexan y no pueden salir como
+`PEDIMENTO REPETIDO`.
+
+### Guías cortas / no-1Z
+
+Confirmado que **ya funcionan**: al ser de más de 7 dígitos (normalmente 10),
+`esGuiaUPSValida` las acepta y el patrón de error `/^\d{1,6}$/` no las toca. No hay
+colisión con el pedimento de 7 dígitos. Hay tests que lo fijan.
+
+**Una precaución:** si una guía numérica empieza por cero, Sheets se lo come al
+convertirla en número (`0123456789` → `123456789`) **antes** de que el script la vea, y
+eso no se puede recuperar desde el código. Formatea las columnas A y O como
+*Formato → Número → Texto sin formato*.
+
+### Sobre las guías faltantes
+
+Confirmado que se siguen listando: `❌ Faltan 3 (1ZAB..., 1ZCD..., 1ZEF...)`. Sin cambios.
