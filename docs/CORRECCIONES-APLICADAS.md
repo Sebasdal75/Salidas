@@ -4,7 +4,7 @@ Se aplicaron los 23 hallazgos de `REVISION-CODIGO.md` más 2 bugs que apareciero
 al revisar el propio código corregido. Aquí queda el registro de qué cambió y
 qué comportamiento visible se modifica.
 
-Verificación: `node tests/harness.js` (26 asserts sobre la lógica pura) y
+Verificación: `node tests/harness.js` (50 asserts sobre la lógica pura) y
 `node --check` sobre el script completo. **Nada de esto se ha ejecutado contra
 un Google Sheet real** — ver "Qué falta probar" al final.
 
