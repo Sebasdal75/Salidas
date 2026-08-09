@@ -1839,9 +1839,146 @@ function onOpen() {
     .addItem('🔄 Forzar Actualización de esta pestaña', 'forzarActualizacionHojaActiva')
     .addItem('♻️ Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
     .addSeparator()
+    .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema')
+    .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
+    .addSeparator()
     .addItem('⚙️ Instalar trigger avanzado (recomendado)', 'instalarTriggerAvanzado')
     .addItem('↩️ Volver al trigger simple', 'desinstalarTriggerAvanzado')
     .addToUi();
+}
+
+// =========================================================================
+// PROTECCIÓN DE LAS HOJAS INTERNAS
+//
+// Se usa protección de SOLO AVISO a propósito. Una protección normal se
+// aplicaría también al script: éste escribe con la autoridad de quien dispara
+// la edición, así que un operador que no estuviera en la lista de editores
+// haría fallar el setValues y perdería su escaneo. El aviso evita el borrado
+// accidental sin bloquear a nadie.
+// =========================================================================
+const DESC_PROTECCION = "Hoja interna del motor de escaneos — no editar a mano";
+
+function protegerHojasSistema() {
+  conLock(ss => {
+    let protegidas = [];
+
+    ss.getSheets().forEach(hoja => {
+      if (!esHojaInterna(hoja.getName())) return;
+
+      // Se retira la protección anterior de este script para no acumular.
+      hoja.getProtections(SpreadsheetApp.ProtectionType.SHEET).forEach(p => {
+          if (p.getDescription() === DESC_PROTECCION) p.remove();
+      });
+
+      hoja.protect().setDescription(DESC_PROTECCION).setWarningOnly(true);
+      protegidas.push(hoja.getName());
+    });
+
+    if (protegidas.length === 0) {
+        ss.toast('No se encontraron hojas internas que proteger.', 'Sin cambios', 5);
+        return;
+    }
+    ss.toast('🔒 Protegidas (solo aviso): ' + protegidas.join(', ') +
+             '. El script sigue escribiendo con normalidad.', 'Listo', 8);
+  });
+}
+
+// =========================================================================
+// DIAGNÓSTICO
+// =========================================================================
+function diagnosticoSistema() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+
+  invalidarCacheRAM();
+  let cacheInfo = getCacheData(ss);
+  let L = [];
+
+  // --- Caché ---
+  L.push("── CACHÉ DE DUPLICADOS ──");
+  if (!cacheInfo) {
+      L.push("❌ No existe CACHE_SISTEMA. Usa «Reconstruir caché completo».");
+  } else {
+      let existentes = new Set(ss.getSheets().map(h => claveHoja(h.getName())));
+      let indexadas = [], huerfanas = [], preformasSobrantes = [];
+
+      cacheInfo.headers.forEach(h => {
+          let t = String(h);
+          if (t === "") return;
+          let nombre = claveHoja(t.replace("_FISICO", "").replace("_PREFORMA", ""));
+          if (!existentes.has(nombre)) { huerfanas.push(t); return; }
+          if (t.endsWith("_PREFORMA") && !usaPreforma(nombre)) { preformasSobrantes.push(t); return; }
+          if (t.endsWith("_FISICO")) indexadas.push(nombre);
+      });
+
+      L.push("✅ Pestañas indexadas: " + indexadas.length + " (" + indexadas.join(", ") + ")");
+      L.push("   Guías en el índice: " + cacheInfo.map.size);
+      L.push(huerfanas.length === 0
+          ? "✅ Sin columnas huérfanas"
+          : "⚠️ Columnas de pestañas que ya no existen: " + huerfanas.join(", "));
+      if (preformasSobrantes.length > 0) {
+          L.push("⚠️ Preformas sobrantes de bodegas: " + preformasSobrantes.join(", "));
+      }
+      if (huerfanas.length > 0 || preformasSobrantes.length > 0) {
+          L.push("   → Se limpian con «Reconstruir caché completo».");
+      }
+  }
+
+  // --- Estado de las pestañas de trabajo ---
+  L.push("");
+  L.push("── PESTAÑAS ──");
+  ss.getSheets().forEach(hoja => {
+      let n = claveHoja(hoja.getName());
+      if (esHojaSistema(n)) return;
+
+      let lr = hoja.getLastRow();
+      if (lr < 1) { L.push("· " + n + ": vacía"); return; }
+
+      let datos = hoja.getRange(1, 1, lr, 2).getValues();
+      let conDato = 0, pendientes = 0, duplicados = 0, invalidas = 0;
+
+      datos.forEach(f => {
+          let a = String(f[0]).trim();
+          if (a === "") return;
+          conDato++;
+          let b = String(f[1]).trim();
+          if (filaSinValidar(a, b)) pendientes++;
+          if (b.startsWith("⛔")) duplicados++;
+          if (b.startsWith("❌ Guía Inválida")) invalidas++;
+      });
+
+      let linea = "· " + n + ": " + conDato + " filas";
+      if (pendientes > 0) linea += " | ⏳ " + pendientes + " sin validar";
+      if (duplicados > 0) linea += " | ⛔ " + duplicados + " duplicadas";
+      if (invalidas > 0) linea += " | ❌ " + invalidas + " inválidas";
+      if (pendientes === 0 && duplicados === 0 && invalidas === 0) linea += " | ✅ limpia";
+      L.push(linea);
+  });
+
+  // --- Disparadores ---
+  L.push("");
+  L.push("── DISPARADORES ──");
+  try {
+      let ts = ScriptApp.getProjectTriggers();
+      if (ts.length === 0) L.push("⚠️ Ninguno. Solo funciona el trigger simple onEdit.");
+      else ts.forEach(t => L.push("· " + t.getHandlerFunction() + " (" + t.getEventType() + ")"));
+  } catch (err) {
+      L.push("No se pudieron leer: " + err.message);
+  }
+
+  // --- Protección ---
+  L.push("");
+  L.push("── PROTECCIÓN ──");
+  let protegidas = [];
+  ss.getSheets().forEach(hoja => {
+      if (!esHojaInterna(hoja.getName())) return;
+      let tiene = hoja.getProtections(SpreadsheetApp.ProtectionType.SHEET)
+                      .some(p => p.getDescription() === DESC_PROTECCION);
+      protegidas.push((tiene ? "✅ " : "⚠️ sin proteger: ") + hoja.getName());
+  });
+  L.push(protegidas.join("\n"));
+
+  ui.alert("🩺 Diagnóstico del sistema", L.join("\n"), ui.ButtonSet.OK);
 }
 
 // Las funciones de menú también escriben en masa: sin lock pueden corromper
