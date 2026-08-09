@@ -237,7 +237,7 @@ function procesarEdicion(e) {
 
                 if (valorBorrado !== "") {
                     let tipoCol = (colActual === 1) ? "Físico (Col A)" : "Preforma (Col O)";
-                    filasHistorial.push(filaHistorial(nombreHoja, filaActual, tipoCol, valorBorrado,
+                    filasHistorial.push(eventoHistorial(nombreHoja, filaActual, tipoCol, valorBorrado,
                                                       valorAnteriorEstado, "BORRADO MANUAL (Celda vaciada)"));
                 }
             }
@@ -711,36 +711,89 @@ function podarCacheHuerfano(source) {
 // =========================================================================
 // HISTORIAL AUDITADO (en lote, con usuario)
 // =========================================================================
-function filaHistorial(hojaAfectada, fila, columnaStr, valorBorrado, estadoAnterior, motivo) {
-    return [
-        Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss"),
-        hojaAfectada, fila, columnaStr, valorBorrado, estadoAnterior, motivo,
-        obtenerUsuarioActual()
-    ];
+// Orden por defecto al crear la hoja desde cero. Si la hoja YA existe, se
+// respeta el orden de sus encabezados: el historial es un registro de auditoría
+// y reordenar sus columnas invalidaría lo ya registrado.
+const HIST_ORDEN_DEFECTO = ["FECHA", "USUARIO", "PESTAÑA", "FILA", "COLUMNA", "VALOR", "ESTADO", "MOTIVO"];
+
+const HIST_TITULOS = {
+    FECHA:   "FECHA Y HORA",
+    USUARIO: "USUARIO",
+    "PESTAÑA": "PESTAÑA",
+    FILA:    "FILA",
+    COLUMNA: "COLUMNA",
+    VALOR:   "GUÍA/PEDIMENTO BORRADO",
+    ESTADO:  "ESTADO ANTERIOR",
+    MOTIVO:  "MOTIVO"
+};
+
+// Sinónimos aceptados al leer los encabezados existentes (sin acentos y en
+// mayúsculas), para reconocer la columna aunque el título varíe.
+const HIST_SINONIMOS = {
+    "FECHA Y HORA": "FECHA", "FECHA": "FECHA", "FECHA/HORA": "FECHA",
+    "USUARIO": "USUARIO", "EMAIL": "USUARIO", "CORREO": "USUARIO",
+    "PESTANA": "PESTAÑA", "HOJA": "PESTAÑA",
+    "FILA": "FILA",
+    "COLUMNA": "COLUMNA",
+    "GUIA/PEDIMENTO BORRADO": "VALOR", "GUIA": "VALOR", "VALOR": "VALOR",
+    "VALOR BORRADO": "VALOR", "GUIA BORRADA": "VALOR",
+    "ESTADO ANTERIOR": "ESTADO", "ESTADO": "ESTADO",
+    "MOTIVO": "MOTIVO"
+};
+
+function normalizarTitulo(t) {
+    return String(t).trim().toUpperCase()
+        .replace(/Á/g, "A").replace(/É/g, "E").replace(/Í/g, "I")
+        .replace(/Ó/g, "O").replace(/Ú/g, "U").replace(/Ñ/g, "N");
 }
 
-function registrarEnHistorialLote(source, filas) {
-    if (!filas || filas.length === 0) return;
+function eventoHistorial(hojaAfectada, fila, columnaStr, valorBorrado, estadoAnterior, motivo) {
+    return {
+        FECHA:   Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM/yyyy HH:mm:ss"),
+        USUARIO: obtenerUsuarioActual(),
+        "PESTAÑA": hojaAfectada,
+        FILA:    fila,
+        COLUMNA: columnaStr,
+        VALOR:   valorBorrado,
+        ESTADO:  estadoAnterior,
+        MOTIVO:  motivo
+    };
+}
+
+function registrarEnHistorialLote(source, eventos) {
+    if (!eventos || eventos.length === 0) return;
 
     let hojaHistorial = source.getSheetByName("HISTORIAL_BORRADOS");
+    let orden;
+
     if (!hojaHistorial) {
         hojaHistorial = source.insertSheet("HISTORIAL_BORRADOS");
-        hojaHistorial.getRange(1, 1, 1, 8).setValues([[
-            "FECHA Y HORA", "PESTAÑA", "FILA", "COLUMNA",
-            "GUÍA/PEDIMENTO BORRADO", "ESTADO ANTERIOR", "MOTIVO", "USUARIO"
-        ]]);
-        hojaHistorial.getRange("A1:H1").setFontWeight("bold").setBackground("#d9d9d9");
+        orden = HIST_ORDEN_DEFECTO.slice();
+        hojaHistorial.getRange(1, 1, 1, orden.length).setValues([orden.map(k => HIST_TITULOS[k])]);
+        hojaHistorial.getRange(1, 1, 1, orden.length).setFontWeight("bold").setBackground("#d9d9d9");
         hojaHistorial.setFrozenRows(1);
     } else {
-        asegurarColumnas(hojaHistorial, 8);
-        if (String(hojaHistorial.getRange(1, 8).getValue()).trim() === "") {
-            hojaHistorial.getRange(1, 8).setValue("USUARIO").setFontWeight("bold").setBackground("#d9d9d9");
+        // Se lee el layout real de la hoja en vez de asumir uno.
+        let ancho = Math.max(hojaHistorial.getLastColumn(), 1);
+        let titulos = hojaHistorial.getRange(1, 1, 1, ancho).getValues()[0];
+        orden = titulos.map(t => HIST_SINONIMOS[normalizarTitulo(t)] || null);
+
+        // Campos que la hoja todavía no tiene: se añaden al final.
+        let faltantes = HIST_ORDEN_DEFECTO.filter(k => orden.indexOf(k) === -1);
+        if (faltantes.length > 0) {
+            asegurarColumnas(hojaHistorial, ancho + faltantes.length);
+            hojaHistorial.getRange(1, ancho + 1, 1, faltantes.length)
+                .setValues([faltantes.map(k => HIST_TITULOS[k])])
+                .setFontWeight("bold").setBackground("#d9d9d9");
+            orden = orden.concat(faltantes);
         }
     }
 
+    let filas = eventos.map(ev => orden.map(k => (k === null ? "" : ev[k])));
+
     let inicio = hojaHistorial.getLastRow() + 1;
     asegurarFilas(hojaHistorial, inicio + filas.length);
-    hojaHistorial.getRange(inicio, 1, filas.length, 8).setValues(filas);
+    hojaHistorial.getRange(inicio, 1, filas.length, orden.length).setValues(filas);
 }
 
 // =========================================================================
@@ -1922,7 +1975,7 @@ function limpiarGuiasMovidasSeleccion() {
             paraEliminar.add(i);
             let guiaBorrada = String(valores[i][0]).trim();
             if (guiaBorrada !== "") {
-                filasHistorial.push(filaHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, "LIMPIEZA DE GUÍA MOVIDA"));
+                filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, "LIMPIEZA DE GUÍA MOVIDA"));
             }
         }
     }
@@ -1939,7 +1992,7 @@ function limpiarGuiasMovidasSeleccion() {
         }
         if (!tieneGuias) {
             paraEliminar.add(i);
-            filasHistorial.push(filaHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", valA, "Vacío", "LIMPIEZA DE PEDIMENTO VACÍO"));
+            filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", valA, "Vacío", "LIMPIEZA DE PEDIMENTO VACÍO"));
         }
     }
 

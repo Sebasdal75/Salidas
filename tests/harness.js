@@ -105,5 +105,51 @@ ok("conserva la hora original", horaPreservada(filas, 0, 11, "1Z...", "12:00:00"
 ok("sella hora nueva si estaba vacía", horaPreservada(filas, 1, 11, "1Z...", "12:00:00") === "12:00:00");
 ok("celda vacía => sin hora", horaPreservada(filas, 0, 11, "", "12:00:00") === "");
 
+console.log("\n=== 6. HISTORIAL_BORRADOS respeta el layout existente ===");
+// Layout real del archivo de producción: USUARIO es la columna B, no la H.
+function hojaFalsa(titulos) {
+  const escrito = [];
+  return {
+    escrito,
+    getLastColumn: () => titulos.length,
+    getLastRow: () => 1,
+    getMaxRows: () => 100,
+    getMaxColumns: () => titulos.length,
+    insertColumnsAfter() {},
+    insertRowsAfter() {},
+    setFrozenRows() {},
+    getRange(fila, col, nf, nc) {
+      return {
+        getValues: () => (fila === 1 ? [titulos.slice(col - 1, col - 1 + nc)] : []),
+        setValues(v) { escrito.push({ fila, col, v }); return this; },
+        setFontWeight() { return this; },
+        setBackground() { return this; }
+      };
+    }
+  };
+}
+
+const titulosReales = ["FECHA Y HORA", "USUARIO", "PESTAÑA", "FILA", "COLUMNA",
+                       "GUÍA/PEDIMENTO BORRADO", "ESTADO ANTERIOR", "MOTIVO"];
+const hoja = hojaFalsa(titulosReales);
+registrarEnHistorialLote({ getSheetByName: () => hoja },
+  [eventoHistorial("GLOBAL PENDIENTE", 23, "Físico (Col A)", "1ZRR24456799402079", "✅ Ok", "BORRADO MANUAL (Celda vaciada)")]);
+
+const fila = hoja.escrito[hoja.escrito.length - 1].v[0];
+ok("USUARIO cae en la columna B", String(fila[1]).indexOf("@") !== -1 || fila[1] === "(sin trigger avanzado)");
+ok("PESTAÑA cae en la columna C", fila[2] === "GLOBAL PENDIENTE");
+ok("FILA cae en la columna D", fila[3] === 23);
+ok("GUÍA cae en la columna F", fila[5] === "1ZRR24456799402079");
+ok("MOTIVO cae en la columna H", String(fila[7]).indexOf("BORRADO MANUAL") === 0);
+
+// Hoja antigua sin columna USUARIO: debe añadirla al final sin descuadrar el resto.
+const hojaVieja = hojaFalsa(["FECHA Y HORA", "PESTAÑA", "FILA", "COLUMNA",
+                             "GUÍA/PEDIMENTO BORRADO", "ESTADO ANTERIOR", "MOTIVO"]);
+registrarEnHistorialLote({ getSheetByName: () => hojaVieja },
+  [eventoHistorial("M-S T1", 5, "Físico (Col A)", "1Z123", "✅ Guía", "PRUEBA")]);
+const filaVieja = hojaVieja.escrito[hojaVieja.escrito.length - 1].v[0];
+ok("hoja sin USUARIO: PESTAÑA sigue en columna B", filaVieja[1] === "M-S T1");
+ok("hoja sin USUARIO: se añade al final", filaVieja.length === 8);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
