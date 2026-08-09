@@ -50,6 +50,21 @@ ok("una plantilla MACHO NO es interna (sí recibe la columna M)", !esHojaInterna
 ok("GLOBAL PENDIENTE no es interna ni MACHO",
    !esHojaInterna("GLOBAL PENDIENTE") && !esHojaMacho("GLOBAL PENDIENTE"));
 
+console.log("\n=== 1d. El tipo de bodega lo da la pestaña, no las guías ===");
+ok("M-S T1 -> M-S T1", tipoBodega("M-S T1") === "M-S T1");
+ok("M-S GLOBALES -> M-S GLOBALES", tipoBodega("M-S GLOBALES") === "M-S GLOBALES");
+ok("M-S A1 -> M-S A1", tipoBodega("M-S A1") === "M-S A1");
+ok("M-S CUENTAS ESPECIALES -> M-S CTAS ESP", tipoBodega("M-S CUENTAS ESPECIALES") === "M-S CTAS ESP");
+ok("M-S SEGUIMIENTOS -> M-S SEGUIMIENTOS", tipoBodega("M-S SEGUIMIENTOS") === "M-S SEGUIMIENTOS");
+ok("SIMPLES -> M-S T1", tipoBodega("SIMPLES") === "M-S T1");
+ok("MULTIPLES -> M-S GLOBALES", tipoBodega("MULTIPLES") === "M-S GLOBALES");
+
+console.log("\n=== 1e. Las bodegas no reservan columna de preforma ===");
+ok("M-S T1 no usa preforma", usaPreforma("M-S T1") === false);
+ok("M-S GLOBALES no usa preforma", usaPreforma("M-S GLOBALES") === false);
+ok("GLOBAL PENDIENTE sí usa preforma", usaPreforma("GLOBAL PENDIENTE") === true);
+ok("REZAGO sí usa preforma", usaPreforma("REZAGO 2") === true);
+
 console.log("\n=== 1c. Red de seguridad de escaneos pendientes ===");
 ok("dato sin estado = sin validar", filaSinValidar("1Z999AA10123456784", "") === true);
 ok("marcado como pendiente = sin validar", filaSinValidar("1Z999AA10123456784", "⏳ Pendiente (reintenta)") === true);

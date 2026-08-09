@@ -66,6 +66,19 @@ function esHojaBodega(nombreHoja) {
     return n.startsWith("M-S ") || n.startsWith("SIMPLES") || n.startsWith("MULTIPLES");
 }
 
+// El tipo de una bodega lo decide el operador al elegir la pestaña. No se
+// puede deducir de las guías: con guías cortas no hay nada que distinga un T1
+// de un global, y con guías 1Z el prefijo del embarcador tampoco lo dice.
+function tipoBodega(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    if (n.indexOf("CUENTAS ESPECIALES") !== -1) return "M-S CTAS ESP";
+    if (n.indexOf("A1") !== -1) return "M-S A1";
+    if (n.indexOf("SEGUIMIENTOS") !== -1) return "M-S SEGUIMIENTOS";
+    if (n.startsWith("M-S GLOBALES") || n.startsWith("MULTIPLES")) return "M-S GLOBALES";
+    if (n.startsWith("M-S T1") || n.startsWith("SIMPLES")) return "M-S T1";
+    return n;
+}
+
 function esHojaInventario(nombreHoja) {
     return claveHoja(nombreHoja).indexOf("INVENTARIO") !== -1;
 }
@@ -704,6 +717,26 @@ function buscarHojaPorClave(source, clave) {
     return null;
 }
 
+// Las bodegas (M-S ...) no llevan preforma: su columna O siempre está vacía.
+// No tiene sentido reservarles columna en el caché ni leerla en cada foto.
+function usaPreforma(nombreHoja) {
+    return !esHojaBodega(nombreHoja);
+}
+
+// Devuelve la columna (1-based) del header, creándola al final si no existe.
+function columnaDeHeader(cacheSheet, headers, titulo) {
+    let idx = headers.indexOf(titulo);
+    if (idx !== -1) return idx + 1;
+
+    let col = headers.filter(String).length + 1;
+    if (col > cacheSheet.getMaxColumns()) {
+        cacheSheet.insertColumnsAfter(cacheSheet.getMaxColumns(), 2);
+    }
+    cacheSheet.getRange(1, col).setValue(titulo);
+    headers[col - 1] = titulo;
+    return col;
+}
+
 function actualizarFotografiaMental(hoja, source) {
     let clave = claveHoja(hoja.getName());
     if (esHojaSistema(clave)) return;
@@ -720,38 +753,23 @@ function actualizarFotografiaMental(hoja, source) {
     let maxCols = Math.max(cacheSheet.getLastColumn(), 1);
     let headers = cacheSheet.getRange(1, 1, 1, maxCols).getValues()[0];
 
-    let headerFisico = clave + "_FISICO";
-    let headerPreforma = clave + "_PREFORMA";
-    let colFisico = -1, colPreforma = -1;
-
-    for (let i = 0; i < headers.length; i++) {
-        if (headers[i] === headerFisico) colFisico = i + 1;
-        if (headers[i] === headerPreforma) colPreforma = i + 1;
-    }
-
-    if (colFisico === -1) {
-        let numHeaders = headers.filter(String).length;
-        colFisico = numHeaders + 1;
-        colPreforma = numHeaders + 2;
-        if (colPreforma > cacheSheet.getMaxColumns()) {
-            cacheSheet.insertColumnsAfter(cacheSheet.getMaxColumns(), 2);
-        }
-        cacheSheet.getRange(1, colFisico, 1, 2).setValues([[headerFisico, headerPreforma]]);
-    }
+    // Las columnas se reservan por separado, no en pares: así una bodega ocupa
+    // una sola columna en vez de dos, una de ellas siempre vacía.
+    let conPreforma = usaPreforma(clave);
+    let colFisico = columnaDeHeader(cacheSheet, headers, clave + "_FISICO");
+    let colPreforma = conPreforma ? columnaDeHeader(cacheSheet, headers, clave + "_PREFORMA") : -1;
 
     let maxFilasCache = cacheSheet.getMaxRows();
     if (maxFilasCache > 1) {
-        cacheSheet.getRange(2, colFisico, maxFilasCache - 1, 2).clearContent();
+        cacheSheet.getRange(2, colFisico, maxFilasCache - 1, 1).clearContent();
+        if (colPreforma !== -1) cacheSheet.getRange(2, colPreforma, maxFilasCache - 1, 1).clearContent();
     }
 
-    let anchoHoja = hoja.getMaxColumns();
-    let valsFisico = hoja.getRange(1, 1, lr, 1).getValues();
-    let valsPreforma = anchoHoja >= 15
-        ? hoja.getRange(1, 15, lr, 1).getValues()
-        : Array.from({ length: lr }, () => [""]);
+    cacheSheet.getRange(2, colFisico, lr, 1).setValues(hoja.getRange(1, 1, lr, 1).getValues());
 
-    cacheSheet.getRange(2, colFisico, lr, 1).setValues(valsFisico);
-    cacheSheet.getRange(2, colPreforma, lr, 1).setValues(valsPreforma);
+    if (colPreforma !== -1 && hoja.getMaxColumns() >= 15) {
+        cacheSheet.getRange(2, colPreforma, lr, 1).setValues(hoja.getRange(1, 15, lr, 1).getValues());
+    }
 }
 
 // Elimina del caché las columnas de hojas que ya no existen (renombradas o
@@ -771,8 +789,12 @@ function podarCacheHuerfano(source) {
     for (let i = 0; i < headers.length; i++) {
         let h = String(headers[i]);
         if (h === "") continue;
-        let nombre = h.replace("_FISICO", "").replace("_PREFORMA", "");
-        if (!existentes.has(claveHoja(nombre))) aBorrar.push(i + 1);
+        let nombre = claveHoja(h.replace("_FISICO", "").replace("_PREFORMA", ""));
+
+        // Pestaña renombrada o borrada.
+        if (!existentes.has(nombre)) { aBorrar.push(i + 1); continue; }
+        // Columna de preforma de una bodega: siempre vacía, no se usa.
+        if (h.endsWith("_PREFORMA") && !usaPreforma(nombre)) aBorrar.push(i + 1);
     }
 
     // De derecha a izquierda para que los índices no se muevan.
@@ -1398,18 +1420,17 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
   bloquesFisicos.forEach(bloque => {
       let ped = bloque.pedimento;
       let esperadas = mapaPreformas[ped] || new Set();
-      let basesUnicas = new Set(); let sobran = 0; let escaneadasUnicas = new Set();
+      let sobran = 0; let escaneadasUnicas = new Set();
+      // Bodegas donde estas guías fueron escaneadas de verdad, según el caché.
+      let origenesReales = new Set();
 
       let txtFalta = "";
       if (requiereAlertaBodega) {
-          if (nombreHoja.indexOf("CUENTAS ESPECIALES") !== -1) {
-              txtFalta = " ⚠️ Sin escaneo de M-S CTAS ESP";
-          } else if (nombreHoja.indexOf("A1") !== -1) {
-              txtFalta = " ⚠️ Sin escaneo en Bodegas";
-          } else {
-              bloque.guias.forEach(g => { if (g.length >= 10) basesUnicas.add(g.substring(0, 10)); else basesUnicas.add(g); });
-              txtFalta = basesUnicas.size <= 1 ? " ⚠️ Sin escaneo de M-S T1" : " ⚠️ Sin escaneo de M-S GLOBALES";
-          }
+          // Ya no se adivina si "debería" haber pasado por T1 o por GLOBALES:
+          // no hay nada en la guía que lo indique.
+          txtFalta = nombreHoja.indexOf("CUENTAS ESPECIALES") !== -1
+              ? " ⚠️ Sin escaneo de M-S CTAS ESP"
+              : " ⚠️ Sin escaneo en Bodegas";
       }
 
       bloque.guias.forEach((g, idx) => {
@@ -1421,7 +1442,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
           else if (guiasYaAsignadasGlobal.has(g) && !esRezago) { resultadosB[filaG][0] = "⛔ Duplicado local (Ya en Ped: " + guiasYaAsignadasGlobal.get(g) + ")"; coloresB[filaG][0] = "#ff9800"; }
           else {
               guiasVistasGeneral.add(g); guiasYaAsignadasGlobal.set(g, ped); escaneadasUnicas.add(g);
-              if (g.length >= 10) basesUnicas.add(g.substring(0, 10)); else basesUnicas.add(g);
+              if (origen) origenesReales.add(origen);
 
               if (esRezago) {
                   if (pedReal) {
@@ -1463,11 +1484,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
                       estadoStr = txtFalta.trim();
                       coloresB[bloque.filaPedimento][0] = "#ffc107";
                   } else {
+                      // Se informa la bodega REAL por la que pasó, tomada del
+                      // caché, en vez de deducirla del formato de las guías.
                       if (bloque.forzado === "T1") estadoStr = "✅ T1";
                       else if (nombreHoja.indexOf("A1") !== -1) estadoStr = "✅ A1 COMPLETO";
                       else if (nombreHoja.indexOf("CUENTAS ESPECIALES") !== -1) estadoStr = "✅ M-S CTAS ESP";
-                      else if (basesUnicas.size === 1) estadoStr = "✅ M-S T1";
-                      else estadoStr = "✅ M-S GLOBALES";
+                      else if (origenesReales.size > 0) estadoStr = "✅ " + Array.from(origenesReales).sort().join(" + ");
+                      else estadoStr = "✅ Escaneado";
                       coloresB[bloque.filaPedimento][0] = "#178ccc";
                   }
               }
@@ -1607,14 +1630,14 @@ function actualizarConteos(hoja, source, cacheInfo) {
   if (bAAct) bloquesFisicos.push(bAAct);
 
   let guiasYaAsignadasGlobal = new Map();
-  let totalSimples = 0; let totalMultiples = 0; let totalA1 = 0; let totalCuentasEspeciales = 0;
   let totalMovidas = 0;
+  let totalPedimentosTipo = 0;
 
-  let esM_SA1 = nombreHojaMayus.indexOf("A1") !== -1;
-  let esCuentasEspeciales = nombreHojaMayus.indexOf("CUENTAS ESPECIALES") !== -1;
+  // El tipo lo da la pestaña en la que el operador decidió meter el pedimento.
+  const tipoStr = tipoBodega(nombreHojaMayus);
 
   bloquesFisicos.forEach(bloque => {
-      let guiasUnicas = new Set(); let basesUnicas = new Set();
+      let guiasUnicas = new Set();
       let movidas = 0;
 
       bloque.guias.forEach((g, idx) => {
@@ -1624,7 +1647,6 @@ function actualizarConteos(hoja, source, cacheInfo) {
           if (statusActual.startsWith("➡ Movido a")) {
               movidas++; totalMovidas++;
               guiasUnicas.add(g);
-              if (g.length >= 10) basesUnicas.add(g.substring(0, 10)); else basesUnicas.add(g);
           } else if (guiasUnicas.has(g)) {
               resultadosB[filaG][0] = "🔄 Duplicado local"; coloresB[filaG][0] = "#acacac";
           } else if (guiasYaAsignadasGlobal.has(g)) {
@@ -1632,20 +1654,14 @@ function actualizarConteos(hoja, source, cacheInfo) {
           } else {
               guiasYaAsignadasGlobal.set(g, bloque.pedimento);
               guiasUnicas.add(g);
-              if (g.length >= 10) basesUnicas.add(g.substring(0, 10)); else basesUnicas.add(g);
               resultadosB[filaG][0] = "✅ Guía"; coloresB[filaG][0] = "#71b3e6";
           }
       });
 
       if (!bloque.esErr && bloque.pedimento !== "SIN_CABECERA") {
           let faltantes = guiasUnicas.size - movidas;
-          let tipoStr = "";
           let msg = "";
-
-          if (esM_SA1) { tipoStr = "M-S A1"; totalA1++; }
-          else if (esCuentasEspeciales) { tipoStr = "M-S CTAS ESP"; totalCuentasEspeciales++; }
-          else if (basesUnicas.size === 1) { tipoStr = "M-S T1"; totalSimples++; }
-          else if (basesUnicas.size > 1) { tipoStr = "M-S GLOBALES"; totalMultiples++; }
+          totalPedimentosTipo++;
 
           if (guiasUnicas.size === 0) {
               msg = "⏳ Esperando guías...";
@@ -1677,10 +1693,7 @@ function actualizarConteos(hoja, source, cacheInfo) {
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA);
 
-  let fila3Resumen;
-  if (esM_SA1) fila3Resumen = "M-S A1: " + totalA1;
-  else if (esCuentasEspeciales) fila3Resumen = "M-S CTAS ESP: " + totalCuentasEspeciales;
-  else fila3Resumen = "M-S T1: " + totalSimples + " | M-S GLOBALES: " + totalMultiples;
+  let fila3Resumen = tipoStr + ": " + totalPedimentosTipo;
 
   // El total incluye las guías ya movidas; se desglosa para no perder el dato
   // de cuántas siguen físicamente en la bodega.

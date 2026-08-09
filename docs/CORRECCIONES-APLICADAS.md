@@ -4,7 +4,7 @@ Se aplicaron los 23 hallazgos de `REVISION-CODIGO.md` más 2 bugs que apareciero
 al revisar el propio código corregido. Aquí queda el registro de qué cambió y
 qué comportamiento visible se modifica.
 
-Verificación: `node tests/harness.js` (50 asserts sobre la lógica pura) y
+Verificación: `node tests/harness.js` (73 asserts sobre la lógica pura) y
 `node --check` sobre el script completo. **Nada de esto se ha ejecutado contra
 un Google Sheet real** — ver "Qué falta probar" al final.
 
@@ -173,3 +173,47 @@ fuera del escaneo. Si duplicas la plantilla, Sheets la llamará
 
 Si prefieres una marca explícita en lugar del nombre (una celda con `PLANTILLA`,
 o un prefijo tipo `ZZ_`), se cambia en una línea: la regla vive en `esHojaMacho()`.
+
+---
+
+## Bodegas: sin preforma y sin adivinar el tipo
+
+### Las pestañas M-S no reservan columna de preforma
+
+Las bodegas no usan preforma, así que su columna O siempre está vacía. Aun así
+el caché les reservaba una columna `_PREFORMA` (visible en `CACHE_SISTEMA`:
+`M-S GLOBALES_PREFORMA`, `M-S T1_PREFORMA`, `M-S A1_PREFORMA`… todas en blanco)
+y cada foto leía esa columna para nada.
+
+Ahora las columnas del caché se reservan **una a una** en vez de por pares, y a
+las bodegas solo se les da la de físico. En tu archivo eso quita **5 columnas
+vacías** y 5 lecturas por reconstrucción. `podarCacheHuerfano()` las borra solo
+la primera vez que corra el repaso automático.
+
+### El tipo T1 / GLOBALES lo decide la pestaña
+
+El código deducía el tipo comparando los 10 primeros caracteres de cada guía:
+si todas compartían prefijo, "M-S T1"; si no, "M-S GLOBALES". Eso no funciona:
+
+- con **guías cortas** la "base" es la guía entera, así que dos guías cualesquiera
+  daban dos bases y el pedimento salía siempre como GLOBALES;
+- con **guías 1Z** el prefijo es la cuenta del embarcador, que no dice nada sobre
+  si el pedimento es T1 o global. Por eso en tu pestaña `M-S GLOBALES` todos los
+  pedimentos aparecían etiquetados `(M-S T1)` y el resumen decía
+  `M-S T1: 18 | M-S GLOBALES: 0`.
+
+El operador ya decide el tipo al elegir la pestaña donde escanea. Ahora el tipo
+sale de ahí (`tipoBodega()`) y la heurística desaparece.
+
+En las hojas Globales, donde antes se adivinaba por qué bodega había pasado el
+pedimento, ahora se informa la bodega **real** registrada en el caché:
+`✅ M-S T1`, `✅ M-S GLOBALES`, o `✅ M-S T1 + M-S GLOBALES` si vino de las dos.
+
+**Cambios visibles:**
+
+| Antes | Ahora |
+|---|---|
+| `M-S T1: 18 \| M-S GLOBALES: 0` en la hoja M-S GLOBALES | `M-S GLOBALES: 18` |
+| `Bultos: 2 (M-S T1)` dentro de M-S GLOBALES | `Bultos: 2 (M-S GLOBALES)` |
+| `⚠️ Sin escaneo de M-S T1` (adivinado) | `⚠️ Sin escaneo en Bodegas` |
+| `✅ M-S T1` en la Global (adivinado) | `✅ M-S T1` solo si de verdad pasó por ahí |
