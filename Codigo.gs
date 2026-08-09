@@ -116,16 +116,30 @@ function obtenerArchivo() {
     return ss;
 }
 
+// Quién hizo la edición, para el historial.
+//
+// getActiveUser() devuelve al editor, pero entre cuentas de consumidor
+// (@gmail.com) distintas devuelve cadena vacía: Google no deja identificar a
+// otro usuario.
+//
+// getEffectiveUser() es el usuario bajo cuya autoridad corre el script:
+//   · en un trigger SIMPLE     -> es el propio editor, así que sirve;
+//   · en un trigger INSTALABLE -> es quien lo instaló, NO quien editó.
+//
+// Por eso el respaldo solo se usa con el trigger simple. En un instalable
+// atribuiría cada borrado al instalador, y un nombre equivocado en una
+// auditoría es peor que ningún nombre.
 function obtenerUsuarioActual() {
     if (globalUsuario !== null) return globalUsuario;
+
     let email = "";
     try { email = Session.getActiveUser().getEmail() || ""; } catch (err) { email = ""; }
-    if (email === "") {
+
+    if (email === "" && !triggerInstalableActivo()) {
         try { email = Session.getEffectiveUser().getEmail() || ""; } catch (err) { email = ""; }
     }
-    // Un trigger onEdit *simple* no tiene permiso para identificar al editor.
-    // Con el trigger instalable (menú → Instalar trigger avanzado) sí llega el email.
-    globalUsuario = email !== "" ? email : "(sin trigger avanzado)";
+
+    globalUsuario = email !== "" ? email : "(no identificado)";
     return globalUsuario;
 }
 
