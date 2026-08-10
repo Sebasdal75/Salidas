@@ -1277,7 +1277,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
   for (let i = 0; i < ultimaFila; i++) {
     let valP = String(datosMasivos[i][14]).trim();
     let estP = String(datosMasivos[i][15]).trim();
-    let esErrP = estP.startsWith("🛑 ERROR");
+    // Si la columna O está vacía, la fila se resetea por completo: sin estado
+    // fijo, sin hora, sin color. Así borrar O limpia todo, no solo el dato.
+    let esErrP = valP !== "" && estP.startsWith("🛑 ERROR");
 
     resultadosP.push([esErrP ? estP : '']);
     resultadosHorasP.push([horaPreservada(datosMasivos, i, 18, valP, horaActual)]);
@@ -1369,7 +1371,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
 
     let fijo = '';
     let color = '#FFFFFF';
-    if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
+    // valB es la columna A. Si está vacía, la fila queda reseteada del todo:
+    // sin estado fijo, sin hora, sin color. Borrar A limpia la fila completa.
+    if (valB === "") {
+        // fila vacía: se deja todo en blanco
+    } else if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
 
@@ -1595,9 +1601,12 @@ function actualizarMS(hoja, source, cacheInfo) {
   for (let i = 0; i < ultimaFila; i++) {
     let valB = String(datosMasivos[i][0]).trim();
     let estB = String(datosMasivos[i][1]).trim();
-    let esErrEstructura = estB.startsWith("🛑 ERROR");
-    let esMovido = esEstadoSalida(estB);
-    let dup = dupExternos.get(i);
+    // valB es la columna A vacía => fila reseteada del todo (sin estado fijo,
+    // sin tachado ni color de fuente). Los marcadores solo valen con dato en A.
+    let vacia = valB === "";
+    let esErrEstructura = !vacia && estB.startsWith("🛑 ERROR");
+    let esMovido = !vacia && esEstadoSalida(estB);
+    let dup = vacia ? null : dupExternos.get(i);
 
     let fijo = '';
     let color = '#FFFFFF';
@@ -1777,8 +1786,10 @@ function actualizarInventario(hoja, cacheInfo) {
   for (let i = 0; i < ultimaFila; i++) {
     let valA = String(datosMasivos[i][0]).trim();
     let estB = String(datosMasivos[i][1]).trim();
-    let esErrEstructura = estB.startsWith("🛑 ERROR");
-    let dup = dupInventario.get(i);
+    // valA vacía => fila reseteada del todo. Borrar A limpia estado, hora y color.
+    let vacia = valA === "";
+    let esErrEstructura = !vacia && estB.startsWith("🛑 ERROR");
+    let dup = vacia ? null : dupInventario.get(i);
 
     let fijo = '';
     let color = '#FFFFFF';

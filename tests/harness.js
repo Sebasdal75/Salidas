@@ -137,6 +137,20 @@ ok("conserva la hora original", horaPreservada(filas, 0, 11, "1Z...", "12:00:00"
 ok("sella hora nueva si estaba vacía", horaPreservada(filas, 1, 11, "1Z...", "12:00:00") === "12:00:00");
 ok("celda vacía => sin hora", horaPreservada(filas, 0, 11, "", "12:00:00") === "");
 
+// La hora va atada a la columna A, no al estado de B.
+// 1) B cambia pero A sigue igual: la hora NO se mueve.
+const filaConHora = [["1Z999", "estado viejo", "", "", "", "", "", "", "", "", "", "09:15:00"]];
+ok("B cambia y A sigue: la hora queda fija",
+   horaPreservada(filaConHora, 0, 11, "1Z999", "12:00:00") === "09:15:00");
+// 2) A se borra: la hora se limpia (aunque hubiera hora previa).
+const filaBorrada = [["", "✅ Ok", "", "", "", "", "", "", "", "", "", "09:15:00"]];
+ok("A borrada: la hora se limpia",
+   horaPreservada(filaBorrada, 0, 11, "", "12:00:00") === "");
+// 3) A con dato y sin hora previa: se sella al momento del escaneo.
+const filaNueva = [["1Z888", "", "", "", "", "", "", "", "", "", "", ""]];
+ok("A nueva sin hora: se sella ahora",
+   horaPreservada(filaNueva, 0, 11, "1Z888", "12:00:00") === "12:00:00");
+
 console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
 ["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>
   ok("acepta guía corta " + g, esGuiaUPSValida(g) === true));

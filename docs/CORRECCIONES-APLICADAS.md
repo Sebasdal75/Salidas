@@ -217,3 +217,32 @@ pedimento, ahora se informa la bodega **real** registrada en el caché:
 | `Bultos: 2 (M-S T1)` dentro de M-S GLOBALES | `Bultos: 2 (M-S GLOBALES)` |
 | `⚠️ Sin escaneo de M-S T1` (adivinado) | `⚠️ Sin escaneo en Bodegas` |
 | `✅ M-S T1` en la Global (adivinado) | `✅ M-S T1` solo si de verdad pasó por ahí |
+
+---
+
+## Hora atada a la columna A (no al estado de B)
+
+La hora (col L en físico, col S en preforma) debe fijarse al **escaneo de la
+columna A**, no al estado que el sistema escribe en B. Requisitos:
+
+1. Se sella una vez, cuando A recibe un valor.
+2. **No** cambia aunque B se recalcule mil veces.
+3. Se **borra** cuando se borra A — sin reintroducir ningún bug de borrado.
+
+Los tres ya se cumplen: `horaPreservada()` lee la columna A (`valB`/`valP`/`valA`
+son `datosMasivos[i][0]` y `[14]`, o sea A y O, nunca B), conserva la hora previa
+si existe, y devuelve vacío cuando A está vacía. `aplicarCambiosOptimizado`
+detecta tanto poner como **quitar** la hora, así que al borrar A la limpia.
+
+Lo que faltaba: al borrar A, ciertos **estados fijos** de B (`🛑 ERROR`,
+`➡ Salió en …`) se quedaban pegados, y en las M-S también el tachado y el color
+de fuente. Ahora, cuando la columna A de una fila está vacía, los tres cerebros
+**resetean la fila completa**: sin estado, sin hora, sin color, sin tachado.
+Borrar A limpia todo de un golpe.
+
+Los estados fijos siguen sobreviviendo a un recálculo disparado por *otra* fila
+(su A sigue con dato); solo se limpian cuando la propia A se vacía. Sin riesgo
+para el bug P0-1: el borrado sigue purgando el caché y recalculando.
+
+Tres asserts nuevos en el harness fijan el comportamiento: B cambia y la hora
+queda fija, A borrada y la hora se limpia, A nueva y la hora se sella.
