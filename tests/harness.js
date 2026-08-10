@@ -240,36 +240,55 @@ ok("ubicación IW -> azul claro", colorColumnaA("IW-A-01", "Bultos: 5") === "#a4
 ok("fila vacía -> sin color", colorColumnaA("", "") === "#ffffff");
 ok("marcador -> sin color", colorColumnaA("SIN PEDIMENTO", "") === "#ffffff");
 
-console.log("\n=== 5e. Columna O: color de bloque + pedimento y repetidos ===");
+console.log("\n=== 5e. Columna O: color de bloque y repetidos ===");
 ok("sin letra en N -> verde", colorBloqueO("") === "#00ff00");
 ok("letra a -> verde brillante", colorBloqueO("a") === "#35ec09");
 ok("letra b -> rosa", colorBloqueO("B") === "#ff00ff");
 ok("letra c -> turquesa", colorBloqueO(" c ") === "#39b1b9");
 ok("letra desconocida -> verde por defecto", colorBloqueO("z") === "#00ff00");
 
-// La columna O es el índice 14 de datosMasivos.
-const filaO = v => { let f = new Array(20).fill(""); f[14] = v; return f; };
-let hojaO = [
-  filaO("6100166"),              // 0 pedimento
-  filaO("1Z999AA10123456784"),   // 1 guía
-  filaO("1234567890"),           // 2 guía
-  filaO("6100167"),              // 3 otro pedimento
-  filaO("1Z999AA10123456784"),   // 4 misma guía otra vez -> repetida
-  filaO("SIN PEDIMENTO"),        // 5 marcador
-  filaO("SIN PEDIMENTO"),        // 6 marcador repetido: no cuenta
-  filaO(""),                     // 7 vacía
-  filaO("1234567890")            // 8 repetida de la fila 2
+// Bloques de preforma tal como los arma el cerebro: {pedimento, filasGuias, guias}
+let bloquesPre = [
+  { pedimento: "6100166", filaPedimento: 3, guias: ["1Z111", "1Z222"], filasGuias: [1, 2] },
+  { pedimento: "6100200", filaPedimento: 7, guias: ["1Z111", "SIN PEDIMENTO", "1Z333"], filasGuias: [4, 5, 6] },
+  { pedimento: "6100300", filaPedimento: 11, guias: ["1Z333"], filasGuias: [9] }
 ];
-let repes = filasGuiaRepetidaEnPreforma(hojaO, hojaO.length);
-ok("detecta la 2ª aparición de la guía", repes.has(4));
-ok("detecta la 2ª aparición de la guía corta", repes.has(8));
-ok("la 1ª aparición no se marca", !repes.has(1) && !repes.has(2));
-ok("un pedimento repetido no entra aquí", !repes.has(3));
-ok("los marcadores repetidos no cuentan", !repes.has(5) && !repes.has(6));
-ok("la fila vacía no cuenta", !repes.has(7));
-ok("solo hay 2 repetidas", repes.size === 2);
+let repePre = repetidasEnPreforma(bloquesPre);
+ok("detecta la 2ª aparición", repePre.has(4) && repePre.get(4).idx === 1);
+ok("recuerda el pedimento de la primera", repePre.get(4).ped === "6100166");
+ok("detecta la repetición entre el 2º y el 3er bloque", repePre.has(9) && repePre.get(9).idx === 6);
+ok("la 1ª aparición no se marca", !repePre.has(1) && !repePre.has(2));
+ok("los marcadores no cuentan", !repePre.has(5));
+ok("solo hay 2 repetidas", repePre.size === 2);
 ok("preforma limpia no marca nada",
-   filasGuiaRepetidaEnPreforma([filaO("6100166"), filaO("1Z999AA10123456784")], 2).size === 0);
+   repetidasEnPreforma([{ pedimento: "6100166", filaPedimento: 2, guias: ["1Z111"], filasGuias: [1] }]).size === 0);
+
+ok("pedimentoDeFilaPreforma encuentra el bloque", pedimentoDeFilaPreforma(bloquesPre, 4) === "6100200");
+ok("fila fuera de todo bloque -> SIN_CABECERA", pedimentoDeFilaPreforma(bloquesPre, 99) === "SIN_CABECERA");
+
+// El aviso de la P no destruye lo que ya hubiera.
+let rP = [[""], ["► Resumen: 5 bultos"], ["⛔ DUPLICADO (En: GLOBAL 3 Fila 9)"]];
+let cP = [["#fff"], ["#fff"], ["#fff"]];
+escribirAvisoPreforma(rP, cP, 0, "AVISO", "#ff9800");
+ok("celda vacía: escribe el aviso", rP[0][0] === "AVISO" && cP[0][0] === "#ff9800");
+escribirAvisoPreforma(rP, cP, 1, "AVISO", "#ff9800");
+ok("con resumen: antepone sin borrarlo", rP[1][0] === "AVISO | ► Resumen: 5 bultos");
+escribirAvisoPreforma(rP, cP, 2, "AVISO", "#ff9800");
+ok("no pisa un ⛔", rP[2][0] === "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)" && cP[2][0] === "#fff");
+
+console.log("\n=== 5l. La red de seguridad no se queda en bucle ===");
+// Las cabeceras no siempre reciben estado (rezago, bloques con error). Si
+// contaran como pendientes, la hoja se recalcularía cada minuto para siempre.
+ok("pedimento sin estado NO es pendiente", filaSinValidar("6100166", "") === false);
+ok("SIN PEDIMENTO sin estado NO es pendiente", filaSinValidar("SIN PEDIMENTO", "") === false);
+ok("COSTALES sin estado NO es pendiente", filaSinValidar("COSTALES", "") === false);
+ok("FIN sin estado NO es pendiente", filaSinValidar("FIN", "") === false);
+// Y lo que sí tiene que seguir detectando:
+ok("guía sin estado SÍ es pendiente", filaSinValidar("1Z999AA10123456784", "") === true);
+ok("guía marcada como pendiente SÍ se recoge",
+   filaSinValidar("1Z999AA10123456784", "⏳ Pendiente (reintenta)") === true);
+ok("guía ya validada no se toca", filaSinValidar("1Z999AA10123456784", "✅ Ok") === false);
+ok("guía inválida ya avisada no se toca", filaSinValidar("ABC123", "❌ Guía Inválida") === false);
 
 console.log("\n=== 5g. ultimaFilaEnCache (evita getLastRow) ===");
 // data[0] son los headers; data[r] corresponde a la fila r de la hoja.

@@ -517,3 +517,63 @@ El coloreado de la columna A pasa a buscar la raíz `DUPLICAD` sin distinguir
 mayúsculas, para que ningún texto nuevo se escape del rojo.
 
 Aplicado en los tres cerebros: Global/preforma, M-S e inventarios.
+
+---
+
+## Cuatro fallos encontrados en producción
+
+### 1. La red de seguridad se recalculaba a sí misma sin parar
+
+`actualizadorAutomaticoGlobal` marca una hoja como pendiente si encuentra una
+fila con dato y sin estado, y la recalcula. Si el recálculo **no llena ese
+estado**, la siguiente pasada la encuentra otra vez. Cada minuto. Para siempre.
+Eso es lo que se veía como «actualizando constantemente y no se movía».
+
+Tres tipos de fila caían en esa trampa:
+
+- **La preforma.** En la columna P solo llevan texto la fila del pedimento y la
+  última guía de cada bloque; las de en medio se dejan vacías a propósito. Así
+  que **toda hoja con preforma estaba permanentemente pendiente.** Se retira la
+  preforma de la detección: `marcarPendiente()` solo escribe para ediciones de
+  la columna A, o sea que la preforma nunca formó parte de este mecanismo.
+- **Las cabeceras de bloque.** En rezago y en bloques con error, la fila del
+  pedimento se queda sin estado a propósito. `filaSinValidar()` ahora las
+  descarta con `esCabeceraBloque()`.
+- **Guías de inventario sin ubicación IW encima.** No entraban en ninguna rama y
+  se quedaban sin estado. Ahora reciben `⚠️ Falta la ubicación IW arriba`, que
+  además es información útil.
+
+### 2. La alerta de duplicado desaparecía sola en las M-S
+
+`sincronizarSalidasMS` reemplazaba el estado por `➡ Salió en …` en cuanto la
+guía aparecía escaneada en un destino — **incluido cuando ese estado era un
+`⛔ DUPLICADO`**. El operador veía la alerta aparecer y borrarse sola a los
+segundos. Y el cerebro M-S remataba: evaluaba `esEstadoSalida()` *antes* que la
+repetición, así que una vez marcada como movida la guía ya no volvía a
+compararse y la alerta no regresaba nunca.
+
+Ahora el barrido no pisa ningún estado que contenga `DUPLICAD`, y el cerebro
+evalúa la repetición siempre, también en las guías ya movidas.
+
+### 3. No avisaba que la guía iba en otro pedimento
+
+Si el bloque escaneado **no tenía preforma propia** (`esperadas.size === 0`), el
+código respondía `✅ Guía` y ahí se cortaba, sin llegar a mirar
+`mapaInversoPreforma`. Resultado: una guía que pertenecía a otro pedimento con
+preforma pasaba por buena. El aviso `❌ Va en: X` solo aparecía cuando el
+pedimento escaneado tenía preforma, que es justo cuando menos falta hacía.
+
+Ahora se consulta siempre, y si la guía pertenece a otro pedimento sale
+`❌ Va en: X` y cuenta como sobrante.
+
+### 4. La columna O pintaba solo una de las dos
+
+Igual que había pasado en la A. Ahora `repetidasEnPreforma()` devuelve la pareja
+completa —trabajando sobre los bloques, porque el pedimento no está siempre en
+el mismo sitio: en las hojas normales cierra el bloque por debajo de sus guías y
+en las de rezago lo abre por arriba— y se pintan las dos.
+
+La columna P gradúa el aviso con la misma regla que la B: gris si la repetición
+es dentro del mismo pedimento, naranja con referencia si es en otro.
+`escribirAvisoPreforma()` conserva el `► Resumen` que ya trajera la fila y nunca
+pisa un `⛔` ni un `🛑`.

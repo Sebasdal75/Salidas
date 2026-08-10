@@ -58,21 +58,29 @@ function colorBloqueO(letraN) {
     return "#00ff00";
 }
 
-// Filas cuya guía ya apareció antes en la columna O de la misma hoja. Se mira
-// la columna O completa, no bloque por bloque: una guía no puede estar en dos
-// pedimentos, y repetirla infla el conteo de bultos esperados. Los pedimentos
-// (7 dígitos) y los marcadores estructurales se saltan: los primeros tienen su
-// propia detección, los segundos se repiten de forma legítima.
-function filasGuiaRepetidaEnPreforma(datosMasivos, ultimaFila) {
-    let repetidas = new Set();
-    let vistas = new Set();
-    for (let i = 0; i < ultimaFila; i++) {
-        let v = String(datosMasivos[i][14]).trim().toUpperCase();
-        if (v === "" || /^\d{7}$/.test(v) || esMarcadorEstructural(v)) continue;
-        if (vistas.has(v)) repetidas.add(i);
-        else vistas.add(v);
-    }
-    return repetidas;
+// Guías repetidas dentro de la columna O de la misma hoja.
+//
+// Devuelve un Map: fila repetida -> { ped, idx } de su PRIMERA aparición, para
+// poder pintar las DOS y decir en qué pedimento quedó la otra, igual que en la
+// columna A. Se trabaja sobre los bloques ya construidos en vez de recorrer la
+// columna a mano, porque el pedimento no está siempre en el mismo sitio: en las
+// hojas normales cierra el bloque por debajo de sus guías y en las de rezago lo
+// abre por arriba.
+//
+// Los marcadores estructurales se saltan: se repiten de forma legítima.
+function repetidasEnPreforma(bloquesPreforma) {
+    let out = new Map();
+    let vistas = new Map();
+    bloquesPreforma.forEach(bloque => {
+        bloque.guias.forEach((g, k) => {
+            if (esMarcadorEstructural(g)) return;
+            let idx = bloque.filasGuias[k];
+            let previa = vistas.get(g);
+            if (previa) out.set(idx, previa);
+            else vistas.set(g, { ped: bloque.pedimento, idx: idx });
+        });
+    });
+    return out;
 }
 
 // Decide el color de una celda de la columna A a partir del valor y su estado.
@@ -506,6 +514,14 @@ function esEstadoSalida(txt) {
 function filaSinValidar(valDato, valEstado) {
     let d = String(valDato).trim();
     if (d === "") return false;
+
+    // Las cabeceras de bloque (pedimento, SIN PEDIMENTO, COSTALES, FIN) NO
+    // siempre reciben estado: en las hojas de rezago y en los bloques con error
+    // se quedan en blanco a propósito. Si contaran como "sin validar", la red de
+    // seguridad daría esa hoja por pendiente en cada pasada y la recalcularía
+    // cada minuto, para siempre, sin que nada cambiara nunca.
+    if (esCabeceraBloque(d)) return false;
+
     let e = String(valEstado).trim();
     return e === "" || e === TXT_PENDIENTE;
 }
@@ -1231,6 +1247,13 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
             let destino = escaneadosDestino.get(v);
 
             if (destino) {
+                // Un aviso de duplicado NO se pisa. Antes, en cuanto la guía
+                // aparecía escaneada en una Global, este barrido reemplazaba el
+                // "⛔ DUPLICADO" por "➡ Salió en ...": el operador veía la
+                // alerta aparecer y desaparecer sola a los pocos segundos, sin
+                // haber hecho nada. La deja el recálculo de la propia hoja.
+                if (statusActual.toUpperCase().indexOf("DUPLICAD") !== -1) continue;
+
                 let textoEsperado = TXT_SALIO + destino;
                 if (statusActual !== textoEsperado) { vals[r][1] = textoEsperado; modificados = true; }
             } else if (esEstadoSalida(statusActual)) {
@@ -1353,6 +1376,29 @@ function duplicadoLocal(previa, pedActual, etiqueta) {
         return { texto: "⛔ DUPLICADO (ya escaneada en la fila " + fila + ")", color: "#ff9800", marcarPrimera: true };
     }
     return { texto: "⛔ DUPLICADO (ya en " + et + ": " + previa.ped + ", fila " + fila + ")", color: "#ff9800", marcarPrimera: true };
+}
+
+// Pedimento del bloque de preforma al que pertenece una fila de guía.
+function pedimentoDeFilaPreforma(bloquesPreforma, fila) {
+    for (let b = 0; b < bloquesPreforma.length; b++) {
+        if (bloquesPreforma[b].filasGuias.indexOf(fila) !== -1) return bloquesPreforma[b].pedimento;
+    }
+    return "SIN_CABECERA";
+}
+
+// Escribe un aviso en la columna P sin destruir lo que ya hubiera: si la fila
+// arrastra el "► Resumen: N bultos" se antepone, y nunca pisa un ⛔ ni un 🛑,
+// que son más graves.
+function escribirAvisoPreforma(resultadosP, coloresP, fila, texto, color) {
+    let previo = String(resultadosP[fila][0]);
+    if (previo === "") {
+        resultadosP[fila][0] = texto;
+    } else if (previo.startsWith("⛔") || previo.startsWith("🛑")) {
+        return;
+    } else {
+        resultadosP[fila][0] = texto + " | " + previo;
+    }
+    coloresP[fila][0] = color;
 }
 
 // Y el aviso que se pone en la PRIMERA de las dos, para que se pinten ambas y
@@ -1602,9 +1648,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       if (gTmp.length > 0) bloquesPreforma.push({ pedimento: "SIN_CABECERA", filaPedimento: -1, guias: gTmp.slice(), filasGuias: fTmp.slice(), esErr: false });
   }
 
-  let filasGuiaRepetidaPreforma = COLOREAR_PEDIMENTO_Y_DUP_EN_O
-      ? filasGuiaRepetidaEnPreforma(datosMasivos, ultimaFila)
-      : new Set();
+  let repetidasPreforma = COLOREAR_PEDIMENTO_Y_DUP_EN_O
+      ? repetidasEnPreforma(bloquesPreforma)
+      : new Map();
 
   bloquesPreforma.forEach(bloque => {
     let pedimento = bloque.pedimento; let setGuias = new Set(bloque.guias);
@@ -1641,19 +1687,26 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // bloque de las guías, para que un repetido nunca pase desapercibido.
   if (COLOREAR_PEDIMENTO_Y_DUP_EN_O) {
       filasDuplicadasPreforma.forEach(fila => { coloresColumnaO[fila][0] = COLOR_A_DUPLICADO; });
-      filasGuiaRepetidaPreforma.forEach(fila => {
+
+      // Misma lógica que en A/B: la O pinta SIEMPRE las dos guías de la pareja,
+      // y la P gradúa el aviso (gris si es el mismo pedimento, naranja si son
+      // distintos, con la primera marcada también).
+      let repesPreforma = new Map();
+      repetidasPreforma.forEach((previa, fila) => {
+          let pedDeEsta = pedimentoDeFilaPreforma(bloquesPreforma, fila);
+          let dupLocal = duplicadoLocal(previa, pedDeEsta);
+
           coloresColumnaO[fila][0] = COLOR_A_DUPLICADO;
-          // Sin aviso en P la celda roja no diría por qué. No pisa errores
-          // estructurales ni duplicados entre hojas, que son más graves, y si
-          // la fila ya trae el "► Resumen" se antepone en vez de borrarlo.
-          let estadoPrevio = resultadosP[fila][0];
-          if (estadoPrevio === "") {
-              resultadosP[fila][0] = "⚠️ GUÍA REPETIDA EN PREFORMA";
-              coloresP[fila][0] = "#ffc107";
-          } else if (!estadoPrevio.startsWith("⛔") && !estadoPrevio.startsWith("🛑")) {
-              resultadosP[fila][0] = "⚠️ GUÍA REPETIDA | " + estadoPrevio;
-              coloresP[fila][0] = "#ffc107";
-          }
+          coloresColumnaO[previa.idx][0] = COLOR_A_DUPLICADO;
+
+          escribirAvisoPreforma(resultadosP, coloresP, fila,
+                                dupLocal.texto.replace("DUPLICADO", "GUÍA REPETIDA"), dupLocal.color);
+          if (dupLocal.marcarPrimera) anotarRepeticion(repesPreforma, previa.idx, fila + 1);
+      });
+
+      repesPreforma.forEach((info, idx) => {
+          escribirAvisoPreforma(resultadosP, coloresP, idx,
+                                textoPrimeraDuplicada(info).replace("DUPLICADO", "GUÍA REPETIDA"), "#ff9800");
       });
   }
 
@@ -1787,8 +1840,20 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                   }
               } else {
                   if (esperadas.size === 0) {
-                      resultadosB[filaG][0] = "✅ Guía" + (origen ? " (Escaneado en " + origen + ")" : "");
-                      coloresB[filaG][0] = (!origen && requiereAlertaMS) ? "#ffc107" : "#71b3e6";
+                      // El pedimento de este bloque no tiene preforma, pero la
+                      // guía sí puede pertenecer a OTRO pedimento que sí la
+                      // tenga. Antes esto se cortaba aquí y salía "✅ Guía" tan
+                      // tranquilo, tapando que la guía estaba en el bloque
+                      // equivocado: el aviso solo aparecía si el pedimento
+                      // escaneado tenía preforma propia.
+                      if (pedReal && pedReal !== ped) {
+                          resultadosB[filaG][0] = "❌ Va en: " + pedReal;
+                          coloresB[filaG][0] = "#f5c6cb";
+                          sobran++;
+                      } else {
+                          resultadosB[filaG][0] = "✅ Guía" + (origen ? " (Escaneado en " + origen + ")" : "");
+                          coloresB[filaG][0] = (!origen && requiereAlertaMS) ? "#ffc107" : "#71b3e6";
+                      }
                   } else if (esperadas.has(g)) {
                       resultadosB[filaG][0] = "✅ Ok" + (origen ? " (Escaneado en " + origen + ")" : "");
                       coloresB[filaG][0] = "#07c369";
@@ -2007,8 +2072,14 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
           let filaG = bloque.filasGuias[idx];
           let statusActual = resultadosB[filaG][0];
 
-          if (esEstadoSalida(statusActual)) {
-              movidas++; totalMovidas++;
+          // El duplicado se evalúa SIEMPRE, también en las guías ya movidas:
+          // antes "➡ Salió en ..." entraba primero y la repetición no se
+          // llegaba a mirar, así que la alerta no volvía a salir nunca.
+          let movida = esEstadoSalida(statusActual);
+          if (movida) { movidas++; totalMovidas++; }
+
+          if (movida && !primeraAparicion.has(g)) {
+              primeraAparicion.set(g, { ped: bloque.pedimento, idx: filaG });
               guiasUnicas.add(g);
           } else {
               let previa = primeraAparicion.get(g);
@@ -2193,7 +2264,12 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
       // Duplicado entre inventarios o error estructural: ya tiene mensaje fijo.
     } else if (!esGuiaUPSValida(valor)) {
       resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b";
-    } else if (filaUbicacionActual !== -1) {
+    } else if (filaUbicacionActual === -1) {
+      // Guía escaneada antes de cualquier ubicación: antes se quedaba SIN
+      // estado, y una columna B vacía con dato en A hacía que la red de
+      // seguridad tomara la hoja por pendiente en cada pasada.
+      resultadosB[i][0] = "⚠️ Falta la ubicación IW arriba"; coloresB[i][0] = "#ffc107";
+    } else {
       let previa = guiasFisicas.get(valor);
       if (previa !== undefined) {
           let ubi = String(datosMasivos[filaUbicacionActual][0]).trim().toUpperCase();
@@ -2602,11 +2678,17 @@ function actualizadorAutomaticoGlobal() {
             }
         } else if (esHojaPrincipal(nombreHoja)) {
             if (hoja.getMaxColumns() >= 16) {
+                // Solo la columna A. La preforma NO se mira: en la columna P
+                // únicamente llevan texto la fila del pedimento y la última guía
+                // de cada bloque; las de en medio se quedan vacías a propósito.
+                // Mirarlas daba por pendiente toda hoja con preforma, siempre, y
+                // la red la recalculaba en cada pasada del trigger sin fin.
+                // Además "⏳ Pendiente" solo se escribe para ediciones de la
+                // columna A (ver marcarPendiente), así que la preforma nunca
+                // formó parte de este mecanismo.
                 let datosFisicos = hoja.getRange(2, 1, lr - 1, 2).getValues();
-                let datosPreforma = hoja.getRange(2, 15, lr - 1, 2).getValues();
                 for (let i = 0; i < datosFisicos.length; i++) {
                     if (filaSinValidar(datosFisicos[i][0], datosFisicos[i][1])) { necesitaActualizar = true; break; }
-                    if (filaSinValidar(datosPreforma[i][0], datosPreforma[i][1])) { necesitaActualizar = true; break; }
                 }
             } else {
                 necesitaActualizar = true;
