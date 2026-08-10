@@ -498,6 +498,10 @@ function procesarEdicion(e) {
 
     if (esModoInventario) {
         sincronizarInventariosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
+    } else if (esHojaPrincipal(nombreHoja) && !esHojaMS(nombreHoja)) {
+        // Que la otra hoja destino se entere de que la guía cambió: si tenía un
+        // duplicado apuntando a esta fila, hay que limpiarlo o reubicarlo.
+        sincronizarDestinosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
     }
 
   } finally {
@@ -678,15 +682,42 @@ function ultimaFilaEnCache(cacheInfo, colIdx) {
 // Antes el barrido recorría TODAS las pestañas del archivo llamando a getName()
 // en cada una para saber cuáles eran M-S: una llamada a la API por pestaña, en
 // cada escaneo, para acabar abriendo casi siempre una sola.
-function hojasMSConGuias(cacheInfo, guias) {
+function hojasConGuias(cacheInfo, guias, dominio) {
     let out = new Set();
     if (!cacheInfo || !cacheInfo.map || !guias) return out;
     guias.forEach(g => {
         let entradas = cacheInfo.map.get(String(g).trim().toUpperCase());
         if (!entradas) return;
-        entradas.forEach(e => { if (e.isMS) out.add(e.hoja); });
+        entradas.forEach(e => {
+            let suyo = dominio === "ms" ? e.isMS
+                     : dominio === "inventario" ? e.isInventario
+                     : (!e.isMS && !e.isInventario);       // destino
+            if (suyo) out.add(e.hoja);
+        });
     });
     return out;
+}
+
+function hojasMSConGuias(cacheInfo, guias) {
+    return hojasConGuias(cacheInfo, guias, "ms");
+}
+
+// Recalcula las OTRAS hojas destino que contienen alguna de las guías tocadas.
+//
+// Sin esto, corregir o borrar una guía dejaba el "⛔ DUPLICADO" pegado en la
+// otra hoja destino hasta que alguien escaneara allí: el barrido de M-S solo
+// mira pestañas M-S y el de inventarios solo inventarios, así que entre
+// destinos no había nadie que limpiara. Solo se abren las que de verdad tienen
+// la guía, o sea casi siempre ninguna.
+function sincronizarDestinosAfectados(source, cacheInfo, guiasAfectadas, hojaOrigen) {
+    if (!guiasAfectadas || guiasAfectadas.size === 0) return;
+
+    let claveOrigen = claveHoja(hojaOrigen);
+    hojasConGuias(cacheInfo, guiasAfectadas, "destino").forEach(clave => {
+        if (clave === claveOrigen || esHojaSistema(clave)) return;
+        let h = perf("abrir destino por nombre", 0, () => source.getSheetByName(clave));
+        if (h) actualizarGlobalPreforma(h, source, cacheInfo, guiasAfectadas, false, false);
+    });
 }
 
 function hojaContieneAlgunaGuia(cacheInfo, colIdx, guias) {

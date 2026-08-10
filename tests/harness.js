@@ -303,6 +303,32 @@ COLS_CAPTURA.forEach(c =>
 ok("la columna Q ya no está en el lote", columnasDelLote().indexOf(17) === -1);
 ok("la columna D ya no está en el lote", columnasDelLote().indexOf(4) === -1);
 
+console.log("\n=== 5q. hojasConGuias: cada dominio ve solo el suyo ===");
+const cacheDominios = { map: new Map([
+  ["1Z111", [
+    { hoja: "GLOBAL 2",     fila: 5,  isMS: false, isInventario: false },
+    { hoja: "GLOBAL 3",     fila: 80, isMS: false, isInventario: false },
+    { hoja: "M-S T1",       fila: 12, isMS: true,  isInventario: false },
+    { hoja: "INVENTARIO A", fila: 3,  isMS: false, isInventario: true  }
+  ]]
+]), headers: [], data: [] };
+
+let dest = hojasConGuias(cacheDominios, new Set(["1Z111"]), "destino");
+ok("destino devuelve las dos globales", dest.size === 2 && dest.has("GLOBAL 2") && dest.has("GLOBAL 3"));
+ok("destino no arrastra la M-S ni el inventario", !dest.has("M-S T1") && !dest.has("INVENTARIO A"));
+
+let ms = hojasConGuias(cacheDominios, new Set(["1Z111"]), "ms");
+ok("ms devuelve solo la M-S", ms.size === 1 && ms.has("M-S T1"));
+ok("hojasMSConGuias sigue funcionando igual",
+   hojasMSConGuias(cacheDominios, new Set(["1Z111"])).has("M-S T1"));
+
+let inv = hojasConGuias(cacheDominios, new Set(["1Z111"]), "inventario");
+ok("inventario devuelve solo el inventario", inv.size === 1 && inv.has("INVENTARIO A"));
+
+ok("guía desconocida -> vacío", hojasConGuias(cacheDominios, new Set(["NOEXISTE"]), "destino").size === 0);
+ok("sin caché -> vacío", hojasConGuias(null, new Set(["1Z111"]), "destino").size === 0);
+ok("normaliza minúsculas", hojasConGuias(cacheDominios, new Set([" 1z111 "]), "destino").size === 2);
+
 console.log("\n=== 5o. Pedimento repetido en OTRA pestaña ===");
 const PED = "6035443";
 const cachePed = { map: new Map([[PED, [

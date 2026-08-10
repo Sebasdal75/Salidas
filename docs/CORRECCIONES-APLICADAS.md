@@ -812,3 +812,38 @@ pedimento y que su resumen saliera como `✅ T1`. Tampoco se usa, así que se re
 `D` y `Q` quedan libres. Es también un pequeño ahorro en cada edición: el
 descarte previo al lock (`colsValidas`) rechaza ahora más ediciones sin llegar a
 pedirlo.
+
+---
+
+## Corregir una guía: qué se actualiza y qué no
+
+Pregunta de producción: si escaneo un pedimento y una guía y luego los corrijo
+porque me equivoqué, ¿el caché se entera?
+
+**Sí, en la misma edición.** Verificado el recorrido:
+
+1. `procesarEdicion` descarta el caché en RAM y lo relee, así que `oldStr` sale
+   de CACHE_SISTEMA y es el valor **anterior** al cambio.
+2. La normalización (MAYÚSCULAS, solo A-Z y 0-9) se aplica **antes**, y escribe
+   el valor limpio en `valoresEditados`, que es lo que se guarda. Al caché no
+   entra nunca el texto crudo.
+3. `actualizarBloqueEnCache` borra el rastro viejo del índice, registra el
+   nuevo, y escribe la columna del caché en la hoja.
+4. Devuelve `guiasAfectadas` con **el valor viejo y el nuevo**, para que los
+   barridos revisen los dos.
+5. El recálculo de la hoja se hace ya con el caché nuevo.
+
+Vale igual para el pedimento: los números de 7 dígitos también están indexados.
+
+### El hueco que sí había: entre hojas destino
+
+`guiasAfectadas` movía los barridos de M-S y de inventarios, pero **entre hojas
+destino no había nadie**. Corregir una guía en GLOBAL 2 dejaba el
+`⛔ DUPLICADO (En: GLOBAL 2 Fila N)` pegado en GLOBAL 3 hasta que alguien
+escaneara allí.
+
+Se añade `sincronizarDestinosAfectados()`, hermana de la de inventarios.
+`hojasMSConGuias` se generaliza a `hojasConGuias(cacheInfo, guias, dominio)` con
+los tres dominios, y solo se abren las pestañas que de verdad contienen alguna
+de las guías tocadas — o sea, casi siempre ninguna: un escaneo normal no paga
+nada.
