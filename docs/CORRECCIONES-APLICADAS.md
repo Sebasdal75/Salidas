@@ -614,3 +614,39 @@ recálculo de esa hoja la retira y entonces sí aparece el estado normal.
 
 El `🔄 Duplicado local` gris también está protegido: es discreto a propósito,
 pero desaparecer solo era justo lo que se estaba reportando.
+
+---
+
+## Diagnóstico de una guía o un pedimento concreto
+
+Dos casos de producción que no se podían resolver mirando el código, porque la
+lógica estaba bien y la causa estaba en los datos:
+
+- Guías escaneadas en A1 salían `⚠️ Sobra (Ajena)` y `⚠️ Sin registrar en M-S`
+  aunque el operador las tuviera en M-S CUENTAS ESPECIALES. En el **mismo
+  bloque**, unas se reconocían y otras no.
+- Un pedimento repetido «apareció marcado primero y luego se puso
+  ⏳ Esperando guías».
+
+`🔍 ¿Por qué esta guía sale así?` responde con datos. Se pone el cursor en la
+celda y el informe cambia según lo que haya:
+
+**Si es una guía:** dónde la tiene el caché (pestaña, fila y tipo de cada
+aparición), si alguna M-S la registra y con qué origen, qué pedimento le asigna
+la M-S, qué pedimento tiene el bloque donde está escaneada y qué espera ese
+bloque. Cierra distinguiendo las tres causas de «Sin registrar en M-S»: el caché
+no la conoce, la conoce pero en ninguna pestaña M-S, o está en una M-S **sin
+pedimento de 7 dígitos encima** — que es el caso silencioso, porque las guías se
+asignan al último pedimento que aparece *arriba* de ellas.
+
+**Si son 7 dígitos**, se trata como pedimento: los pedimentos no están en el
+índice de guías, así que se busca a mano por todas las columnas del caché y se
+lista cada aparición, separando escaneo (col A) de preforma (col O). Después
+dice si está repetido, y aquí hay una limitación que conviene tener escrita:
+
+> El aviso `🛑 PEDIMENTO REPETIDO` solo mira **dentro de cada pestaña**. Un
+> mismo pedimento en dos M-S distintas no se marca hoy. El diagnóstico sí lo
+> detecta y lo avisa.
+
+Por último enseña cuántas guías le cuelgan según las M-S, que es la forma rápida
+de ver si el pedimento quedó desconectado de sus guías.

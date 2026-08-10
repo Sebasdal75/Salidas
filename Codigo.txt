@@ -2582,15 +2582,79 @@ function diagnosticarGuia() {
   invalidarCacheRAM();
   let cacheInfo = getCacheData(ss);
   let L = [];
+  let esPedimento = /^\d{7}$/.test(guia);
 
-  L.push("Guía: " + guia);
+  L.push((esPedimento ? "Pedimento: " : "Guía: ") + guia);
   L.push("Pestaña actual: " + nombreHoja + "   ·   celda " + celda.getA1Notation());
-  L.push("¿Formato de guía válido?: " + (esGuiaUPSValida(guia) ? "SÍ" : "NO"));
+  if (!esPedimento) L.push("¿Formato de guía válido?: " + (esGuiaUPSValida(guia) ? "SÍ" : "NO"));
   L.push("");
 
   if (!cacheInfo) {
     L.push("❌ No hay caché. Usa «Reconstruir caché completo».");
-    ui.alert("🔍 Diagnóstico de guía", L.join("\n"), ui.ButtonSet.OK);
+    ui.alert("🔍 Diagnóstico", L.join("\n"), ui.ButtonSet.OK);
+    return;
+  }
+
+  // ── Un pedimento no vive en el índice de guías: se busca a mano ───────────
+  if (esPedimento) {
+    L.push("── DÓNDE APARECE ESTE PEDIMENTO ──");
+    let apariciones = [];
+    for (let c = 0; c < cacheInfo.headers.length; c++) {
+        let header = String(cacheInfo.headers[c]);
+        if (!header.endsWith("_FISICO") && !header.endsWith("_PREFORMA")) continue;
+        let esPre = header.endsWith("_PREFORMA");
+        let nom = claveHoja(header.replace("_FISICO", "").replace("_PREFORMA", ""));
+        for (let r = 1; r < cacheInfo.data.length; r++) {
+            if (String(cacheInfo.data[r][c]).trim() === guia) {
+                apariciones.push({ hoja: nom, fila: r, pre: esPre, ms: esHojaMS(nom) });
+            }
+        }
+    }
+
+    if (apariciones.length === 0) {
+        L.push("   En ninguna parte según el caché. Si lo ves escrito, el caché");
+        L.push("   está desfasado: corre «♻️ Reconstruir caché completo».");
+    } else {
+        apariciones.forEach(a => {
+            L.push("   · " + a.hoja + "  fila " + a.fila +
+                   (a.pre ? "  (preforma, col O)" : "  (escaneo, col A)") +
+                   (a.ms ? "  [M-S]" : ""));
+        });
+    }
+
+    let enMS = apariciones.filter(a => a.ms && !a.pre);
+    let hojasMS = {};
+    enMS.forEach(a => { hojasMS[a.hoja] = (hojasMS[a.hoja] || 0) + 1; });
+    let nombresMS = Object.keys(hojasMS);
+
+    L.push("");
+    L.push("── ¿ESTÁ REPETIDO? ──");
+    let repetidoEnUna = nombresMS.some(n => hojasMS[n] > 1);
+    if (repetidoEnUna) {
+        L.push("   🛑 Sí, DOS VECES DENTRO DE LA MISMA M-S. Eso sí lo marca el");
+        L.push("      sistema como «PEDIMENTO REPETIDO».");
+    } else if (nombresMS.length > 1) {
+        L.push("   ⚠️ Está en " + nombresMS.length + " pestañas M-S distintas:");
+        nombresMS.forEach(n => L.push("      · " + n));
+        L.push("");
+        L.push("   OJO: el sistema NO marca esto. El aviso de «PEDIMENTO REPETIDO»");
+        L.push("   solo mira dentro de cada pestaña por separado, nunca entre");
+        L.push("   pestañas. Si esto no debería pasar, avísame y lo añado.");
+    } else {
+        L.push("   No. Aparece una sola vez en las M-S" +
+               (nombresMS.length === 1 ? " (" + nombresMS[0] + ")" : "") + ".");
+    }
+
+    L.push("");
+    L.push("── QUÉ GUÍAS LE CUELGAN ──");
+    let datosMSPed = obtenerRegistroMSDesdeCache(cacheInfo, "");
+    let setPed = datosMSPed.registroMS.get(guia);
+    L.push("   Según las M-S: " + (setPed ? setPed.size + " guías" : "ninguna"));
+    L.push("   Si aquí dice 'ninguna' pero en la M-S sí ves guías debajo, es que");
+    L.push("   el pedimento no está justo encima de ellas o tiene algún carácter");
+    L.push("   raro: las guías se asignan al último pedimento que haya ARRIBA.");
+
+    ui.alert("🔍 Diagnóstico de pedimento", L.join("\n"), ui.ButtonSet.OK);
     return;
   }
 
