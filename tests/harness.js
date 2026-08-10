@@ -231,7 +231,7 @@ ok("pedimento -> azul", colorColumnaA("6100166", "Bultos: 30 | ✅ COMPLETO") ==
 ok("guía válida -> verde", colorColumnaA("1Z999AA10123456784", "✅ Ok") === "#00ff00");
 ok("guía corta -> verde", colorColumnaA("1234567890", "✅ Guía") === "#00ff00");
 ok("duplicada entre hojas -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (En: M-S T1 Fila 4)") === "#df5f6b");
-ok("duplicada en el mismo pedimento -> rojo", colorColumnaA("1Z999AA10123456784", "🔄 DUPLICADO (repetida en el mismo Ped: 6100166, fila 12)") === "#df5f6b");
+ok("duplicada en el mismo pedimento -> rojo en A aunque B vaya en gris", colorColumnaA("1Z999AA10123456784", "🔄 Duplicado local") === "#df5f6b");
 ok("duplicada en otro pedimento -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (ya en Ped: 6100166, fila 12)") === "#df5f6b");
 ok("la PRIMERA de la pareja también en rojo", colorColumnaA("1Z999AA10123456784", "⚠️ DUPLICADO (repetida en la fila 45)") === "#df5f6b");
 ok("la primera con cola de resumen sigue en rojo", colorColumnaA("1Z999AA10123456784", "⚠️ DUPLICADO (repetida en la fila 45)   ►   Bultos: 8 | ✅ COMPLETO") === "#df5f6b");
@@ -293,17 +293,34 @@ ok("solo headers -> 0", ultimaFilaEnCache({ data: [["X_FISICO"]] }, 0) === 0);
 ok("celda con espacios no cuenta",
    ultimaFilaEnCache({ data: [["X_FISICO"], ["1Z1"], ["   "]] }, 0) === 1);
 
-console.log("\n=== 5i. Mensajes de duplicado dentro de la misma hoja ===");
-ok("otro pedimento: dice cuál y en qué fila",
-   textoDuplicadoLocal({ ped: "6100166", idx: 11 }, "6100200") === "⛔ DUPLICADO (ya en Ped: 6100166, fila 12)");
-ok("mismo pedimento: lo distingue",
-   textoDuplicadoLocal({ ped: "6100166", idx: 11 }, "6100166") === "🔄 DUPLICADO (repetida en el mismo Ped: 6100166, fila 12)");
-ok("bloque sin cabecera: se cae a la fila",
-   textoDuplicadoLocal({ ped: "SIN_CABECERA", idx: 4 }, "6100166") === "⛔ DUPLICADO (ya escaneada en la fila 5)");
-ok("marcador estructural: se cae a la fila",
-   textoDuplicadoLocal({ ped: "SIN PEDIMENTO", idx: 4 }, "6100166") === "⛔ DUPLICADO (ya escaneada en la fila 5)");
-ok("inventarios hablan de ubicación, no de pedimento",
-   textoDuplicadoLocal({ ped: "IW-A-01", idx: 6 }, "IW-A-01", "Ubic") === "🔄 DUPLICADO (repetida en el mismo Ubic: IW-A-01, fila 7)");
+console.log("\n=== 5i. Duplicados dentro de la misma hoja ===");
+// Mismo pedimento: doble escaneo sin más. Gris, discreto, sin marcar la primera.
+let dMismo = duplicadoLocal({ ped: "6100166", idx: 11 }, "6100166");
+ok("mismo pedimento -> 'Duplicado local'", dMismo.texto === "🔄 Duplicado local");
+ok("mismo pedimento -> gris", dMismo.color === "#acacac");
+ok("mismo pedimento -> NO marca la primera", dMismo.marcarPrimera === false);
+
+// Otro pedimento: hay que decidir a cuál pertenece. Naranja y se pintan las dos.
+let dOtro = duplicadoLocal({ ped: "6100166", idx: 11 }, "6100200");
+ok("otro pedimento -> dice cuál y en qué fila",
+   dOtro.texto === "⛔ DUPLICADO (ya en Ped: 6100166, fila 12)");
+ok("otro pedimento -> naranja", dOtro.color === "#ff9800");
+ok("otro pedimento -> sí marca la primera", dOtro.marcarPrimera === true);
+
+// Sin cabecera: no hay pedimento que nombrar, se cae a la fila.
+let dSin = duplicadoLocal({ ped: "SIN_CABECERA", idx: 4 }, "6100166");
+ok("bloque sin cabecera -> se cae a la fila",
+   dSin.texto === "⛔ DUPLICADO (ya escaneada en la fila 5)" && dSin.marcarPrimera === true);
+ok("los dos sin cabecera -> gris, es el mismo bloque",
+   duplicadoLocal({ ped: "SIN_CABECERA", idx: 4 }, "SIN_CABECERA").color === "#acacac");
+ok("marcador estructural -> se cae a la fila",
+   duplicadoLocal({ ped: "SIN PEDIMENTO", idx: 4 }, "6100166").texto === "⛔ DUPLICADO (ya escaneada en la fila 5)");
+
+// Inventarios: solo existe el caso "misma ubicación", que va en gris.
+ok("misma ubicación IW -> gris y discreto",
+   duplicadoLocal({ ped: "IW-A-01", idx: 6 }, "IW-A-01", "Ubic").texto === "🔄 Duplicado local");
+ok("otra ubicación IW -> habla de Ubic, no de Ped",
+   duplicadoLocal({ ped: "IW-A-01", idx: 6 }, "IW-B-02", "Ubic").texto === "⛔ DUPLICADO (ya en Ubic: IW-A-01, fila 7)");
 
 ok("aviso en la primera, una repetición",
    textoPrimeraDuplicada({ veces: 1, fila: 45 }) === "⚠️ DUPLICADO (repetida en la fila 45)");

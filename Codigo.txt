@@ -1335,14 +1335,24 @@ const HUECO_MAX_BLOQUE = 200;
 // inalcanzable, porque la comprobación de "ya la vi" se hacía primero y tapaba
 // a la de "ya está asignada a un pedimento". El operador necesita saber a qué
 // pedimento ir, así que ahora siempre se dice.
-function textoDuplicadoLocal(previa, pedActual, etiqueta) {
+function duplicadoLocal(previa, pedActual, etiqueta) {
     let et = etiqueta || "Ped";   // los inventarios agrupan por ubicación, no por pedimento
     let fila = previa.idx + 1;
     let tienePed = previa.ped && previa.ped !== "SIN_CABECERA" && !esMarcadorEstructural(previa.ped);
 
-    if (!tienePed) return "⛔ DUPLICADO (ya escaneada en la fila " + fila + ")";
-    if (previa.ped === pedActual) return "🔄 DUPLICADO (repetida en el mismo " + et + ": " + previa.ped + ", fila " + fila + ")";
-    return "⛔ DUPLICADO (ya en " + et + ": " + previa.ped + ", fila " + fila + ")";
+    // Repetida dentro del MISMO pedimento (o la misma ubicación): es un doble
+    // escaneo y basta con borrar la de abajo. No hay que ir a buscar nada, así
+    // que va en gris discreto y la primera ni se marca.
+    if (previa.ped === pedActual) {
+        return { texto: "🔄 Duplicado local", color: "#acacac", marcarPrimera: false };
+    }
+
+    // En otro pedimento sí importa: hay que decidir a cuál pertenece. Naranja,
+    // con la referencia de dónde está la otra, y se pintan las dos.
+    if (!tienePed) {
+        return { texto: "⛔ DUPLICADO (ya escaneada en la fila " + fila + ")", color: "#ff9800", marcarPrimera: true };
+    }
+    return { texto: "⛔ DUPLICADO (ya en " + et + ": " + previa.ped + ", fila " + fila + ")", color: "#ff9800", marcarPrimera: true };
 }
 
 // Y el aviso que se pone en la PRIMERA de las dos, para que se pinten ambas y
@@ -1746,9 +1756,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 
           let previa = primeraAparicion.get(g);
           if (previa) {
-              resultadosB[filaG][0] = textoDuplicadoLocal(previa, ped);
-              coloresB[filaG][0] = "#ff9800";
-              anotarRepeticion(repeticiones, previa.idx, filaG + 1);
+              let dupLocal = duplicadoLocal(previa, ped);
+              resultadosB[filaG][0] = dupLocal.texto;
+              coloresB[filaG][0] = dupLocal.color;
+              if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa.idx, filaG + 1);
           }
           else {
               primeraAparicion.set(g, { ped: ped, idx: filaG }); escaneadasUnicas.add(g);
@@ -1990,9 +2001,10 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
           } else {
               let previa = primeraAparicion.get(g);
               if (previa) {
-                  resultadosB[filaG][0] = textoDuplicadoLocal(previa, bloque.pedimento);
-                  coloresB[filaG][0] = "#ff9800";
-                  anotarRepeticion(repeticiones, previa.idx, filaG + 1);
+                  let dupLocal = duplicadoLocal(previa, bloque.pedimento);
+                  resultadosB[filaG][0] = dupLocal.texto;
+                  coloresB[filaG][0] = dupLocal.color;
+                  if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa.idx, filaG + 1);
               } else {
                   primeraAparicion.set(g, { ped: bloque.pedimento, idx: filaG });
                   guiasUnicas.add(g);
@@ -2171,9 +2183,10 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
       let previa = guiasFisicas.get(valor);
       if (previa !== undefined) {
           let ubi = String(datosMasivos[filaUbicacionActual][0]).trim().toUpperCase();
-          resultadosB[i][0] = textoDuplicadoLocal({ ped: ubi, idx: previa }, ubi, "Ubic");
-          coloresB[i][0] = "#ff9800";
-          anotarRepeticion(repeticiones, previa, i + 1);
+          let dupLocal = duplicadoLocal({ ped: ubi, idx: previa }, ubi, "Ubic");
+          resultadosB[i][0] = dupLocal.texto;
+          coloresB[i][0] = dupLocal.color;
+          if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa, i + 1);
       } else {
           guiasFisicas.set(valor, i);
           resultadosB[i][0] = "✅ Ok"; coloresB[i][0] = "#07c369";

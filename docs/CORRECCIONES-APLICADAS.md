@@ -477,14 +477,23 @@ rama se quedaba siempre con el caso. La segunda no se ejecutó nunca.
 Se fusionan en una sola, `primeraAparicion: guía -> { ped, idx }`, y el mensaje
 ahora siempre dice dónde está la otra:
 
-| Situación | Mensaje |
-|---|---|
-| Otro pedimento | `⛔ DUPLICADO (ya en Ped: 6100166, fila 12)` |
-| El mismo pedimento | `🔄 DUPLICADO (repetida en el mismo Ped: 6100166, fila 12)` |
-| Bloque sin cabecera o marcador | `⛔ DUPLICADO (ya escaneada en la fila 12)` |
-| Inventarios | igual, pero con `Ubic:` y la ubicación IW |
+`duplicadoLocal()` devuelve texto, color y si hay que marcar la primera,
+graduando el aviso según lo grave que sea:
 
-### Se pintan las dos, no solo una
+| Situación | Mensaje | Color | ¿Marca la primera? |
+|---|---|---|---|
+| El mismo pedimento | `🔄 Duplicado local` | Gris `#acacac` | No |
+| Otro pedimento | `⛔ DUPLICADO (ya en Ped: 6100166, fila 12)` | Naranja `#ff9800` | Sí |
+| Bloque sin cabecera o marcador | `⛔ DUPLICADO (ya escaneada en la fila 12)` | Naranja | Sí |
+| Inventarios, misma ubicación | `🔄 Duplicado local` | Gris | No |
+| Inventarios, otra ubicación | `⛔ DUPLICADO (ya en Ubic: IW-A-01, fila 7)` | Naranja | Sí |
+
+Repetir dentro del mismo pedimento es un doble escaneo: se borra la de abajo y
+ya, no hay nada que investigar. Va en gris y ni se toca la primera. En cambio la
+misma guía en dos pedimentos distintos obliga a decidir a cuál pertenece, y ahí
+sí hace falta el naranja y la referencia.
+
+### En el caso grave se pintan las dos, no solo una
 
 Antes solo se marcaba la repetida; la primera se quedaba en `✅ Ok` y no había
 forma de ver la pareja. Ahora la primera recibe
