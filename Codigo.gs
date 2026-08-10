@@ -315,11 +315,11 @@ function procesarEdicion(e) {
 
   // Descartes baratos ANTES de pedir el lock: así los escaneos no compiten
   // con ediciones irrelevantes.
-  // La columna Q (17) salió de aquí al retirar los costales: era lo único que
-  // la usaba. Los totales de Q1:Q2 los sigue escribiendo el recálculo, que no
-  // depende de que alguien edite esa columna.
-  // La D (4) se queda: además de los costales lleva la marca "T1" del bloque.
-  const colsValidas = [1, 4, 14, 15];
+  // Quedan solo tres columnas de captura. Salieron la Q (17) con los costales
+  // y la D (4) con la marca "T1", que eran sus únicos usos. Los totales de
+  // C1:C3 y Q1:Q2 los sigue escribiendo el recálculo, que no depende de que
+  // nadie edite esas columnas.
+  const colsValidas = [1, 14, 15];
   let tocaValida = false;
   for (let c = 0; c < numCols; c++) {
       if (colsValidas.indexOf(colInicial + c) !== -1) tocaValida = true;
@@ -560,10 +560,10 @@ function marcarPendiente(hoja, filaInicial, numRows, colInicial, numCols) {
 }
 
 // Columnas que este lote sabe escribir. Además de las de estado y hora, están
-// las cinco de captura (1, 4, 14, 15, 17), porque la normalización a mayúsculas
+// las tres de captura (1 A, 14 N, 15 O), porque la normalización a mayúsculas
 // devuelve el valor limpio a su propia celda. Una columna que falte aquí se
 // descarta en silencio.
-const COLS_BATCH = [1, 2, 4, 12, 14, 15, 16, 19];
+const COLS_BATCH = [1, 2, 12, 14, 15, 16, 19];
 
 // Accesor para poder comprobarlo desde el banco de pruebas.
 function columnasDelLote() { return COLS_BATCH; }
@@ -1820,7 +1820,6 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   for (let i = 0; i < ultimaFila; i++) {
       let v = String(datosMasivos[i][0]).trim().toUpperCase(); if (v === "") continue;
       let esErr = resultadosB[i][0] !== '';
-      let forz = String(datosMasivos[i][3]).trim().toUpperCase() === "T1" ? "T1" : "";
 
       if (esCabeceraBloque(v)) {
           // "SIN PEDIMENTO" y demás marcadores abren bloque pero no son pedimentos:
@@ -1831,7 +1830,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
           }
           if (bAAct) bloquesFisicos.push(bAAct);
-          bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], forzado: forz, esErr: esErr, conAlerta: 0 };
+          bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErr, conAlerta: 0 };
       } else {
           // Una fila con alerta (duplicado, error, guía inválida) NO entra en el
           // bloque, así que no cuenta como bulto. Pero sí se cuenta aparte: si
@@ -1844,7 +1843,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               if (bAAct) bAAct.conAlerta++;
           } else {
               if (bAAct) { bAAct.guias.push(v); bAAct.filasGuias.push(i); }
-              else { bAAct = { pedimento: "SIN_CABECERA", filaPedimento: -1, guias: [v], filasGuias: [i], forzado: "", esErr: false, conAlerta: 0 }; }
+              else { bAAct = { pedimento: "SIN_CABECERA", filaPedimento: -1, guias: [v], filasGuias: [i], esErr: false, conAlerta: 0 }; }
           }
       }
   }
@@ -1956,8 +1955,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                   } else {
                       // Se informa la bodega REAL por la que pasó, tomada del
                       // caché, en vez de deducirla del formato de las guías.
-                      if (bloque.forzado === "T1") estadoStr = "✅ T1";
-                      else if (nombreHoja.indexOf("A1") !== -1) estadoStr = "✅ A1 COMPLETO";
+                      if (nombreHoja.indexOf("A1") !== -1) estadoStr = "✅ A1 COMPLETO";
                       else if (origenesReales.size > 0) estadoStr = "✅ " + Array.from(origenesReales).sort().join(" + ");
                       else estadoStr = "✅ Escaneado";
                       coloresB[bloque.filaPedimento][0] = "#178ccc";

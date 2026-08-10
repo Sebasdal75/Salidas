@@ -149,10 +149,12 @@ contra la O y te dice qué falta y qué sobra.
 **Columna N:** poniendo `a`, `b` o `c` junto al pedimento, su bloque en la
 preforma se pinta de otro color. Sirve para distinguir grupos de un vistazo.
 
-**Columna D:** escribiendo `T1` junto al pedimento, su resumen sale como `✅ T1`.
-
-> El proceso de **costales** se retiró: ya no se usaba. La columna Q queda libre
-> (los totales de preforma de Q1:Q2 se siguen escribiendo solos).
+> Se retiraron dos cosas que ya no se usaban: el proceso de **costales** y la
+> marca **T1** de la columna D. Las columnas **D** y **Q** quedan libres — los
+> totales de preforma de Q1:Q2 se siguen escribiendo solos.
+>
+> El sistema ahora solo vigila tres columnas: **A** (escaneo), **N** (letra de
+> color del bloque) y **O** (preforma).
 
 ---
 

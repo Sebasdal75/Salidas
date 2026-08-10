@@ -286,7 +286,6 @@ ok("quita espacios de los extremos", limpiar("  1Z999AA1  ") === "1Z999AA1");
 ok("quita puntos y comas", limpiar("1Z999.AA1,") === "1Z999AA1");
 ok("quita acentos y símbolos", limpiar("1Z#99*9Á") === "1Z999");
 ok("un pedimento no se altera", limpiar("6035443") === "6035443");
-ok("T1 se conserva", limpiar("t1") === "T1");
 ok("COSTALES en minúsculas sube", limpiar("costales") === "COSTALES");
 ok("la letra de bloque sube", limpiar("b") === "B");
 ok("celda vacía sigue vacía", limpiar("") === "");
@@ -294,7 +293,7 @@ ok("celda vacía sigue vacía", limpiar("") === "");
 // ":" de la hora nunca pasan por esta limpieza.
 // Columnas de captura tras retirar los costales: la Q (17) salió, era lo único
 // que la usaba.
-const COLS_CAPTURA = [1, 4, 14, 15];
+const COLS_CAPTURA = [1, 14, 15];
 ok("la hora no está entre las columnas de captura",
    COLS_CAPTURA.indexOf(12) === -1 && COLS_CAPTURA.indexOf(19) === -1);
 // El lote sí sabe escribir en todas las de captura: si faltara alguna, la
@@ -302,6 +301,7 @@ ok("la hora no está entre las columnas de captura",
 COLS_CAPTURA.forEach(c =>
    ok("el lote escribe en la columna " + c, columnasDelLote().indexOf(c) !== -1));
 ok("la columna Q ya no está en el lote", columnasDelLote().indexOf(17) === -1);
+ok("la columna D ya no está en el lote", columnasDelLote().indexOf(4) === -1);
 
 console.log("\n=== 5o. Pedimento repetido en OTRA pestaña ===");
 const PED = "6035443";

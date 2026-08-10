@@ -791,3 +791,24 @@ Dos cosas se conservan a propósito:
 - La excepción que tenía el chequeo de duplicados para `COSTALES` se generaliza
   a `esMarcadorEstructural()`, que es lo que quería decir desde el principio:
   un marcador de bloque no es una guía y nunca puede ser un duplicado.
+
+---
+
+## Retirada también la marca «T1» de la columna D
+
+Con los costales fuera, la columna D solo servía para escribir `T1` junto a un
+pedimento y que su resumen saliera como `✅ T1`. Tampoco se usa, así que se retira
+`bloque.forzado` y su rama en el resumen: ahora el origen sale siempre del caché
+(`✅ M-S T1`, `✅ M-S GLOBALES`, …), que es el dato real de por dónde pasó.
+
+**El sistema pasa a vigilar tres columnas en lugar de cinco:**
+
+| Columna | Para qué |
+|---|---|
+| **A** (1) | El escaneo físico |
+| **N** (14) | La letra `a`/`b`/`c` que colorea el bloque en la preforma |
+| **O** (15) | La preforma |
+
+`D` y `Q` quedan libres. Es también un pequeño ahorro en cada edición: el
+descarte previo al lock (`colsValidas`) rechaza ahora más ediciones sin llegar a
+pedirlo.
