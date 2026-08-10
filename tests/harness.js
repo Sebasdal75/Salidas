@@ -276,6 +276,13 @@ ok("con resumen: antepone sin borrarlo", rP[1][0] === "AVISO | ► Resumen: 5 bu
 escribirAvisoPreforma(rP, cP, 2, "AVISO", "#ff9800");
 ok("no pisa un ⛔", rP[2][0] === "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)" && cP[2][0] === "#fff");
 
+console.log("\n=== 5n. Nota de filas con alerta (sustituye a 'Esperando guías') ===");
+ok("sin alertas no dice nada", notaConAlerta(0) === "");
+ok("undefined no dice nada", notaConAlerta(undefined) === "");
+ok("negativo no dice nada", notaConAlerta(-1) === "");
+ok("una alerta", notaConAlerta(1) === "⚠️ 1 con alerta");
+ok("varias alertas", notaConAlerta(3) === "⚠️ 3 con alerta");
+
 console.log("\n=== 5m. Prioridad de alertas: lo grave no se tapa ===");
 ok("vacío es informativo", nivelAlerta("") === 0);
 ok("✅ Ok es informativo", nivelAlerta("✅ Ok") === 0);

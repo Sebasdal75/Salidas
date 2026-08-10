@@ -1418,6 +1418,13 @@ function puedePisar(previo, nuevo) {
     return nivelAlerta(nuevo) >= nivelAlerta(previo);
 }
 
+// Coletilla que explica por qué el conteo de un bloque es más bajo de lo que
+// se ve en pantalla: esas filas llevan alerta y no cuentan como bulto.
+function notaConAlerta(n) {
+    if (!n || n <= 0) return "";
+    return "⚠️ " + n + (n === 1 ? " con alerta" : " con alerta");
+}
+
 // Pedimento del bloque de preforma al que pertenece una fila de guía.
 function pedimentoDeFilaPreforma(bloquesPreforma, fila) {
     for (let b = 0; b < bloquesPreforma.length; b++) {
@@ -1810,12 +1817,20 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
           }
           if (bAAct) bloquesFisicos.push(bAAct);
-          bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], forzado: forz, esErr: esErr };
+          bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], forzado: forz, esErr: esErr, conAlerta: 0 };
       } else {
-          if (!esGuiaUPSValida(v) && !esErr) { resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b"; }
-          else if (!esErr) {
+          // Una fila con alerta (duplicado, error, guía inválida) NO entra en el
+          // bloque, así que no cuenta como bulto. Pero sí se cuenta aparte: si
+          // no, un pedimento cuya única guía está duplicada parecía vacío y el
+          // resumen decía "Esperando guías" con la guía ahí delante.
+          if (esErr) {
+              if (bAAct) bAAct.conAlerta++;
+          } else if (!esGuiaUPSValida(v)) {
+              resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b";
+              if (bAAct) bAAct.conAlerta++;
+          } else {
               if (bAAct) { bAAct.guias.push(v); bAAct.filasGuias.push(i); }
-              else { bAAct = { pedimento: "SIN_CABECERA", filaPedimento: -1, guias: [v], filasGuias: [i], forzado: "", esErr: false }; }
+              else { bAAct = { pedimento: "SIN_CABECERA", filaPedimento: -1, guias: [v], filasGuias: [i], forzado: "", esErr: false, conAlerta: 0 }; }
           }
       }
   }
@@ -1909,9 +1924,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       if (!bloque.esErr && ped !== "SIN_CABECERA" && !esRezago) {
           let estadoStr = "";
 
+          let nota = notaConAlerta(bloque.conAlerta);
+
           if (esperadas.size === 0) {
               if (escaneadasUnicas.size === 0) {
-                  estadoStr = "⚠️ No en preforma";
+                  // Con guías abajo pero todas con alerta, decir "No en
+                  // preforma" despista: lo que pasa es que no cuentan.
+                  estadoStr = nota !== "" ? nota : "⚠️ No en preforma";
                   coloresB[bloque.filaPedimento][0] = "#FFF3CD";
               } else {
                   let registradoEnMS = true;
@@ -1934,7 +1953,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               let faltantesArr = guiasFaltantesMap.get(ped) || [];
               let faltan = faltantesArr.length;
               if (faltan === 0 && sobran === 0) {
-                  estadoStr = escaneadasUnicas.size === 0 ? "⏳ Esperando guías..." : "✅ COMPLETO";
+                  // Sin "Esperando guías": el número de bultos ya va delante y
+                  // dice lo mismo sin sugerir que no hay nada escaneado.
+                  estadoStr = escaneadasUnicas.size === 0 ? nota : "✅ COMPLETO";
                   coloresB[bloque.filaPedimento][0] = escaneadasUnicas.size === 0 ? "#e2e3e5" : "#07c369";
               } else {
                   let det = [];
@@ -1943,7 +1964,12 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                   estadoStr = det.join(" y "); coloresB[bloque.filaPedimento][0] = "#FFF3CD";
               }
           }
-          let txtResumen = "Bultos: " + escaneadasUnicas.size + " | " + estadoStr;
+          // Si el bloque tiene filas con alerta, se dice siempre, aunque el
+          // estado ya diga otra cosa: explica el descuadre del conteo.
+          if (nota !== "" && estadoStr.indexOf("con alerta") === -1) {
+              estadoStr = estadoStr === "" ? nota : estadoStr + " | " + nota;
+          }
+          let txtResumen = "Bultos: " + escaneadasUnicas.size + (estadoStr !== "" ? " | " + estadoStr : "");
           resultadosB[bloque.filaPedimento][0] = txtResumen;
 
           if (bloque.filasGuias.length > 0) {
@@ -2083,13 +2109,17 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
               if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
           }
           if (bAAct) bloquesFisicos.push(bAAct);
-          bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErr };
+          bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErr, conAlerta: 0 };
       } else {
-          if (!esGuiaUPSValida(v) && !esErr) { resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b"; }
-          else if (!esErr) {
+          if (esErr) {
+              if (bAAct) bAAct.conAlerta++;
+          } else if (!esGuiaUPSValida(v)) {
+              resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b";
+              if (bAAct) bAAct.conAlerta++;
+          } else {
               guiasGlobales.add(v);
               if (bAAct) { bAAct.guias.push(v); bAAct.filasGuias.push(i); }
-              else { bAAct = { pedimento: "SIN_CABECERA", filaPedimento: -1, guias: [v], filasGuias: [i], esErr: false }; }
+              else { bAAct = { pedimento: "SIN_CABECERA", filaPedimento: -1, guias: [v], filasGuias: [i], esErr: false, conAlerta: 0 }; }
           }
       }
   }
@@ -2142,16 +2172,20 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
           let msg = "";
           totalPedimentosTipo++;
 
+          let nota = notaConAlerta(bloque.conAlerta);
+          let base = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ")";
+
           if (guiasUnicas.size === 0) {
-              msg = "⏳ Esperando guías...";
-              coloresB[bloque.filaPedimento][0] = "#e2e3e5";
+              msg = base;
+              coloresB[bloque.filaPedimento][0] = nota !== "" ? "#ffc107" : "#e2e3e5";
           } else if (faltantes === 0) {
-              msg = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ") | ✅ TODO SALIÓ";
+              msg = base + " | ✅ TODO SALIÓ";
               coloresB[bloque.filaPedimento][0] = "#07c369";
           } else {
-              msg = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ") | ⚠️ Faltan " + faltantes + " por mover";
+              msg = base + " | ⚠️ Faltan " + faltantes + " por mover";
               coloresB[bloque.filaPedimento][0] = "#ffc107";
           }
+          if (nota !== "") msg += " | " + nota;
 
           resultadosB[bloque.filaPedimento][0] = msg;
 
@@ -2283,7 +2317,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
 
   function cerrarUbicacion() {
       if (filaUbicacionActual === -1 || resultadosB[filaUbicacionActual][0] !== '') return;
-      let msg = guiasFisicas.size === 0 ? "⏳ Esperando guías..." : "Bultos: " + guiasFisicas.size;
+      let msg = "Bultos: " + guiasFisicas.size;
       totalBultosInventario += guiasFisicas.size;
       resultadosB[filaUbicacionActual][0] = msg;
       coloresB[filaUbicacionActual][0] = "#178ccc";

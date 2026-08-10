@@ -88,7 +88,8 @@ después ya no cambia.
 
 | Mensaje | Qué significa | Qué hacer |
 |---|---|---|
-| **⏳ Esperando guías...** | Pedimento escaneado, todavía sin guías debajo | Nada, sigue escaneando |
+| **Bultos: 0** | Pedimento escaneado, todavía sin guías debajo | Nada, sigue escaneando |
+| **Bultos: 0 \| ⚠️ 1 con alerta** | Sí hay guías debajo, pero llevan alerta (duplicada, inválida) y por eso no cuentan como bulto | Resuelve la alerta de esa fila |
 | **➡ Salió en GLOBAL PENDIENTE** | En una M-S: esa guía ya salió en esa unidad. Sale tachada y en gris | Nada. Puedes limpiarla con el menú |
 | **⚠️ Faltan 3 por salir** | En una M-S: quedan 3 guías registradas que aún no salen | Nada, es informativo |
 | **⚠️ Sin registrar en M-S** | Llegó a la Global sin haberse registrado antes en ninguna M-S | Verifica si se saltó un paso |

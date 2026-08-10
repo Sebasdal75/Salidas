@@ -650,3 +650,28 @@ dice si está repetido, y aquí hay una limitación que conviene tener escrita:
 
 Por último enseña cuántas guías le cuelgan según las M-S, que es la forma rápida
 de ver si el pedimento quedó desconectado de sus guías.
+
+---
+
+## «Esperando guías» mentía cuando la guía sí estaba
+
+Un pedimento con una sola guía debajo, y esa guía marcada
+`⛔ DUPLICADO (En: M-S A1 Fila 37)`, mostraba `⏳ Esperando guías...` con la guía
+ahí delante.
+
+No era un fallo del mensaje sino de lo que contaba: las filas con alerta
+—duplicado, error de estructura, guía inválida— **no entran en el bloque**, así
+que no cuentan como bulto. Con la única guía fuera, el bloque quedaba en cero y
+el resumen decía que esperaba guías.
+
+Dos cambios:
+
+1. **Fuera `⏳ Esperando guías...`** en los tres cerebros. El número de bultos ya
+   va delante en el resumen y dice lo mismo sin dar a entender que no hay nada
+   escaneado. Un pedimento recién puesto ahora dice `Bultos: 0`.
+2. **Las filas excluidas se cuentan aparte** (`conAlerta` en cada bloque) y el
+   resumen lo dice: `Bultos: 0 | ⚠️ 1 con alerta`. Así el descuadre entre lo que
+   se ve y lo que se cuenta queda explicado en la propia celda.
+
+La nota se añade a cualquier estado, no solo al de cero: un bloque puede decir
+`Bultos: 12 | ✅ COMPLETO | ⚠️ 1 con alerta`.
