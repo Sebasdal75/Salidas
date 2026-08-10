@@ -518,12 +518,12 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
 // `tocoPreforma`: si es false, no se recalculan los colores de la columna O.
 // Un escaneo normal (columna A) no puede cambiarlos, y comprobarlos cuesta una
 // lectura de columna completa. Los menús pasan true para repintado total.
-function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma) {
+function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo) {
     if (tocoPreforma === undefined) tocoPreforma = true;
     let n = claveHoja(hoja.getName());
-    if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo);
-    else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo);
-    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma);
+    if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo, repintarTodo);
+    else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo, repintarTodo);
+    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo);
 }
 
 // =========================================================================
@@ -1140,7 +1140,7 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
         }
     }
 
-    msModificadas.forEach(hojaMS => actualizarMS(hojaMS, source, cacheInfo));
+    msModificadas.forEach(hojaMS => actualizarMS(hojaMS, source, cacheInfo, false));
 }
 
 // Propaga un cambio al resto de pestañas de INVENTARIO. Solo se abren las que
@@ -1188,9 +1188,22 @@ function coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila) {
     return out;
 }
 
-function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, idxHoraOriginal, resultadosStatus, resultadosHoras, datosMasivos, coloresNuevos, fontLinesA, fontColorsA, coloresA) {
+function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, idxHoraOriginal, resultadosStatus, resultadosHoras, datosMasivos, coloresNuevos, fontLinesA, fontColorsA, coloresA, repintarTodo) {
     let n = resultadosStatus.length;
     if (n === 0) return;
+
+    // Repintado total: se escribe la hoja entera aunque nada haya cambiado.
+    // Hace falta al retirar el formato condicional, porque si no las filas
+    // cuyo estado no cambió se quedarían sin color. Solo lo usan los menús.
+    if (repintarTodo) {
+        hoja.getRange(1, colStatus, n, 1).setValues(resultadosStatus);
+        hoja.getRange(1, colHora, n, 1).setValues(resultadosHoras);
+        if (coloresNuevos) hoja.getRange(1, colStatus, n, 1).setBackgrounds(coloresNuevos);
+        if (coloresA)   hoja.getRange(1, 1, n, 1).setBackgrounds(coloresA);
+        if (fontLinesA) hoja.getRange(1, 1, n, 1).setFontLines(fontLinesA);
+        if (fontColorsA) hoja.getRange(1, 1, n, 1).setFontColors(fontColorsA);
+        return;
+    }
 
     // Deliberadamente NO se leen los fondos actuales para detectar cambios de
     // color: eso costaba una lectura de columna completa por llamada (dos por
@@ -1304,7 +1317,7 @@ function procesarCostales(hoja, filaDestino) {
 // =========================================================================
 // CEREBRO PRINCIPAL: GLOBALES, T1, REZAGO, PREFORMA Y AGA
 // =========================================================================
-function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma) {
+function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo) {
   if (tocoPreforma === undefined) tocoPreforma = true;
   const ultimaFila = Math.max(hoja.getLastRow(), 1);
   if (ultimaFila < 1) return;
@@ -1614,8 +1627,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   }
 
   let coloresA = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila);
-  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA);
-  aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null);
+  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA, repintarTodo);
+  aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null, repintarTodo);
 
   // Columna O: solo se toca si la edición afectó a la preforma. Un escaneo en
   // la columna A no puede cambiar estos colores, así que en el caso normal nos
@@ -1649,7 +1662,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 // =========================================================================
 // CEREBRO PRINCIPAL: BODEGAS (M-S)
 // =========================================================================
-function actualizarMS(hoja, source, cacheInfo) {
+function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
   const ultimaFila = Math.max(hoja.getLastRow(), 1);
   if (ultimaFila < 1) return;
 
@@ -1775,7 +1788,7 @@ function actualizarMS(hoja, source, cacheInfo) {
   });
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila));
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila), repintarTodo);
 
   let fila3Resumen = tipoStr + ": " + totalPedimentosTipo;
 
@@ -1804,7 +1817,7 @@ function actualizarMS(hoja, source, cacheInfo) {
 //   · misma guía en dos ubicaciones IW distintas de la misma pestaña
 //   · misma guía repetida dentro de la misma ubicación (duplicado local)
 // =========================================================================
-function actualizarInventario(hoja, cacheInfo) {
+function actualizarInventario(hoja, cacheInfo, repintarTodo) {
   const ultimaFila = Math.max(hoja.getLastRow(), 1);
   asegurarColumnas(hoja, 12);
 
@@ -1907,7 +1920,7 @@ function actualizarInventario(hoja, cacheInfo) {
   cerrarUbicacion();
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila));
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila), repintarTodo);
 
   // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
   let c1c3Nuevo = [ ["Total bultos: " + totalBultosInventario], ["Ubicaciones (IW): " + totalUbicaciones], [""] ];
@@ -2218,7 +2231,10 @@ function forzarActualizacionHojaActiva() {
     invalidarCacheRAM();
     let cacheInfo = getCacheData(ss);
 
-    recalcularHoja(hoja, ss, cacheInfo, null);
+    // repintarTodo = true: reescribe estados y colores de TODAS las filas.
+    // Es lo que hay que correr una vez por pestaña al retirar el formato
+    // condicional, para que los colores del script queden aplicados.
+    recalcularHoja(hoja, ss, cacheInfo, null, true, true);
     if (esHojaInventario(nombreHoja)) sincronizarInventariosAfectados(ss, cacheInfo, null, nombreHoja);
 
     ss.toast('✅ Hoja actualizada y coloreada correctamente.', 'Éxito', 4);
