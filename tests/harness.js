@@ -290,6 +290,28 @@ ok("solo headers -> 0", ultimaFilaEnCache({ data: [["X_FISICO"]] }, 0) === 0);
 ok("celda con espacios no cuenta",
    ultimaFilaEnCache({ data: [["X_FISICO"], ["1Z1"], ["   "]] }, 0) === 1);
 
+console.log("\n=== 5h. hojasMSConGuias (evita recorrer todas las pestañas) ===");
+const cacheGuiasMS = { map: new Map([
+  ["1Z111", [ { hoja: "GLOBAL 2",  fila: 5,  isMS: false, isInventario: false },
+              { hoja: "M-S T1",    fila: 12, isMS: true,  isInventario: false } ]],
+  ["1Z222", [ { hoja: "M-S T1",    fila: 30, isMS: true,  isInventario: false },
+              { hoja: "M-S A1",    fila: 8,  isMS: true,  isInventario: false } ]],
+  ["1Z333", [ { hoja: "INVENTARIO A", fila: 3, isMS: false, isInventario: true } ]]
+]), headers: [], data: [] };
+
+let ms1 = hojasMSConGuias(cacheGuiasMS, new Set(["1Z111"]));
+ok("solo devuelve la M-S, no la global", ms1.size === 1 && ms1.has("M-S T1"));
+
+let ms2 = hojasMSConGuias(cacheGuiasMS, new Set(["1Z111", "1Z222"]));
+ok("junta las M-S de varias guías sin repetir", ms2.size === 2 && ms2.has("M-S T1") && ms2.has("M-S A1"));
+
+ok("guía solo en inventario -> ninguna M-S", hojasMSConGuias(cacheGuiasMS, new Set(["1Z333"])).size === 0);
+ok("guía desconocida -> ninguna M-S", hojasMSConGuias(cacheGuiasMS, new Set(["NOEXISTE"])).size === 0);
+ok("normaliza minúsculas y espacios", hojasMSConGuias(cacheGuiasMS, new Set([" 1z111 "])).has("M-S T1"));
+ok("conjunto vacío -> vacío", hojasMSConGuias(cacheGuiasMS, new Set()).size === 0);
+ok("sin caché -> vacío", hojasMSConGuias(null, new Set(["1Z111"])).size === 0);
+ok("sin guías -> vacío", hojasMSConGuias(cacheGuiasMS, null).size === 0);
+
 console.log("\n=== 5f. Cronómetro de llamadas a la API ===");
 // PERF es un `let` dentro del eval, así que no se ve desde aquí: se prueba
 // por comportamiento, que es lo que importa.

@@ -405,3 +405,55 @@ escaneo normal.
 Ahora la medición coge una guía real de la hoja, ejecuta un escaneo completo y
 reporta **ese** número; el barrido total de M-S se mide aparte y se etiqueta
 como peor caso, sin sumarse al tiempo por escaneo.
+
+---
+
+## El barrido abría todas las pestañas para preguntarles el nombre
+
+Quitado `getLastRow()`, el escaneo bajó a 1,448 ms con 321 filas, pero el
+desglose dejó al descubierto otro renglón:
+
+```
+   167 ms  12%  ·  1 llamada                ·  getLastRow
+   152 ms  10%  ·  1 llamada, 6,099 celdas  ·  leer la hoja A:S
+   ...
+   646 ms        ·  7 llamadas en total
+   802 ms        ·  resto (cálculo en memoria y llamadas sin medir)
+```
+
+**El 55% del escaneo estaba fuera de lo medido.** Las siete llamadas
+instrumentadas sumaban 646 ms de 1,448.
+
+Eran llamadas sin instrumentar, y la culpable estaba en `sincronizarSalidasMS`:
+
+```js
+let hojas = source.getSheets();
+for (let i = 0; i < hojas.length; i++) {
+    let nMS = claveHoja(hojas[i].getName());   // ← una llamada POR PESTAÑA
+    if (!esHojaMS(nMS)) continue;
+```
+
+Se recorrían **todas** las pestañas del archivo, preguntando el nombre de cada
+una, para acabar abriendo casi siempre una sola. Con ~25 pestañas eso son ~25
+idas y vuelta por escaneo.
+
+El caché ya sabe la respuesta: su índice guarda, por guía, en qué pestañas está
+y si son M-S. `hojasMSConGuias()` devuelve las pestañas a abrir sin tocar la
+API, y luego se piden por nombre con `getSheetByName()` — una llamada por
+pestaña que de verdad hay que abrir, normalmente una.
+
+El caché guarda el nombre normalizado (`claveHoja`), así que si una pestaña real
+está escrita con otra combinación de mayúsculas `getSheetByName()` devolvería
+null; en ese caso se cae de vuelta al recorrido largo. El barrido completo desde
+los menús (sin guías afectadas) sigue usando ese camino, que ahí sí hace falta.
+
+### El "resto" ya no es una caja negra
+
+Se instrumentaron también los dos `getName()` que quedaban y las tres fases de
+cálculo puro (`(memoria) duplicados`, `(memoria) registro M-S`,
+`(memoria) índice de salidas`), para poder separar el tiempo de CPU del tiempo
+de red en la próxima medición.
+
+El envoltorio que medía la sincronización entera se quitó a propósito: sus
+llamadas internas ya se miden una por una y contar además el total las sumaría
+dos veces.

@@ -552,7 +552,7 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
 // lectura de columna completa. Los menús pasan true para repintado total.
 function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo) {
     if (tocoPreforma === undefined) tocoPreforma = true;
-    let n = claveHoja(hoja.getName());
+    let n = perf("nombre de la hoja", 0, () => claveHoja(hoja.getName()));
     if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo, repintarTodo);
     else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo, repintarTodo);
     else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo);
@@ -625,6 +625,23 @@ function ultimaFilaEnCache(cacheInfo, colIdx) {
         if (String(cacheInfo.data[r][colIdx]).trim() !== "") return r;
     }
     return 0;
+}
+
+// Claves de las pestañas M-S que contienen alguna de las guías tocadas, sacadas
+// del índice del caché sin abrir una sola pestaña.
+//
+// Antes el barrido recorría TODAS las pestañas del archivo llamando a getName()
+// en cada una para saber cuáles eran M-S: una llamada a la API por pestaña, en
+// cada escaneo, para acabar abriendo casi siempre una sola.
+function hojasMSConGuias(cacheInfo, guias) {
+    let out = new Set();
+    if (!cacheInfo || !cacheInfo.map || !guias) return out;
+    guias.forEach(g => {
+        let entradas = cacheInfo.map.get(String(g).trim().toUpperCase());
+        if (!entradas) return;
+        entradas.forEach(e => { if (e.isMS) out.add(e.hoja); });
+    });
+    return out;
 }
 
 function hojaContieneAlgunaGuia(cacheInfo, colIdx, guias) {
@@ -1138,31 +1155,61 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
     let escaneadosDestino = new Map();
     let colPorHoja = mapaColumnasFisico(cacheInfo);
 
-    for (let c = 0; c < cacheInfo.headers.length; c++) {
-        let header = String(cacheInfo.headers[c]);
-        if (!header.endsWith("_FISICO")) continue;
+    // Recorre el caché entero (todas las columnas de destino × todas las filas)
+    // para saber qué guía salió en qué pestaña. Es puro cálculo, sin API.
+    perf("(memoria) índice de salidas", 0, () => {
+        for (let c = 0; c < cacheInfo.headers.length; c++) {
+            let header = String(cacheInfo.headers[c]);
+            if (!header.endsWith("_FISICO")) continue;
 
-        let n = claveHoja(header.replace("_FISICO", ""));
-        if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
+            let n = claveHoja(header.replace("_FISICO", ""));
+            if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
 
-        for (let r = 1; r < cacheInfo.data.length; r++) {
-            let v = String(cacheInfo.data[r][c]).trim().toUpperCase();
-            if (v !== "" && !esCabeceraBloque(v)) escaneadosDestino.set(v, n);
+            for (let r = 1; r < cacheInfo.data.length; r++) {
+                let v = String(cacheInfo.data[r][c]).trim().toUpperCase();
+                if (v !== "" && !esCabeceraBloque(v)) escaneadosDestino.set(v, n);
+            }
+        }
+    });
+
+    // Qué pestañas M-S hay que abrir. En un escaneo el caché ya sabe cuáles
+    // contienen la guía, así que se piden por nombre y no se toca ninguna otra.
+    // El camino largo (recorrer todas las pestañas preguntando su nombre una
+    // por una) solo queda para el barrido completo desde los menús.
+    let objetivos = [];
+    let porNombre = guiasAfectadas && guiasAfectadas.size > 0;
+
+    if (porNombre) {
+        let claves = hojasMSConGuias(cacheInfo, guiasAfectadas);
+        if (claves.size === 0) return;   // ninguna M-S tiene esas guías
+        claves.forEach(clave => {
+            if (!porNombre) return;
+            let h = perf("abrir M-S por nombre", 0, () => source.getSheetByName(clave));
+            // El caché guarda el nombre normalizado; si la pestaña real está
+            // escrita distinto, getSheetByName falla y hay que ir por el largo.
+            if (h) objetivos.push({ hoja: h, clave: clave });
+            else porNombre = false;
+        });
+    }
+
+    if (!porNombre) {
+        objetivos = [];
+        let hojas = perf("listar pestañas", 0, () => source.getSheets());
+        for (let i = 0; i < hojas.length; i++) {
+            let h = hojas[i];
+            let n = perf("nombre de pestaña", 0, () => claveHoja(h.getName()));
+            if (!esHojaMS(n)) continue;
+            if (guiasAfectadas && guiasAfectadas.size > 0 &&
+                !hojaContieneAlgunaGuia(cacheInfo, colPorHoja.get(n), guiasAfectadas)) continue;
+            objetivos.push({ hoja: h, clave: n });
         }
     }
 
-    let hojas = source.getSheets();
     let msModificadas = [];
 
-    for (let i = 0; i < hojas.length; i++) {
-        let hojaMS = hojas[i];
-        let nMS = claveHoja(hojaMS.getName());
-        if (!esHojaMS(nMS)) continue;
-
-        // Filtro en RAM: evita abrir bodegas que no tienen nada que ver con este escaneo.
-        if (guiasAfectadas && guiasAfectadas.size > 0) {
-            if (!hojaContieneAlgunaGuia(cacheInfo, colPorHoja.get(nMS), guiasAfectadas)) continue;
-        }
+    for (let i = 0; i < objetivos.length; i++) {
+        let hojaMS = objetivos[i].hoja;
+        let nMS = objetivos[i].clave;
 
         // El caché sabe hasta dónde llega la columna A de esta M-S; solo se le
         // pregunta a Sheets si la pestaña todavía no está indexada.
@@ -1436,18 +1483,19 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       hoja.getRange(1, 1, ultimaFila, 19).getValues());
   const horaActual = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
 
-  let nombreHoja = claveHoja(hoja.getName());
+  let nombreHoja = perf("nombre de la hoja", 0, () => claveHoja(hoja.getName()));
   let esHojaMSLocal = esHojaMS(nombreHoja);
   let esRezago = nombreHoja.indexOf("REZAGO") !== -1;
   let requiereAlertaMS = !esHojaMSLocal && esHojaPrincipal(nombreHoja) && !esRezago;
 
-  let datosMS = obtenerRegistroMSDesdeCache(cacheInfo, nombreHoja);
+  let datosMS = perf("(memoria) registro M-S", 0, () => obtenerRegistroMSDesdeCache(cacheInfo, nombreHoja));
   let guiasEnMS = datosMS.guiasOrigen;
   let registroMS = datosMS.registroMS;
   let guiasRezagoGlobal = esRezago ? obtenerGuiasRezagoDesdeCache(cacheInfo) : null;
 
   // Duplicados externos reevaluados desde el caché en cada pasada.
-  let dupExternos = calcularDuplicadosExternos(datosMasivos, ultimaFila, nombreHoja, cacheInfo);
+  let dupExternos = perf("(memoria) duplicados", 0, () =>
+      calcularDuplicadosExternos(datosMasivos, ultimaFila, nombreHoja, cacheInfo));
 
   let mapaPreformas = {}; let mapaInversoPreforma = new Map();
   let resultadosP = []; let resultadosHorasP = []; let coloresP = [];
