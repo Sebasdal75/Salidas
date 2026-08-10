@@ -37,6 +37,11 @@ const PROP_TRIGGER = 'TRIGGER_EDICION_INSTALADO';
 // =========================================================================
 const COLOREAR_COLUMNA_A = true;
 
+// Avisar cuando el mismo pedimento aparece en dos pestañas del mismo tipo (dos
+// M-S, o dos destinos). Nunca entre una M-S y su destino: eso es el flujo
+// normal. Poner en false si un pedimento puede repartirse entre dos pestañas.
+const DETECTAR_PEDIMENTO_REPETIDO_ENTRE_PESTANAS = true;
+
 // La columna O (preforma) conserva su esquema por bloques según la letra de
 // la columna N, y encima recibe los dos colores de la A:
 //   pedimento → azul, repetido (pedimento o guía) → rojo.
@@ -749,6 +754,56 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
         }
     }
     return res;
+}
+
+// Pedimentos repetidos en OTRA pestaña.
+//
+// Hasta ahora "🛑 PEDIMENTO REPETIDO" solo miraba dentro de la propia hoja
+// (`pedimentosVistosFisico`), así que el mismo pedimento en dos pestañas pasaba
+// sin aviso.
+//
+// Ojo con el aislamiento, que aquí es imprescindible: un pedimento SÍ tiene que
+// estar a la vez en una M-S y en su destino — ese es el flujo normal, primero se
+// preregistra y luego se embarca. Marcar eso sería un falso positivo en cada
+// pedimento del archivo. Así que se aplica la misma regla que a las guías: M-S
+// choca con M-S y destino con destino, nunca entre dominios.
+function calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheInfo) {
+    let res = new Map();
+    if (!DETECTAR_PEDIMENTO_REPETIDO_ENTRE_PESTANAS) return res;
+    if (!cacheInfo || !cacheInfo.map) return res;
+    if (esHojaInventario(claveEsta)) return res;   // los inventarios no llevan pedimentos
+
+    let esMS = esHojaMS(claveEsta);
+
+    for (let i = 0; i < ultimaFila; i++) {
+        let v = String(datosMasivos[i][0]).trim();
+        if (!/^\d{7}$/.test(v)) continue;
+
+        let matches = cacheInfo.map.get(v);
+        if (!matches) continue;
+
+        for (let m = 0; m < matches.length; m++) {
+            let match = matches[m];
+            // La propia hoja ya la vigila pedimentosVistosFisico.
+            if (match.hoja === claveEsta) continue;
+            if (match.isInventario) continue;
+            if (esMS !== match.isMS) continue;
+            res.set(i, match);
+            break;
+        }
+    }
+    return res;
+}
+
+// Escribe el aviso de pedimento repetido en otra pestaña. No pisa un aviso
+// crítico que ya estuviera puesto (por ejemplo, el repetido dentro de la
+// propia hoja, que es más urgente de resolver).
+function marcarPedimentosRepetidosFuera(resultadosB, coloresB, mapa) {
+    mapa.forEach((match, fila) => {
+        if (nivelAlerta(resultadosB[fila][0]) >= NIVEL_CRITICO) return;
+        resultadosB[fila][0] = "🛑 PEDIMENTO REPETIDO (En: " + match.hoja + " Fila " + match.fila + ")";
+        coloresB[fila][0] = "#dc3545";
+    });
 }
 
 // =========================================================================
@@ -1996,6 +2051,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       }
   });
 
+  // El mismo pedimento en otra pestaña del mismo tipo. Va después del repetido
+  // dentro de la propia hoja, que es el aviso que manda si se dan los dos.
+  marcarPedimentosRepetidosFuera(resultadosB, coloresB,
+      calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHoja, cacheInfo));
+
   if (esRezago) {
       bloquesPreforma.forEach(bloque => {
         if (bloque.pedimento !== "" && bloque.pedimento !== "SIN_CABECERA" && !bloque.esErr) {
@@ -2212,6 +2272,9 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
           coloresB[fila][0] = "#dc3545";
       }
   });
+
+  marcarPedimentosRepetidosFuera(resultadosB, coloresB,
+      calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo));
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
                            coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);

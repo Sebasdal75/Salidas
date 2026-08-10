@@ -276,6 +276,67 @@ ok("con resumen: antepone sin borrarlo", rP[1][0] === "AVISO | ► Resumen: 5 bu
 escribirAvisoPreforma(rP, cP, 2, "AVISO", "#ff9800");
 ok("no pisa un ⛔", rP[2][0] === "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)" && cP[2][0] === "#fff");
 
+console.log("\n=== 5o. Pedimento repetido en OTRA pestaña ===");
+const PED = "6035443";
+const cachePed = { map: new Map([[PED, [
+  { hoja: "A1 77-14-ZP", fila: 684, isMS: false, isInventario: false },
+  { hoja: "GLOBAL 3",    fila: 120, isMS: false, isInventario: false },
+  { hoja: "M-S A1",      fila: 37,  isMS: true,  isInventario: false }
+]]]), headers: [], data: [] };
+
+let filasPed = [];
+for (let i = 0; i < 700; i++) filasPed.push([""]);
+filasPed[684] = [PED];
+
+// Destino contra destino: sí se marca, y señala la otra hoja.
+let dp = calcularPedimentosDuplicadosExternos(filasPed, 700, "A1 77-14-ZP", cachePed);
+ok("destino detecta el pedimento en otro destino", dp.has(684) && dp.get(684).hoja === "GLOBAL 3");
+ok("no señala la M-S, que es flujo normal", dp.get(684).isMS !== true);
+
+// Una M-S contra otra M-S.
+const cacheDosMS = { map: new Map([[PED, [
+  { hoja: "M-S A1", fila: 37, isMS: true, isInventario: false },
+  { hoja: "M-S T1", fila: 9,  isMS: true, isInventario: false }
+]]]), headers: [], data: [] };
+let dpMS = calcularPedimentosDuplicadosExternos(filasPed, 700, "M-S A1", cacheDosMS);
+ok("M-S detecta el pedimento en otra M-S", dpMS.has(684) && dpMS.get(684).hoja === "M-S T1");
+
+// Lo esencial: M-S y su destino NO chocan. Sería un falso positivo constante.
+const cacheMSyDestino = { map: new Map([[PED, [
+  { hoja: "A1 77-14-ZP", fila: 684, isMS: false, isInventario: false },
+  { hoja: "M-S A1",      fila: 37,  isMS: true,  isInventario: false }
+]]]), headers: [], data: [] };
+ok("destino NO choca con su M-S",
+   calcularPedimentosDuplicadosExternos(filasPed, 700, "A1 77-14-ZP", cacheMSyDestino).size === 0);
+ok("M-S NO choca con su destino",
+   calcularPedimentosDuplicadosExternos(filasPed, 700, "M-S A1", cacheMSyDestino).size === 0);
+
+// La propia hoja la vigila pedimentosVistosFisico, no esto.
+const cacheMisma = { map: new Map([[PED, [
+  { hoja: "A1 77-14-ZP", fila: 684, isMS: false, isInventario: false },
+  { hoja: "A1 77-14-ZP", fila: 900, isMS: false, isInventario: false }
+]]]), headers: [], data: [] };
+ok("la propia hoja no se marca aquí",
+   calcularPedimentosDuplicadosExternos(filasPed, 700, "A1 77-14-ZP", cacheMisma).size === 0);
+
+// Solo pedimentos: una guía en esa fila no entra.
+let filasGuia = [];
+for (let i = 0; i < 700; i++) filasGuia.push([""]);
+filasGuia[684] = ["1Z999AA10123456784"];
+ok("una guía no cuenta como pedimento",
+   calcularPedimentosDuplicadosExternos(filasGuia, 700, "A1 77-14-ZP", cachePed).size === 0);
+ok("los inventarios no llevan pedimentos",
+   calcularPedimentosDuplicadosExternos(filasPed, 700, "INVENTARIO A", cachePed).size === 0);
+
+// El aviso no pisa uno crítico que ya estuviera puesto.
+let rB = [["🛑 PEDIMENTO REPETIDO"], ["Bultos: 0"]];
+let cB = [["#fff"], ["#fff"]];
+marcarPedimentosRepetidosFuera(rB, cB, new Map([[0, { hoja: "GLOBAL 3", fila: 120 }]]));
+ok("no pisa el repetido de la propia hoja", rB[0][0] === "🛑 PEDIMENTO REPETIDO");
+marcarPedimentosRepetidosFuera(rB, cB, new Map([[1, { hoja: "GLOBAL 3", fila: 120 }]]));
+ok("sí escribe sobre el resumen normal",
+   rB[1][0] === "🛑 PEDIMENTO REPETIDO (En: GLOBAL 3 Fila 120)" && cB[1][0] === "#dc3545");
+
 console.log("\n=== 5n. Nota de filas con alerta (sustituye a 'Esperando guías') ===");
 ok("sin alertas no dice nada", notaConAlerta(0) === "");
 ok("undefined no dice nada", notaConAlerta(undefined) === "");

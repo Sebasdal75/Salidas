@@ -675,3 +675,34 @@ Dos cambios:
 
 La nota se añade a cualquier estado, no solo al de cero: un bloque puede decir
 `Bultos: 12 | ✅ COMPLETO | ⚠️ 1 con alerta`.
+
+---
+
+## El pedimento repetido entre pestañas tampoco se avisaba
+
+`🛑 PEDIMENTO REPETIDO` solo comparaba **dentro de cada hoja**
+(`pedimentosVistosFisico`). El mismo pedimento en dos pestañas pasaba sin aviso,
+que es lo que se vio en producción con el 6035443.
+
+Los pedimentos ya estaban indexados en el caché —el índice salta los marcadores
+estructurales pero no los números de 7 dígitos—, así que la detección sale del
+mismo sitio que la de guías, con **el mismo aislamiento de dominios**, y aquí es
+imprescindible:
+
+| Dónde está repetido | ¿Se avisa? |
+|---|---|
+| Dos veces en la misma hoja | Sí (ya funcionaba) |
+| En dos destinos distintos | Sí, nuevo |
+| En dos M-S distintas | Sí, nuevo |
+| **En una M-S y en su destino** | **No** |
+
+El último caso es el flujo normal: primero se preregistra en la M-S y luego se
+embarca en el destino. Marcarlo sería un falso positivo en **cada pedimento del
+archivo**.
+
+El aviso dice dónde está la otra: `🛑 PEDIMENTO REPETIDO (En: GLOBAL 3 Fila 120)`.
+No pisa el aviso de repetido dentro de la propia hoja, que es más urgente de
+resolver.
+
+Interruptor: `DETECTAR_PEDIMENTO_REPETIDO_ENTRE_PESTANAS = false` si resulta que
+un pedimento sí puede repartirse legítimamente entre dos pestañas del mismo tipo.
