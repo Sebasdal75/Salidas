@@ -274,10 +274,18 @@ function procesarEdicion(e) {
     const tocaColO = (colInicial <= 15 && colInicial + numCols - 1 >= 15);
 
     // Lecturas de apoyo en bloque (una sola llamada cada una), nunca dentro del bucle.
-    let valsC12 = tocaColA ? hoja.getRange(filaInicial, 12, numRows, 1).getValues() : null;
-    let valsEstadoB = tocaColA ? hoja.getRange(filaInicial, 2, numRows, 1).getValues() : null;
-    let valsEstadoP = (tocaColO && hoja.getMaxColumns() >= 16)
-        ? hoja.getRange(filaInicial, 16, numRows, 1).getValues() : null;
+    // Una sola lectura para las tres columnas de apoyo (B=2, L=12, P=16) en
+    // vez de tres llamadas. En este archivo cada ida y vuelta a la API cuesta
+    // cientos de milisegundos, así que lo que importa es el NÚMERO de llamadas,
+    // no cuántas celdas trae cada una.
+    let anchoHoja = hoja.getMaxColumns();
+    let colFinApoyo = (tocaColO && anchoHoja >= 16) ? 16 : 12;
+    let apoyo = (tocaColA || (tocaColO && anchoHoja >= 16))
+        ? hoja.getRange(filaInicial, 2, numRows, colFinApoyo - 1).getValues() : null;
+    // Índices dentro de `apoyo`: col 2 -> 0, col 12 -> 10, col 16 -> 14.
+    let valsEstadoB = apoyo;                      // [r][0]
+    let valsC12     = apoyo;                      // [r][10]
+    let valsEstadoP = (colFinApoyo === 16) ? apoyo : null;   // [r][14]
 
     for (let r = 0; r < numRows; r++) {
         for (let c = 0; c < numCols; c++) {
@@ -293,7 +301,7 @@ function procesarEdicion(e) {
             if (valorIngresado === "" && (colActual === 1 || colActual === 15)) {
                 let valorAnteriorEstado = "";
                 if (colActual === 1 && valsEstadoB) valorAnteriorEstado = String(valsEstadoB[r][0]).trim();
-                else if (colActual === 15 && valsEstadoP) valorAnteriorEstado = String(valsEstadoP[r][0]).trim();
+                else if (colActual === 15 && valsEstadoP) valorAnteriorEstado = String(valsEstadoP[r][14]).trim();
 
                 // Valor previo: e.oldValue lo trae gratis en ediciones de una sola celda;
                 // si no, lo sacamos del caché.
@@ -352,7 +360,7 @@ function procesarEdicion(e) {
 
                 if (duplicadoInfo.encontrado) {
                     batchUpdates.push({row: filaActual, col: 2, val: "⛔ DUPLICADO (En: " + duplicadoInfo.ubicacion + ")", bg: "#ff9800"});
-                    let horaActual = valsC12 ? valsC12[r][0] : "";
+                    let horaActual = valsC12 ? valsC12[r][10] : "";
                     if (!horaActual) {
                         batchUpdates.push({row: filaActual, col: 12, val: Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss")});
                     }
@@ -1565,14 +1573,17 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       if (bgODistinto) hoja.getRange(1, 15, ultimaFila, 1).setBackgrounds(coloresColumnaO);
   }
 
+  // C1:C3 y Q1:Q2 ya vienen dentro de datosMasivos (columnas 3 y 17): se
+  // comparan desde memoria y solo se escribe si cambiaron. Antes eran dos
+  // lecturas extra a la API en cada escaneo.
   let textoPedimentosTop = esRezago ? "Pedimentos (Completos): " : "Total pedimentos: ";
-  let c1c3Actual = hoja.getRange("C1:C3").getValues();
+  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][2]) : "";
   let c1c3Nuevo = [ ["Total bultos: " + guiasGlobales.size], [textoPedimentosTop + totalPedimentos], [""] ];
-  if (c1c3Actual[0][0] !== c1c3Nuevo[0][0] || c1c3Actual[1][0] !== c1c3Nuevo[1][0]) hoja.getRange("C1:C3").setValues(c1c3Nuevo);
+  if (cAct(0) !== c1c3Nuevo[0][0] || cAct(1) !== c1c3Nuevo[1][0]) hoja.getRange("C1:C3").setValues(c1c3Nuevo);
 
-  let q1q2Actual = hoja.getRange("Q1:Q2").getValues();
+  let qAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][16]) : "";
   let q1q2Nuevo = [ ["Bultos (Preforma): " + totalBultosPreforma], ["Pedimentos (Preforma): " + totalPedimentosPreforma] ];
-  if (q1q2Actual[0][0] !== q1q2Nuevo[0][0] || q1q2Actual[1][0] !== q1q2Nuevo[1][0]) hoja.getRange("Q1:Q2").setValues(q1q2Nuevo);
+  if (qAct(0) !== q1q2Nuevo[0][0] || qAct(1) !== q1q2Nuevo[1][0]) hoja.getRange("Q1:Q2").setValues(q1q2Nuevo);
 
   if (!esRezago) {
       sincronizarSalidasMS(source, cacheInfo, guiasAfectadas);
@@ -1716,11 +1727,12 @@ function actualizarMS(hoja, source, cacheInfo) {
   let textoBultos = "Total bultos: " + guiasGlobales.size;
   if (totalMovidas > 0) textoBultos += " (salieron: " + totalMovidas + " | en piso: " + (guiasGlobales.size - totalMovidas) + ")";
 
+  // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
   let nuevosResumenes = [ [textoBultos], ["Total pedimentos: " + totalPedimentos], [fila3Resumen] ];
-  let actualesResumenes = hoja.getRange("C1:C3").getValues();
-  if (actualesResumenes[0][0] !== nuevosResumenes[0][0] ||
-      actualesResumenes[1][0] !== nuevosResumenes[1][0] ||
-      actualesResumenes[2][0] !== nuevosResumenes[2][0]) {
+  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][2]) : "";
+  if (cAct(0) !== nuevosResumenes[0][0] ||
+      cAct(1) !== nuevosResumenes[1][0] ||
+      cAct(2) !== nuevosResumenes[2][0]) {
       hoja.getRange("C1:C3").setValues(nuevosResumenes);
   }
 }
@@ -1839,9 +1851,10 @@ function actualizarInventario(hoja, cacheInfo) {
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null);
 
-  let c1c3Actual = hoja.getRange("C1:C3").getValues();
+  // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
   let c1c3Nuevo = [ ["Total bultos: " + totalBultosInventario], ["Ubicaciones (IW): " + totalUbicaciones], [""] ];
-  if (c1c3Actual[0][0] !== c1c3Nuevo[0][0] || c1c3Actual[1][0] !== c1c3Nuevo[1][0]) {
+  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][2]) : "";
+  if (cAct(0) !== c1c3Nuevo[0][0] || cAct(1) !== c1c3Nuevo[1][0]) {
       hoja.getRange("C1:C3").setValues(c1c3Nuevo);
   }
 }
@@ -1927,11 +1940,35 @@ function medirRendimiento() {
 
   L.push("Pestaña: " + nombre);
   L.push("Filas con datos: " + lr + "  ·  celdas leídas por recálculo: " + (lr * anchoLeido).toLocaleString());
+
+  // ── Peso del archivo ────────────────────────────────────────────────────
+  // Coste de UNA llamada trivial a la API. Si esto ya es alto, el problema no
+  // es el script: es que el documento pesa y cada ida y vuelta se arrastra.
+  let t0 = Date.now();
+  for (let k = 0; k < 3; k++) hoja.getRange(1, 1).getValue();
+  let msPorLlamada = Math.round((Date.now() - t0) / 3);
+
+  let celdasTotales = 0;
+  ss.getSheets().forEach(h => { celdasTotales += h.getMaxRows() * h.getMaxColumns(); });
+
+  L.push("");
+  L.push("── PESO DEL ARCHIVO ──");
+  L.push("Celdas totales del archivo: " + celdasTotales.toLocaleString() +
+         "  (usadas de verdad: " + (lr * anchoLeido).toLocaleString() + ")");
+  L.push("Coste de UNA llamada a la API: ~" + msPorLlamada + " ms");
+  if (msPorLlamada > 250) {
+      L.push("🔴 Muy alto. En un archivo ligero son 30-80 ms. El cuello de botella");
+      L.push("   es el peso del documento, no el script. Ver recomendación abajo.");
+  } else if (msPorLlamada > 120) {
+      L.push("🟡 Alto. Conviene aligerar el archivo.");
+  } else {
+      L.push("✅ Normal.");
+  }
   L.push("");
 
   // 1. Carga del caché en frío (lo que paga el primer escaneo tras una pausa).
   invalidarCacheRAM();
-  let t0 = Date.now();
+  t0 = Date.now();
   let cacheInfo = getCacheData(ss);
   let tCache = Date.now() - t0;
   L.push("── DESGLOSE ──");
@@ -1978,6 +2015,20 @@ function medirRendimiento() {
   L.push("");
   L.push("Nota: todos los operadores comparten el mismo turno (lock del");
   L.push("documento), así que este techo es del archivo entero, no por persona.");
+
+  // Recomendación concreta según dónde esté el cuello de botella.
+  if (msPorLlamada > 120) {
+      let filasUsadas = Math.max(lr, 50);
+      let sugeridas = Math.ceil((filasUsadas + 200) / 100) * 100;
+      L.push("");
+      L.push("── QUÉ HACER ──");
+      L.push("El archivo pesa " + celdasTotales.toLocaleString() + " celdas y solo usas " + lr + " filas.");
+      L.push("1. Borra las filas sobrantes de CADA pestaña: deja ~" + sugeridas + ".");
+      L.push("2. Revisa el formato condicional: si las reglas cubren columnas");
+      L.push("   enteras (A:A, A1:S3000), acótalas al rango que usas.");
+      L.push("3. Lo mismo con la validación de datos de la columna M.");
+      L.push("Esto suele bajar el coste por llamada de golpe, y con él todo lo demás.");
+  }
 
   ui.alert("⏱️ Velocidad de escaneo", L.join("\n"), ui.ButtonSet.OK);
 }
