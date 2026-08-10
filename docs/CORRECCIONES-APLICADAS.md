@@ -325,3 +325,36 @@ código no se ven. El orden seguro es:
    que repinta la hoja **entera** (`repintarTodo`); el escaneo normal sólo
    escribe las filas que cambiaron, así que sin este paso las filas viejas se
    quedarían con el color anterior.
+
+---
+
+## Cronómetro de llamadas a la API
+
+`⏱️ Medir velocidad de escaneo` daba tres cifras gruesas (cargar caché,
+recalcular, sincronizar M-S). Suficiente para saber **si** va lento, no para
+saber **por qué**. Con 223 filas el recálculo costaba 1,478 ms y una llamada
+suelta 59 ms: eso da ~25 llamadas, pero contando el código sólo salen ~10. La
+diferencia podía estar en el tamaño del payload o en llamadas no contadas, y sin
+medirlo cualquier optimización era a ciegas.
+
+Ahora hay un cronómetro por llamada (`perf`), apagado salvo mientras corre la
+medición. Cada punto instrumentado acumula milisegundos, número de llamadas y
+celdas movidas; el informe los ordena de más caro a más barato, con su
+porcentaje, e imputa la diferencia a «resto (cálculo en memoria y llamadas sin
+medir)» para que los números cuadren con el total.
+
+Puntos instrumentados en el camino del escaneo:
+
+| Etiqueta | Dónde |
+|---|---|
+| `getLastRow`, `asegurarColumnas` | Antes de leer |
+| `leer la hoja A:S` / `leer la hoja A:L` | Lectura masiva de los tres cerebros |
+| `escribir estado`, `escribir hora` | `aplicarCambiosOptimizado` |
+| `color del estado`, `color de la columna A` | `aplicarCambiosOptimizado` |
+| `tachado de la columna A`, `color de fuente de la columna A` | `aplicarCambiosOptimizado` (M-S) |
+| `leer fondos de la columna O`, `color de la columna O` | Preforma |
+| `totales C1:C3`, `totales Q1:Q2` | Cabeceras |
+| `M-S: getLastRow`, `M-S: leer A:B`, `M-S: escribir A:B` | `sincronizarSalidasMS` |
+
+Coste con el cronómetro apagado: una llamada a función que hace `return fn()`.
+Nada frente a los ~59 ms de cualquier ida y vuelta a Sheets.

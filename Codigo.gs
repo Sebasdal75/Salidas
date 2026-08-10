@@ -1144,11 +1144,11 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
             if (!hojaContieneAlgunaGuia(cacheInfo, colPorHoja.get(nMS), guiasAfectadas)) continue;
         }
 
-        let lr = hojaMS.getLastRow();
+        let lr = perf("M-S: getLastRow", 0, () => hojaMS.getLastRow());
         if (lr < 1) continue;
 
         let rangoStatus = hojaMS.getRange(1, 1, lr, 2);
-        let vals = rangoStatus.getValues();
+        let vals = perf("M-S: leer A:B", lr * 2, () => rangoStatus.getValues());
         let modificados = false;
 
         for (let r = 0; r < lr; r++) {
@@ -1167,7 +1167,7 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
         }
 
         if (modificados) {
-            rangoStatus.setValues(vals);
+            perf("M-S: escribir A:B", lr * 2, () => rangoStatus.setValues(vals));
             msModificadas.push(hojaMS);
         }
     }
@@ -1195,6 +1195,53 @@ function sincronizarInventariosAfectados(source, cacheInfo, guiasAfectadas, hoja
 
         actualizarInventario(h, cacheInfo);
     }
+}
+
+// =========================================================================
+// CRONÓMETRO DE LLAMADAS A LA API
+// =========================================================================
+// Apagado siempre salvo mientras corre «Medir velocidad de escaneo». Sirve
+// para saber en qué llamada concreta se va el tiempo, en vez de deducirlo:
+// cada etiqueta acumula milisegundos, número de llamadas y celdas movidas.
+// Con el cronómetro apagado el coste es una llamada a función vacía, nada
+// frente a los ~59 ms que cuesta cualquier ida y vuelta a Sheets.
+let PERF = null;
+
+function perfIniciar() { PERF = { orden: [], ms: {}, n: {}, celdas: {} }; }
+function perfFin() { let p = PERF; PERF = null; return p; }
+
+function perf(etiqueta, celdas, fn) {
+    if (!PERF) return fn();
+    let t = Date.now();
+    let r = fn();
+    if (PERF.ms[etiqueta] === undefined) {
+        PERF.orden.push(etiqueta);
+        PERF.ms[etiqueta] = 0; PERF.n[etiqueta] = 0; PERF.celdas[etiqueta] = 0;
+    }
+    PERF.ms[etiqueta] += Date.now() - t;
+    PERF.n[etiqueta]++;
+    PERF.celdas[etiqueta] += celdas;
+    return r;
+}
+
+// Devuelve las líneas del desglose, de la etiqueta más cara a la más barata.
+function perfLineas(p, totalMs) {
+    if (!p || p.orden.length === 0) return ["   (sin datos)"];
+    let filas = p.orden.map(e => ({ e: e, ms: p.ms[e], n: p.n[e], c: p.celdas[e] }));
+    filas.sort((a, b) => b.ms - a.ms);
+    let sumaMs = 0, sumaN = 0;
+    let out = [];
+    filas.forEach(f => {
+        sumaMs += f.ms; sumaN += f.n;
+        let pct = totalMs > 0 ? Math.round(f.ms * 100 / totalMs) : 0;
+        out.push("   " + String(f.ms).padStart(5) + " ms  " + String(pct).padStart(3) + "%  ·  " +
+                 f.n + (f.n === 1 ? " llamada" : " llamadas") +
+                 (f.c > 0 ? ", " + f.c.toLocaleString() + " celdas" : "") +
+                 "  ·  " + f.e);
+    });
+    out.push("   " + String(sumaMs).padStart(5) + " ms       ·  " + sumaN + " llamadas en total");
+    if (totalMs > sumaMs) out.push("   " + String(totalMs - sumaMs).padStart(5) + " ms       ·  resto (cálculo en memoria y llamadas sin medir)");
+    return out;
 }
 
 // =========================================================================
@@ -1264,13 +1311,19 @@ function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, i
 
     bloques.forEach(b => {
         let numRows = b.max - b.min + 1;
-        hoja.getRange(b.min + 1, colStatus, numRows, 1).setValues(resultadosStatus.slice(b.min, b.max + 1));
-        hoja.getRange(b.min + 1, colHora, numRows, 1).setValues(resultadosHoras.slice(b.min, b.max + 1));
+        perf("escribir estado", numRows, () =>
+            hoja.getRange(b.min + 1, colStatus, numRows, 1).setValues(resultadosStatus.slice(b.min, b.max + 1)));
+        perf("escribir hora", numRows, () =>
+            hoja.getRange(b.min + 1, colHora, numRows, 1).setValues(resultadosHoras.slice(b.min, b.max + 1)));
 
-        if (coloresNuevos) hoja.getRange(b.min + 1, colStatus, numRows, 1).setBackgrounds(coloresNuevos.slice(b.min, b.max + 1));
-        if (coloresA)   hoja.getRange(b.min + 1, 1, numRows, 1).setBackgrounds(coloresA.slice(b.min, b.max + 1));
-        if (fontLinesA) hoja.getRange(b.min + 1, 1, numRows, 1).setFontLines(fontLinesA.slice(b.min, b.max + 1));
-        if (fontColorsA) hoja.getRange(b.min + 1, 1, numRows, 1).setFontColors(fontColorsA.slice(b.min, b.max + 1));
+        if (coloresNuevos) perf("color del estado", numRows, () =>
+            hoja.getRange(b.min + 1, colStatus, numRows, 1).setBackgrounds(coloresNuevos.slice(b.min, b.max + 1)));
+        if (coloresA) perf("color de la columna A", numRows, () =>
+            hoja.getRange(b.min + 1, 1, numRows, 1).setBackgrounds(coloresA.slice(b.min, b.max + 1)));
+        if (fontLinesA) perf("tachado de la columna A", numRows, () =>
+            hoja.getRange(b.min + 1, 1, numRows, 1).setFontLines(fontLinesA.slice(b.min, b.max + 1)));
+        if (fontColorsA) perf("color de fuente de la columna A", numRows, () =>
+            hoja.getRange(b.min + 1, 1, numRows, 1).setFontColors(fontColorsA.slice(b.min, b.max + 1)));
     });
 }
 
@@ -1351,12 +1404,13 @@ function procesarCostales(hoja, filaDestino) {
 // =========================================================================
 function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo) {
   if (tocoPreforma === undefined) tocoPreforma = true;
-  const ultimaFila = Math.max(hoja.getLastRow(), 1);
+  const ultimaFila = perf("getLastRow", 0, () => Math.max(hoja.getLastRow(), 1));
   if (ultimaFila < 1) return;
 
-  asegurarColumnas(hoja, 19);
+  perf("asegurarColumnas", 0, () => asegurarColumnas(hoja, 19));
 
-  const datosMasivos = hoja.getRange(1, 1, ultimaFila, 19).getValues();
+  const datosMasivos = perf("leer la hoja A:S", ultimaFila * 19, () =>
+      hoja.getRange(1, 1, ultimaFila, 19).getValues());
   const horaActual = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
 
   let nombreHoja = claveHoja(hoja.getName());
@@ -1695,12 +1749,14 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       // comparación, que ahí solo sería una llamada de más.
       let bgODistinto = repintarTodo === true;
       if (!bgODistinto) {
-          let bgOActual = hoja.getRange(1, 15, ultimaFila, 1).getBackgrounds();
+          let bgOActual = perf("leer fondos de la columna O", ultimaFila, () =>
+              hoja.getRange(1, 15, ultimaFila, 1).getBackgrounds());
           for (let i = 0; i < ultimaFila; i++) {
               if (String(bgOActual[i][0]).toLowerCase() !== String(coloresColumnaO[i][0]).toLowerCase()) { bgODistinto = true; break; }
           }
       }
-      if (bgODistinto) hoja.getRange(1, 15, ultimaFila, 1).setBackgrounds(coloresColumnaO);
+      if (bgODistinto) perf("color de la columna O", ultimaFila, () =>
+          hoja.getRange(1, 15, ultimaFila, 1).setBackgrounds(coloresColumnaO));
   }
 
   // C1:C3 y Q1:Q2 ya vienen dentro de datosMasivos (columnas 3 y 17): se
@@ -1709,11 +1765,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   let textoPedimentosTop = esRezago ? "Pedimentos (Completos): " : "Total pedimentos: ";
   let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][2]) : "";
   let c1c3Nuevo = [ ["Total bultos: " + guiasGlobales.size], [textoPedimentosTop + totalPedimentos], [""] ];
-  if (cAct(0) !== c1c3Nuevo[0][0] || cAct(1) !== c1c3Nuevo[1][0]) hoja.getRange("C1:C3").setValues(c1c3Nuevo);
+  if (cAct(0) !== c1c3Nuevo[0][0] || cAct(1) !== c1c3Nuevo[1][0])
+      perf("totales C1:C3", 3, () => hoja.getRange("C1:C3").setValues(c1c3Nuevo));
 
   let qAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][16]) : "";
   let q1q2Nuevo = [ ["Bultos (Preforma): " + totalBultosPreforma], ["Pedimentos (Preforma): " + totalPedimentosPreforma] ];
-  if (qAct(0) !== q1q2Nuevo[0][0] || qAct(1) !== q1q2Nuevo[1][0]) hoja.getRange("Q1:Q2").setValues(q1q2Nuevo);
+  if (qAct(0) !== q1q2Nuevo[0][0] || qAct(1) !== q1q2Nuevo[1][0])
+      perf("totales Q1:Q2", 2, () => hoja.getRange("Q1:Q2").setValues(q1q2Nuevo));
 
   if (!esRezago) {
       sincronizarSalidasMS(source, cacheInfo, guiasAfectadas);
@@ -1728,7 +1786,8 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
   if (ultimaFila < 1) return;
 
   asegurarColumnas(hoja, 12);
-  const datosMasivos = hoja.getRange(1, 1, ultimaFila, 12).getValues();
+  const datosMasivos = perf("leer la hoja A:L", ultimaFila * 12, () =>
+      hoja.getRange(1, 1, ultimaFila, 12).getValues());
   const horaActual = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
   const nombreHojaMayus = claveHoja(hoja.getName());
 
@@ -1882,7 +1941,8 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
   const ultimaFila = Math.max(hoja.getLastRow(), 1);
   asegurarColumnas(hoja, 12);
 
-  const datosMasivos = hoja.getRange(1, 1, ultimaFila, 12).getValues();
+  const datosMasivos = perf("leer la hoja A:L", ultimaFila * 12, () =>
+      hoja.getRange(1, 1, ultimaFila, 12).getValues());
   const horaActual = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
   const claveEsta = claveHoja(hoja.getName());
 
@@ -2108,18 +2168,34 @@ function medirRendimiento() {
          (cacheInfo ? "  ·  " + cacheInfo.map.size + " guías indexadas" : "  ·  SIN CACHÉ"));
 
   // 2. Recálculo completo de la hoja: es el grueso de cada escaneo.
+  perfIniciar();
   t0 = Date.now();
   recalcularHoja(hoja, ss, cacheInfo, null, false);
   let tRecalc = Date.now() - t0;
+  let perfRecalc = perfFin();
   L.push("Recalcular esta hoja:        " + tRecalc + " ms");
 
   // 3. Barrido de salidas M-S, si aplica.
   let tSync = 0;
+  let perfSync = null;
   if (esHojaPrincipal(nombre) && nombre.indexOf("REZAGO") === -1) {
+    perfIniciar();
     t0 = Date.now();
     sincronizarSalidasMS(ss, cacheInfo, new Set());
     tSync = Date.now() - t0;
+    perfSync = perfFin();
     L.push("Sincronizar salidas M-S:     " + tSync + " ms");
+  }
+
+  // Dónde se va el tiempo, llamada por llamada. Es lo que decide qué se
+  // optimiza después: sin esto solo se puede especular.
+  L.push("");
+  L.push("── DÓNDE SE VA EL RECÁLCULO ──");
+  perfLineas(perfRecalc, tRecalc).forEach(x => L.push(x));
+  if (perfSync) {
+    L.push("");
+    L.push("── DÓNDE SE VA LA SINCRONIZACIÓN M-S ──");
+    perfLineas(perfSync, tSync).forEach(x => L.push(x));
   }
 
   // El caché ya está caliente entre escaneos seguidos, así que el coste

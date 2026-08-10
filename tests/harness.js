@@ -268,6 +268,35 @@ ok("solo hay 2 repetidas", repes.size === 2);
 ok("preforma limpia no marca nada",
    filasGuiaRepetidaEnPreforma([filaO("6100166"), filaO("1Z999AA10123456784")], 2).size === 0);
 
+console.log("\n=== 5f. Cronómetro de llamadas a la API ===");
+// PERF es un `let` dentro del eval, así que no se ve desde aquí: se prueba
+// por comportamiento, que es lo que importa.
+ok("apagado: perfFin no devuelve medición", perfFin() === null);
+ok("apagado: perf ejecuta la función y devuelve su valor", perf("x", 10, () => 42) === 42);
+
+perfIniciar();
+ok("apagado: lo de antes no se quedó registrado", perfFin().orden.length === 0);
+
+perfIniciar();
+ok("encendido: perf sigue devolviendo el valor", perf("leer", 100, () => 42) === 42);
+perf("leer", 50, () => 1);
+perf("escribir", 7, () => 1);
+let pMed = perfFin();
+ok("agrupa por etiqueta", pMed.orden.length === 2);
+ok("suma las llamadas repetidas", pMed.n["leer"] === 2 && pMed.n["escribir"] === 1);
+ok("suma las celdas", pMed.celdas["leer"] === 150 && pMed.celdas["escribir"] === 7);
+ok("perfFin apaga el cronómetro", perfFin() === null);
+
+// El desglose ordena de más caro a más barato y cuadra el resto.
+let pFalso = { orden: ["barata", "cara"], ms: { barata: 10, cara: 90 }, n: { barata: 1, cara: 3 }, celdas: { barata: 0, cara: 500 } };
+let lineas = perfLineas(pFalso, 200);
+ok("la etiqueta más cara va primero", lineas[0].indexOf("cara") !== -1);
+ok("muestra el porcentaje sobre el total", lineas[0].indexOf("45%") !== -1);
+ok("cuenta las llamadas en total", lineas[2].indexOf("4 llamadas en total") !== -1);
+ok("imputa el resto no medido", lineas[3].indexOf("100 ms") !== -1 && lineas[3].indexOf("resto") !== -1);
+ok("sin celdas no imprime celdas", lineas[1].indexOf("celdas") === -1);
+ok("sin datos no revienta", perfLineas(null, 0).length === 1);
+
 console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
 ["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>
   ok("acepta guía corta " + g, esGuiaUPSValida(g) === true));
