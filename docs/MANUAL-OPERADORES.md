@@ -81,6 +81,7 @@ después ya no cambia.
 | **🛑 ERROR: Faltan 2 números** | Escribiste un pedimento incompleto | Complétalo a 7 dígitos |
 | **🛑 PEDIMENTO REPETIDO** | El mismo pedimento aparece dos veces en la hoja | Junta los dos bloques en uno |
 | **⚠️ PEDIMENTO REPETIDO** | Lo mismo, pero en la preforma (columna P) | Corrige la preforma |
+| **⚠️ GUÍA REPETIDA EN PREFORMA** | Esa guía ya la habías capturado antes en la columna O | Borra la de abajo: repetirla infla el total de bultos esperados |
 
 ### Informativos
 

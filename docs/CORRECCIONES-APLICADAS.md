@@ -255,33 +255,63 @@ El formato condicional se reevalúa en cada cambio y frena tanto al script como
 al navegador. Ahora los colores los pinta el código, en el mismo `setValues`
 que ya se hacía, sin llamadas extra a la API.
 
-### Columna A
-
-Sólo se pintan **dos cosas**, más el azul claro de las ubicaciones de
-inventario:
+### Columna A (escaneo físico)
 
 | Contenido de A | Color | Constante |
 |---|---|---|
 | Pedimento (7 dígitos) | Azul `#178ccc` | `COLOR_A_PEDIMENTO` |
+| Guía válida | Verde `#00ff00` | `COLOR_A_GUIA` |
 | Guía **duplicada** (⛔ o 🔄 en B) | Rojo `#df5f6b` | `COLOR_A_DUPLICADO` |
+| Guía inválida | Rojo `#df5f6b` | `COLOR_A_DUPLICADO` |
 | Ubicación `IW…` en inventarios | Azul claro `#a4c2f4` | `COLOR_A_UBICACION` |
-| Guía normal, guía inválida, marcador, fila vacía | Sin color `#ffffff` | `COLOR_A_NEUTRO` |
+| Marcador estructural o fila vacía | Sin color `#ffffff` | `COLOR_A_NEUTRO` |
 
-Una guía normal **no lleva verde**: el verde vive en la columna O. La guía
-inválida tampoco se pinta — su aviso ya está en la columna B (`❌ Guía
-Inválida`), que sí conserva su color.
+Interruptor: `COLOREAR_COLUMNA_A = false` devuelve el control al formato
+condicional.
 
-Interruptores al inicio de `Codigo.gs`:
+### Columna O (preforma)
 
-- `COLOREAR_COLUMNA_A = false` → devuelve el control al formato condicional.
-- `COLOREAR_UBICACIONES_IW = false` → quita también el azul claro de las `IW`.
+Conserva su esquema por bloques: el color lo fija la letra de la columna **N**
+de la fila del pedimento y se extiende a todas las guías de ese bloque.
 
-### Columna O
+| Letra en N | Color del bloque |
+|---|---|
+| (vacía o desconocida) | Verde `#00ff00` |
+| `a` | Verde brillante `#35ec09` |
+| `b` | Rosa `#ff00ff` |
+| `c` | Turquesa `#39b1b9` |
 
-**Sin cambios.** Sigue con su esquema por bloques según la letra de la columna
-N: verde `#00ff00` por defecto, `a` → `#35ec09`, `b` → `#ff00ff`,
-`c` → `#39b1b9`. Y sólo se reescribe si la preforma se tocó en ese escaneo
-(`tocoPreforma`), para no gastar llamadas de más.
+Encima de eso se añaden los dos colores de la columna A:
+
+- **La celda del pedimento va en azul** `#178ccc`, no en el color del bloque.
+  Las guías del bloque sí conservan el color de la letra.
+- **Lo repetido va en rojo** `#df5f6b`, y el rojo se aplica al final, así que
+  pisa tanto el azul del pedimento como el color de bloque de las guías.
+
+Dos casos caen en ese rojo:
+
+1. **Pedimento repetido** — ya se detectaba y avisaba en P con
+   `⚠️ PEDIMENTO REPETIDO`; ahora además se pinta la celda de O.
+2. **Guía repetida dentro de la misma preforma** — detección **nueva**
+   (`filasGuiaRepetidaEnPreforma`). Se mira la columna O completa de la hoja,
+   no bloque por bloque, porque una guía no puede pertenecer a dos pedimentos y
+   repetirla infla el conteo de bultos esperados. Se saltan los pedimentos
+   (tienen su propia detección) y los marcadores estructurales
+   (`SIN PEDIMENTO`, `COSTALES`, `FIN`), que se repiten de forma legítima.
+
+Para que la celda roja no quede sin explicación, la fila recibe el aviso
+`⚠️ GUÍA REPETIDA EN PREFORMA` en la columna P. Si esa fila ya traía el
+`► Resumen: N bultos`, el aviso se **antepone** (`⚠️ GUÍA REPETIDA | ► Resumen:
+…`) en vez de borrarlo, y nunca pisa un `⛔` ni un `🛑`, que son más graves.
+
+Interruptor: `COLOREAR_PEDIMENTO_Y_DUP_EN_O = false` deja la columna O
+exactamente como estaba (solo color de bloque, sin azul ni rojo ni el aviso
+nuevo).
+
+La columna O sigue escribiéndose solo si la edición tocó la preforma
+(`tocoPreforma`): un escaneo en la columna A no puede cambiar estos colores.
+Con `repintarTodo` se salta además la lectura de comparación, que ahí sería una
+llamada de más.
 
 ### Cómo hacer el cambio en la hoja
 
@@ -289,10 +319,9 @@ Mientras el formato condicional siga puesto, **él manda** y los colores del
 código no se ven. El orden seguro es:
 
 1. Pegar el código nuevo.
-2. Quitar las reglas de formato condicional de la columna A (menú
-   *Formato → Formato condicional*). Las de la O se pueden dejar o quitar, da
-   igual: el código las repinta.
+2. Quitar las reglas de formato condicional de las columnas A y O
+   (*Formato → Formato condicional*).
 3. Correr **🔄 Forzar Actualización** una vez por pestaña. Ese es el único modo
    que repinta la hoja **entera** (`repintarTodo`); el escaneo normal sólo
    escribe las filas que cambiaron, así que sin este paso las filas viejas se
-   quedarían sin color.
+   quedarían con el color anterior.

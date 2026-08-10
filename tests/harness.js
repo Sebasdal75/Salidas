@@ -226,18 +226,47 @@ ok("cada bloque queda bajo su pedimento",
 // El bloque movido abarca 12 columnas: nunca llega a M (13) ni N (14).
 ok("solo se mueven 12 columnas (M y N intactas)", salida[0].length === 12);
 
-console.log("\n=== 5d. Colores de la columna A (sólo pedimento y duplicados) ===");
+console.log("\n=== 5d. Colores de la columna A (sustituyen al formato condicional) ===");
 ok("pedimento -> azul", colorColumnaA("6100166", "Bultos: 30 | ✅ COMPLETO") === "#178ccc");
-ok("guía válida -> sin color", colorColumnaA("1Z999AA10123456784", "✅ Ok") === "#ffffff");
-ok("guía corta -> sin color", colorColumnaA("1234567890", "✅ Guía") === "#ffffff");
+ok("guía válida -> verde", colorColumnaA("1Z999AA10123456784", "✅ Ok") === "#00ff00");
+ok("guía corta -> verde", colorColumnaA("1234567890", "✅ Guía") === "#00ff00");
 ok("duplicada entre hojas -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (En: M-S T1 Fila 4)") === "#df5f6b");
 ok("duplicada local -> rojo", colorColumnaA("1Z999AA10123456784", "🔄 Duplicado local") === "#df5f6b");
-ok("duplicada aunque la guía sea corta -> rojo", colorColumnaA("1234567890", "⛔ DUPLICADO (En: GLOBAL 5 Fila 9)") === "#df5f6b");
-ok("guía inválida -> sin color (la marca está en B)", colorColumnaA("ABC", "❌ Guía Inválida") === "#ffffff");
+ok("guía inválida -> rojo", colorColumnaA("ABC", "❌ Guía Inválida") === "#df5f6b");
 ok("ubicación IW -> azul claro", colorColumnaA("IW-A-01", "Bultos: 5") === "#a4c2f4");
-ok("ubicación IW duplicada -> rojo (el duplicado manda)", colorColumnaA("IW-A-01", "⛔ DUPLICADO (En: INVENTARIO 2 Fila 7)") === "#df5f6b");
 ok("fila vacía -> sin color", colorColumnaA("", "") === "#ffffff");
 ok("marcador -> sin color", colorColumnaA("SIN PEDIMENTO", "") === "#ffffff");
+
+console.log("\n=== 5e. Columna O: color de bloque + pedimento y repetidos ===");
+ok("sin letra en N -> verde", colorBloqueO("") === "#00ff00");
+ok("letra a -> verde brillante", colorBloqueO("a") === "#35ec09");
+ok("letra b -> rosa", colorBloqueO("B") === "#ff00ff");
+ok("letra c -> turquesa", colorBloqueO(" c ") === "#39b1b9");
+ok("letra desconocida -> verde por defecto", colorBloqueO("z") === "#00ff00");
+
+// La columna O es el índice 14 de datosMasivos.
+const filaO = v => { let f = new Array(20).fill(""); f[14] = v; return f; };
+let hojaO = [
+  filaO("6100166"),              // 0 pedimento
+  filaO("1Z999AA10123456784"),   // 1 guía
+  filaO("1234567890"),           // 2 guía
+  filaO("6100167"),              // 3 otro pedimento
+  filaO("1Z999AA10123456784"),   // 4 misma guía otra vez -> repetida
+  filaO("SIN PEDIMENTO"),        // 5 marcador
+  filaO("SIN PEDIMENTO"),        // 6 marcador repetido: no cuenta
+  filaO(""),                     // 7 vacía
+  filaO("1234567890")            // 8 repetida de la fila 2
+];
+let repes = filasGuiaRepetidaEnPreforma(hojaO, hojaO.length);
+ok("detecta la 2ª aparición de la guía", repes.has(4));
+ok("detecta la 2ª aparición de la guía corta", repes.has(8));
+ok("la 1ª aparición no se marca", !repes.has(1) && !repes.has(2));
+ok("un pedimento repetido no entra aquí", !repes.has(3));
+ok("los marcadores repetidos no cuentan", !repes.has(5) && !repes.has(6));
+ok("la fila vacía no cuenta", !repes.has(7));
+ok("solo hay 2 repetidas", repes.size === 2);
+ok("preforma limpia no marca nada",
+   filasGuiaRepetidaEnPreforma([filaO("6100166"), filaO("1Z999AA10123456784")], 2).size === 0);
 
 console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
 ["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>

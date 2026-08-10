@@ -37,16 +37,43 @@ const PROP_TRIGGER = 'TRIGGER_EDICION_INSTALADO';
 // =========================================================================
 const COLOREAR_COLUMNA_A = true;
 
-// En la columna A sólo se pintan dos cosas: el pedimento y las guías
-// duplicadas. Una guía normal se queda sin color (el verde vive en la
-// columna O, que sigue con su propio esquema por bloques).
+// La columna O (preforma) conserva su esquema por bloques según la letra de
+// la columna N, y encima recibe los dos colores de la A:
+//   pedimento → azul, repetido (pedimento o guía) → rojo.
+// Poner en false para dejar la O exactamente como estaba.
+const COLOREAR_PEDIMENTO_Y_DUP_EN_O = true;
+
 const COLOR_A_PEDIMENTO = "#178ccc";  // pedimento (7 dígitos) → azul
+const COLOR_A_GUIA      = "#00ff00";  // guía válida → verde (el mismo de la columna O)
 const COLOR_A_DUPLICADO = "#df5f6b";  // duplicada → rojo
 const COLOR_A_UBICACION = "#a4c2f4";  // ubicación IW en inventarios → azul claro
-const COLOR_A_NEUTRO    = "#ffffff";  // todo lo demás: guías normales, vacías, marcadores
+const COLOR_A_NEUTRO    = "#ffffff";  // fila vacía o sin clasificar
 
-// Poner en false si tampoco se quiere el azul claro de las ubicaciones IW.
-const COLOREAR_UBICACIONES_IW = true;
+// Color de bloque de la columna O según la letra de la columna N del pedimento.
+function colorBloqueO(letraN) {
+    let l = String(letraN).trim().toLowerCase();
+    if (l === "a") return "#35ec09";
+    if (l === "b") return "#ff00ff";
+    if (l === "c") return "#39b1b9";
+    return "#00ff00";
+}
+
+// Filas cuya guía ya apareció antes en la columna O de la misma hoja. Se mira
+// la columna O completa, no bloque por bloque: una guía no puede estar en dos
+// pedimentos, y repetirla infla el conteo de bultos esperados. Los pedimentos
+// (7 dígitos) y los marcadores estructurales se saltan: los primeros tienen su
+// propia detección, los segundos se repiten de forma legítima.
+function filasGuiaRepetidaEnPreforma(datosMasivos, ultimaFila) {
+    let repetidas = new Set();
+    let vistas = new Set();
+    for (let i = 0; i < ultimaFila; i++) {
+        let v = String(datosMasivos[i][14]).trim().toUpperCase();
+        if (v === "" || /^\d{7}$/.test(v) || esMarcadorEstructural(v)) continue;
+        if (vistas.has(v)) repetidas.add(i);
+        else vistas.add(v);
+    }
+    return repetidas;
+}
 
 // Decide el color de una celda de la columna A a partir del valor y su estado.
 function colorColumnaA(valor, estado) {
@@ -57,11 +84,11 @@ function colorColumnaA(valor, estado) {
     // Duplicada en cualquiera de sus formas (entre hojas o dentro de la hoja).
     if (e.indexOf("DUPLICADO") !== -1 || e.indexOf("Duplicado") !== -1) return COLOR_A_DUPLICADO;
 
-    if (COLOREAR_UBICACIONES_IW && v.startsWith("IW")) return COLOR_A_UBICACION;
+    if (v.startsWith("IW")) return COLOR_A_UBICACION;
     if (/^\d{7}$/.test(v)) return COLOR_A_PEDIMENTO;
-
-    // Guías válidas, inválidas y marcadores: sin color en la columna A.
-    return COLOR_A_NEUTRO;
+    if (esMarcadorEstructural(v)) return COLOR_A_NEUTRO;
+    if (esGuiaUPSValida(v)) return COLOR_A_GUIA;
+    return COLOR_A_DUPLICADO;   // guía inválida: también en rojo
 }
 
 // Variables globales de memoria (sobreviven entre escaneos dentro de una
@@ -1399,6 +1426,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       if (gTmp.length > 0) bloquesPreforma.push({ pedimento: "SIN_CABECERA", filaPedimento: -1, guias: gTmp.slice(), filasGuias: fTmp.slice(), esErr: false });
   }
 
+  let filasGuiaRepetidaPreforma = COLOREAR_PEDIMENTO_Y_DUP_EN_O
+      ? filasGuiaRepetidaEnPreforma(datosMasivos, ultimaFila)
+      : new Set();
+
   bloquesPreforma.forEach(bloque => {
     let pedimento = bloque.pedimento; let setGuias = new Set(bloque.guias);
     if (pedimento !== "" && pedimento !== "SIN_CABECERA") {
@@ -1408,11 +1439,12 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 
     let colorFondoPreforma = "#00ff00";
     if (bloque.filaPedimento !== -1) {
-        let letraN = String(datosMasivos[bloque.filaPedimento][13]).trim().toLowerCase();
-        if (letraN === "a") colorFondoPreforma = "#35ec09";
-        else if (letraN === "b") colorFondoPreforma = "#ff00ff";
-        else if (letraN === "c") colorFondoPreforma = "#39b1b9";
-        coloresColumnaO[bloque.filaPedimento][0] = colorFondoPreforma;
+        colorFondoPreforma = colorBloqueO(datosMasivos[bloque.filaPedimento][13]);
+        // La letra de la N sigue mandando en las guías del bloque; el azul
+        // sólo se queda con la celda del pedimento.
+        coloresColumnaO[bloque.filaPedimento][0] = COLOREAR_PEDIMENTO_Y_DUP_EN_O
+            ? COLOR_A_PEDIMENTO
+            : colorFondoPreforma;
     }
     bloque.filasGuias.forEach(fG => { coloresColumnaO[fG][0] = colorFondoPreforma; });
 
@@ -1428,6 +1460,26 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           coloresP[fila][0] = "#ffc107";
       }
   });
+
+  // El rojo va al final: pisa tanto el azul del pedimento como el color de
+  // bloque de las guías, para que un repetido nunca pase desapercibido.
+  if (COLOREAR_PEDIMENTO_Y_DUP_EN_O) {
+      filasDuplicadasPreforma.forEach(fila => { coloresColumnaO[fila][0] = COLOR_A_DUPLICADO; });
+      filasGuiaRepetidaPreforma.forEach(fila => {
+          coloresColumnaO[fila][0] = COLOR_A_DUPLICADO;
+          // Sin aviso en P la celda roja no diría por qué. No pisa errores
+          // estructurales ni duplicados entre hojas, que son más graves, y si
+          // la fila ya trae el "► Resumen" se antepone en vez de borrarlo.
+          let estadoPrevio = resultadosP[fila][0];
+          if (estadoPrevio === "") {
+              resultadosP[fila][0] = "⚠️ GUÍA REPETIDA EN PREFORMA";
+              coloresP[fila][0] = "#ffc107";
+          } else if (!estadoPrevio.startsWith("⛔") && !estadoPrevio.startsWith("🛑")) {
+              resultadosP[fila][0] = "⚠️ GUÍA REPETIDA | " + estadoPrevio;
+              coloresP[fila][0] = "#ffc107";
+          }
+      });
+  }
 
   if (!esHojaMSLocal && !esRezago) {
       registroMS.forEach((guiasSet, pedimento) => {
@@ -1639,10 +1691,14 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // la columna A no puede cambiar estos colores, así que en el caso normal nos
   // ahorramos una lectura y una escritura de columna completa.
   if (tocoPreforma) {
-      let bgOActual = hoja.getRange(1, 15, ultimaFila, 1).getBackgrounds();
-      let bgODistinto = false;
-      for (let i = 0; i < ultimaFila; i++) {
-          if (String(bgOActual[i][0]).toLowerCase() !== String(coloresColumnaO[i][0]).toLowerCase()) { bgODistinto = true; break; }
+      // "Forzar Actualización" repinta sin preguntar: se salta la lectura de
+      // comparación, que ahí solo sería una llamada de más.
+      let bgODistinto = repintarTodo === true;
+      if (!bgODistinto) {
+          let bgOActual = hoja.getRange(1, 15, ultimaFila, 1).getBackgrounds();
+          for (let i = 0; i < ultimaFila; i++) {
+              if (String(bgOActual[i][0]).toLowerCase() !== String(coloresColumnaO[i][0]).toLowerCase()) { bgODistinto = true; break; }
+          }
       }
       if (bgODistinto) hoja.getRange(1, 15, ultimaFila, 1).setBackgrounds(coloresColumnaO);
   }
