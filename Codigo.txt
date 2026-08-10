@@ -882,7 +882,19 @@ function actualizarBloqueEnCache(source, nombreHoja, filaInicial, numRows, colIn
         headers = cacheSheet.getRange(1, 1, 1, maxCols).getValues()[0];
     }
 
+    // La hoja no está en el caché: o es nueva, o la acaban de RENOMBRAR.
+    //
+    // Lo segundo es lo peligroso. Renombrar una pestaña no dispara nada, así que
+    // su columna vieja se queda en el caché con todas sus guías dentro. En
+    // cuanto se escanea con el nombre nuevo se crea una segunda columna con las
+    // MISMAS guías, y a partir de ahí cada fila de esa hoja se ve duplicada
+    // contra su propio pasado: la pestaña entera en "⛔ DUPLICADO".
+    //
+    // Antes eso solo lo limpiaba el repaso de cada 5 minutos. Ahora se poda aquí
+    // mismo, antes de crear la columna nueva, así que el primer escaneo tras el
+    // cambio de nombre ya deja el caché coherente.
     if (headers.indexOf(clave + "_FISICO") === -1) {
+        podarCacheHuerfano(source);
         if (hojaObjetivo) actualizarFotografiaMental(hojaObjetivo, source);
         invalidarCacheRAM();
         return null;
@@ -1038,6 +1050,16 @@ function podarCacheHuerfano(source) {
     let headers = cacheSheet.getRange(1, 1, 1, lc).getValues()[0];
     let existentes = new Set(source.getSheets().map(h => claveHoja(h.getName())));
 
+    // De derecha a izquierda para que los índices no se muevan al ir borrando.
+    let aBorrar = columnasHuerfanas(headers, existentes);
+    aBorrar.forEach(col => cacheSheet.deleteColumn(col));
+    return aBorrar.length;
+}
+
+// Qué columnas del caché sobran, dados sus encabezados y las pestañas que
+// existen de verdad. Devuelve columnas 1-based ya ordenadas de derecha a
+// izquierda, que es como hay que borrarlas.
+function columnasHuerfanas(headers, existentes) {
     let aBorrar = [];
     for (let i = 0; i < headers.length; i++) {
         let h = String(headers[i]);
@@ -1049,10 +1071,7 @@ function podarCacheHuerfano(source) {
         // Columna de preforma de una bodega: siempre vacía, no se usa.
         if (h.endsWith("_PREFORMA") && !usaPreforma(nombre)) aBorrar.push(i + 1);
     }
-
-    // De derecha a izquierda para que los índices no se muevan.
-    aBorrar.sort((a, b) => b - a).forEach(col => cacheSheet.deleteColumn(col));
-    return aBorrar.length;
+    return aBorrar.sort((a, b) => b - a);
 }
 
 // =========================================================================
@@ -2954,7 +2973,9 @@ function forzarActualizacionHojaActiva() {
 
     ss.toast('⏳ Sincronizando datos, por favor espera...', 'Actualizando', 3);
 
-    // La fotografía primero: así el recálculo trabaja con un caché fiel.
+    // Podar primero las columnas de pestañas renombradas o borradas: si no, la
+    // hoja se compararía contra su propio pasado y saldría toda duplicada.
+    podarCacheHuerfano(ss);
     actualizarFotografiaMental(hoja, ss);
     invalidarCacheRAM();
     let cacheInfo = getCacheData(ss);

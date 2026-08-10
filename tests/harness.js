@@ -303,6 +303,27 @@ COLS_CAPTURA.forEach(c =>
 ok("la columna Q ya no está en el lote", columnasDelLote().indexOf(17) === -1);
 ok("la columna D ya no está en el lote", columnasDelLote().indexOf(4) === -1);
 
+console.log("\n=== 5r. Poda del caché al renombrar una pestaña ===");
+// Se renombró "GLOBAL 2" a "GLOBAL 4": su columna vieja tiene que irse, o la
+// hoja se compara contra su propio pasado y sale entera duplicada.
+let hdrs = ["GLOBAL 2_FISICO", "GLOBAL 2_PREFORMA", "GLOBAL 4_FISICO", "GLOBAL 4_PREFORMA", "M-S T1_FISICO"];
+let viven = new Set(["GLOBAL 4", "M-S T1"]);
+let borrar = columnasHuerfanas(hdrs, viven);
+ok("se borran las dos columnas del nombre viejo", borrar.indexOf(1) !== -1 && borrar.indexOf(2) !== -1);
+ok("las del nombre nuevo se quedan", borrar.indexOf(3) === -1 && borrar.indexOf(4) === -1);
+ok("la M-S se queda", borrar.indexOf(5) === -1);
+ok("se devuelven de derecha a izquierda", borrar.join(",") === "2,1");
+
+// Una M-S no usa preforma: su columna _PREFORMA sobra aunque la pestaña exista.
+ok("la preforma de una M-S se poda",
+   columnasHuerfanas(["M-S T1_FISICO", "M-S T1_PREFORMA"], new Set(["M-S T1"])).join(",") === "2");
+ok("la preforma de un destino se respeta",
+   columnasHuerfanas(["GLOBAL 4_FISICO", "GLOBAL 4_PREFORMA"], new Set(["GLOBAL 4"])).length === 0);
+ok("los encabezados vacíos se ignoran",
+   columnasHuerfanas(["", "GLOBAL 4_FISICO", ""], new Set(["GLOBAL 4"])).length === 0);
+ok("sin nada que podar devuelve vacío",
+   columnasHuerfanas(["M-S T1_FISICO"], new Set(["M-S T1"])).length === 0);
+
 console.log("\n=== 5q. hojasConGuias: cada dominio ve solo el suyo ===");
 const cacheDominios = { map: new Map([
   ["1Z111", [

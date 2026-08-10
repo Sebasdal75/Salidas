@@ -847,3 +847,33 @@ Se añade `sincronizarDestinosAfectados()`, hermana de la de inventarios.
 los tres dominios, y solo se abren las pestañas que de verdad contienen alguna
 de las guías tocadas — o sea, casi siempre ninguna: un escaneo normal no paga
 nada.
+
+---
+
+## Renombrar una pestaña dejaba su caché viejo detrás
+
+Pregunta de producción: al cambiar el nombre de una pestaña, ¿se actualiza solo
+el nombre o se queda el caché viejo?
+
+**Se quedaba**, y el efecto era feo. Renombrar no dispara `onEdit`, así que el
+caché conserva la columna `NOMBRE VIEJO_FISICO` con todas sus guías. Al primer
+escaneo con el nombre nuevo, `actualizarBloqueEnCache` no encuentra
+`NOMBRE NUEVO_FISICO` y crea una segunda columna con **las mismas guías**.
+
+A partir de ahí la hoja se compara contra su propio pasado: cada fila sale
+`⛔ DUPLICADO (En: NOMBRE VIEJO Fila N)`, apuntando a una pestaña que ya no
+existe. **La pestaña entera en rojo.**
+
+`podarCacheHuerfano()` ya sabía limpiar esas columnas, pero solo corría en el
+repaso de cada 5 minutos — y solo si está puesto el trigger instalable.
+
+Ahora se poda en el momento exacto en que se detecta el problema: cuando
+`actualizarBloqueEnCache` ve una hoja que no está en el caché, antes de crearle
+la columna nueva. Así el primer escaneo tras el cambio de nombre ya deja todo
+coherente. También se poda al principio de `🔄 Forzar Actualización`, que es
+adonde acude el operador cuando algo se ve raro.
+
+La decisión se extrae a `columnasHuerfanas(headers, existentes)`, pura y con
+tests: columnas de pestañas que ya no existen, y columnas `_PREFORMA` de bodegas
+(que nunca se usan). Devuelve los índices de derecha a izquierda, que es el
+único orden en el que se pueden borrar sin que se muevan.
