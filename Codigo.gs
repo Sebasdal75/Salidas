@@ -71,7 +71,6 @@ function esHojaMS(nombreHoja) {
 // de un global, y con guías 1Z el prefijo del embarcador tampoco lo dice.
 function tipoMS(nombreHoja) {
     let n = claveHoja(nombreHoja);
-    if (n.indexOf("CUENTAS ESPECIALES") !== -1) return "M-S CTAS ESP";
     if (n.indexOf("A1") !== -1) return "M-S A1";
     if (n.indexOf("SEGUIMIENTOS") !== -1) return "M-S SEGUIMIENTOS";
     if (n.startsWith("M-S GLOBALES") || n.startsWith("MULTIPLES")) return "M-S GLOBALES";
@@ -1431,9 +1430,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
       if (requiereAlertaMS) {
           // Ya no se adivina si "debería" haber pasado por T1 o por GLOBALES:
           // no hay nada en la guía que lo indique.
-          txtFalta = nombreHoja.indexOf("CUENTAS ESPECIALES") !== -1
-              ? " ⚠️ Sin registrar en M-S CTAS ESP"
-              : " ⚠️ Sin registrar en M-S";
+          txtFalta = " ⚠️ Sin registrar en M-S";
       }
 
       bloque.guias.forEach((g, idx) => {
@@ -1491,7 +1488,6 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
                       // caché, en vez de deducirla del formato de las guías.
                       if (bloque.forzado === "T1") estadoStr = "✅ T1";
                       else if (nombreHoja.indexOf("A1") !== -1) estadoStr = "✅ A1 COMPLETO";
-                      else if (nombreHoja.indexOf("CUENTAS ESPECIALES") !== -1) estadoStr = "✅ M-S CTAS ESP";
                       else if (origenesReales.size > 0) estadoStr = "✅ " + Array.from(origenesReales).sort().join(" + ");
                       else estadoStr = "✅ Escaneado";
                       coloresB[bloque.filaPedimento][0] = "#178ccc";
