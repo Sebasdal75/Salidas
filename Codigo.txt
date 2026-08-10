@@ -40,22 +40,30 @@ const COLOREAR_COLUMNA_A = true;
 // La columna O (preforma) conserva su esquema por bloques según la letra de
 // la columna N, y encima recibe los dos colores de la A:
 //   pedimento → azul, repetido (pedimento o guía) → rojo.
-// Poner en false para dejar la O exactamente como estaba.
+// Poner en false para dejar la O sólo con el color de bloque.
 const COLOREAR_PEDIMENTO_Y_DUP_EN_O = true;
 
+// Color de las guías de un bloque cuyo pedimento no trae letra en la N.
+// Sin color: el bloque sólo se tiñe cuando la N dice a, b o c.
+// Poner "#00ff00" aquí devuelve el verde por defecto de antes.
+const COLOR_O_SIN_LETRA = "#ffffff";
+
 const COLOR_A_PEDIMENTO = "#178ccc";  // pedimento (7 dígitos) → azul
-const COLOR_A_GUIA      = "#00ff00";  // guía válida → verde (el mismo de la columna O)
+const COLOR_A_GUIA      = "#00ff00";  // guía válida → verde
 const COLOR_A_DUPLICADO = "#df5f6b";  // duplicada → rojo
 const COLOR_A_UBICACION = "#a4c2f4";  // ubicación IW en inventarios → azul claro
 const COLOR_A_NEUTRO    = "#ffffff";  // fila vacía o sin clasificar
 
 // Color de bloque de la columna O según la letra de la columna N del pedimento.
+// Sin letra (o con una letra sin regla) el bloque se queda SIN color: sólo
+// a/b/c pintan. El código de Gemini devolvía verde por defecto, así que teñía
+// de verde todos los bloques aunque la N estuviera vacía.
 function colorBloqueO(letraN) {
     let l = String(letraN).trim().toLowerCase();
     if (l === "a") return "#35ec09";
     if (l === "b") return "#ff00ff";
     if (l === "c") return "#39b1b9";
-    return "#00ff00";
+    return COLOR_O_SIN_LETRA;
 }
 
 // Filas cuya guía ya apareció antes en la columna O de la misma hoja. Se mira
@@ -1437,7 +1445,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
         setGuias.forEach(g => mapaInversoPreforma.set(g, pedimento));
     }
 
-    let colorFondoPreforma = "#00ff00";
+    // Bloque sin cabecera (guías sueltas antes del primer pedimento): no hay
+    // N que consultar, así que se quedan sin color.
+    let colorFondoPreforma = COLOR_O_SIN_LETRA;
     if (bloque.filaPedimento !== -1) {
         colorFondoPreforma = colorBloqueO(datosMasivos[bloque.filaPedimento][13]);
         // La letra de la N sigue mandando en las guías del bloque; el azul

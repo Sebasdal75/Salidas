@@ -276,10 +276,18 @@ de la fila del pedimento y se extiende a todas las guías de ese bloque.
 
 | Letra en N | Color del bloque |
 |---|---|
-| (vacía o desconocida) | Verde `#00ff00` |
 | `a` | Verde brillante `#35ec09` |
 | `b` | Rosa `#ff00ff` |
 | `c` | Turquesa `#39b1b9` |
+| Vacía, o cualquier otra letra | Sin color `#ffffff` |
+
+**Corregido respecto al código original:** Gemini tenía el verde `#00ff00` como
+valor *por defecto* de `colorFondoPreforma`, así que teñía de verde todos los
+bloques aunque la columna N estuviera vacía. El comportamiento correcto es que
+sin letra no se pinte nada; sólo `a`, `b` y `c` cambian el color. Lo mismo para
+las guías sueltas que caen antes del primer pedimento (bloque sin cabecera): no
+hay N que consultar, así que se quedan sin color. `COLOR_O_SIN_LETRA = "#00ff00"`
+devuelve el verde de antes.
 
 Encima de eso se añaden los dos colores de la columna A:
 
