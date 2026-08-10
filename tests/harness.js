@@ -276,6 +276,50 @@ ok("con resumen: antepone sin borrarlo", rP[1][0] === "AVISO | ► Resumen: 5 bu
 escribirAvisoPreforma(rP, cP, 2, "AVISO", "#ff9800");
 ok("no pisa un ⛔", rP[2][0] === "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)" && cP[2][0] === "#fff");
 
+console.log("\n=== 5m. Prioridad de alertas: lo grave no se tapa ===");
+ok("vacío es informativo", nivelAlerta("") === 0);
+ok("✅ Ok es informativo", nivelAlerta("✅ Ok") === 0);
+ok("➡ Salió en es informativo", nivelAlerta("➡ Salió en GLOBAL 2") === 0);
+ok("► Resumen es informativo", nivelAlerta("► Resumen: 5 bultos") === 0);
+ok("🔄 Duplicado local es aviso", nivelAlerta("🔄 Duplicado local") === 1);
+ok("⚠️ Sobra es aviso", nivelAlerta("⚠️ Sobra (Ajena)") === 1);
+ok("❌ Guía Inválida es medio", nivelAlerta("❌ Guía Inválida") === 2);
+ok("❌ Va en otro pedimento es medio", nivelAlerta("❌ Va en: 6100166") === 2);
+ok("⛔ DUPLICADO es alto", nivelAlerta("⛔ DUPLICADO (En: M-S T1 Fila 4)") === 3);
+ok("🛑 ERROR es crítico", nivelAlerta("🛑 ERROR: Faltan 2 números") === 4);
+ok("🛑 PEDIMENTO REPETIDO es crítico", nivelAlerta("🛑 PEDIMENTO REPETIDO") === 4);
+
+// Lo que motivó la regla: el barrido de salidas ya no borra un duplicado.
+ok("'Salió en' NO pisa un ⛔ DUPLICADO",
+   puedePisar("⛔ DUPLICADO (En: M-S T1 Fila 4)", "➡ Salió en GLOBAL 2") === false);
+ok("'Salió en' NO pisa un ❌ Guía Inválida",
+   puedePisar("❌ Guía Inválida", "➡ Salió en GLOBAL 2") === false);
+ok("'Salió en' NO pisa un 🔄 Duplicado local",
+   puedePisar("🔄 Duplicado local", "➡ Salió en GLOBAL 2") === false);
+ok("'Salió en' SÍ pisa un ✅ Ok",
+   puedePisar("✅ Ok", "➡ Salió en GLOBAL 2") === true);
+ok("'Salió en' SÍ escribe sobre una celda vacía",
+   puedePisar("", "➡ Salió en GLOBAL 2") === true);
+ok("'Salió en' SÍ pisa un ⏳ Pendiente",
+   puedePisar("⏳ Pendiente (reintenta)", "➡ Salió en GLOBAL 2") === true);
+
+// Entre alertas: la de igual o más peso sí puede escribir.
+ok("un ⛔ pisa a un ⚠️", puedePisar("⚠️ Sobra (Ajena)", "⛔ DUPLICADO (ya en Ped: 6100166, fila 3)") === true);
+ok("un ⚠️ no pisa a un ⛔", puedePisar("⛔ DUPLICADO (En: GLOBAL 3 Fila 9)", "⚠️ PEDIMENTO REPETIDO") === false);
+ok("un ⛔ pisa a otro ⛔ (mismo nivel)", puedePisar("⛔ A", "⛔ B") === true);
+
+// escribirAvisoPreforma aplica la regla y conserva el resumen.
+let rP2 = [[""], ["► Resumen: 5 bultos"], ["⛔ DUPLICADO (En: GLOBAL 3 Fila 9)"], ["⚠️ PEDIMENTO REPETIDO"]];
+let cP2 = [["#fff"], ["#fff"], ["#fff"], ["#fff"]];
+escribirAvisoPreforma(rP2, cP2, 0, "⚠️ GUÍA REPETIDA", "#ff9800");
+ok("celda vacía: escribe", rP2[0][0] === "⚠️ GUÍA REPETIDA" && cP2[0][0] === "#ff9800");
+escribirAvisoPreforma(rP2, cP2, 1, "⚠️ GUÍA REPETIDA", "#ff9800");
+ok("con resumen: antepone sin borrarlo", rP2[1][0] === "⚠️ GUÍA REPETIDA | ► Resumen: 5 bultos");
+escribirAvisoPreforma(rP2, cP2, 2, "⚠️ GUÍA REPETIDA", "#ff9800");
+ok("no pisa un ⛔ más grave", rP2[2][0] === "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)" && cP2[2][0] === "#fff");
+escribirAvisoPreforma(rP2, cP2, 3, "⚠️ GUÍA REPETIDA", "#ff9800");
+ok("no apila dos avisos del mismo peso", rP2[3][0] === "⚠️ PEDIMENTO REPETIDO");
+
 console.log("\n=== 5l. La red de seguridad no se queda en bucle ===");
 // Las cabeceras no siempre reciben estado (rezago, bloques con error). Si
 // contaran como pendientes, la hoja se recalcularía cada minuto para siempre.

@@ -577,3 +577,40 @@ La columna P gradúa el aviso con la misma regla que la B: gris si la repetició
 es dentro del mismo pedimento, naranja con referencia si es en otro.
 `escribirAvisoPreforma()` conserva el `► Resumen` que ya trajera la fila y nunca
 pisa un `⛔` ni un `🛑`.
+
+---
+
+## Prioridad de alertas: lo grave no lo tapa lo informativo
+
+El arreglo anterior fue un parche: un `if` que buscaba la palabra `DUPLICAD`
+dentro del barrido de M-S. Resolvía ese caso y dejaba abiertos todos los demás
+—`❌ Guía Inválida`, `❌ Va en: X`, `🛑 ERROR`— que podían borrarse igual.
+
+Ahora hay una regla, no una excepción. La distinción no es qué mensaje es más
+importante, es **quién escribe**:
+
+- **Los tres cerebros** recalculan la fila entera desde cero. Saben todo lo que
+  hay que saber, así que escriben lo que calculen. Ahí es donde una alerta ya
+  resuelta se limpia sola — sigue sin haber alertas eternas.
+- **Los pases parciales** (el barrido de salidas M-S, los avisos de la preforma)
+  conocen un solo aspecto de la fila. Esos no pueden **bajar** el nivel: si lo
+  escrito es más grave que lo que traen, se callan.
+
+| Nivel | Prefijo | Ejemplos |
+|---|---|---|
+| 4 · Crítico | `🛑` | Error de estructura, pedimento repetido |
+| 3 · Alto | `⛔` | Duplicado entre hojas o entre pedimentos |
+| 2 · Medio | `❌` | Guía inválida, guía que va en otro pedimento |
+| 1 · Aviso | `⚠️` `🔄` | Sobra, sin registrar en M-S, duplicado local |
+| 0 · Info | `✅` `➡` `⏳` `►` | Ok, salió en, esperando, resumen, vacío |
+
+`nivelAlerta()` lo deduce del emoji con el que empieza el mensaje, que el
+sistema ya usaba de forma consistente, y `puedePisar(previo, nuevo)` decide.
+
+Consecuencia práctica: una guía duplicada en una M-S que además salió en una
+Global **se queda en `⛔ DUPLICADO`** y no pasa a `➡ Salió en …`. La alerta
+aguanta hasta que el operador arregla la fila; en cuanto la arregla, el
+recálculo de esa hoja la retira y entonces sí aparece el estado normal.
+
+El `🔄 Duplicado local` gris también está protegido: es discreto a propósito,
+pero desaparecer solo era justo lo que se estaba reportando.

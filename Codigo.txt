@@ -1247,14 +1247,14 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
             let destino = escaneadosDestino.get(v);
 
             if (destino) {
-                // Un aviso de duplicado NO se pisa. Antes, en cuanto la guía
-                // aparecía escaneada en una Global, este barrido reemplazaba el
-                // "⛔ DUPLICADO" por "➡ Salió en ...": el operador veía la
-                // alerta aparecer y desaparecer sola a los pocos segundos, sin
-                // haber hecho nada. La deja el recálculo de la propia hoja.
-                if (statusActual.toUpperCase().indexOf("DUPLICAD") !== -1) continue;
-
                 let textoEsperado = TXT_SALIO + destino;
+
+                // Este barrido es un pase parcial: solo sabe si la guía salió,
+                // no si además está duplicada o mal puesta. Si lo que ya hay
+                // escrito es más grave, se respeta. Antes lo borraba y el
+                // operador veía la alerta desaparecer sola a los segundos.
+                if (!puedePisar(statusActual, textoEsperado)) continue;
+
                 if (statusActual !== textoEsperado) { vals[r][1] = textoEsperado; modificados = true; }
             } else if (esEstadoSalida(statusActual)) {
                 vals[r][1] = ""; modificados = true;
@@ -1378,6 +1378,46 @@ function duplicadoLocal(previa, pedActual, etiqueta) {
     return { texto: "⛔ DUPLICADO (ya en " + et + ": " + previa.ped + ", fila " + fila + ")", color: "#ff9800", marcarPrimera: true };
 }
 
+// =========================================================================
+// PRIORIDAD DE LAS ALERTAS
+// =========================================================================
+// Una alerta importante no puede quedar tapada por un mensaje informativo.
+// El caso que lo destapó: el barrido de salidas escribía "➡ Salió en ..." en
+// las M-S y borraba de paso el "⛔ DUPLICADO" que el operador acababa de ver.
+//
+// La distinción no es qué mensaje es más bonito, es QUIÉN escribe:
+//
+//   · Los tres cerebros recalculan la fila ENTERA desde cero, así que saben
+//     todo lo que hay que saber y escriben lo que les dé la gana. Ahí es donde
+//     una alerta resuelta se limpia sola.
+//   · Los pases parciales (el barrido de M-S, los avisos de la preforma) solo
+//     conocen UN aspecto de la fila. Esos no pueden bajar el nivel: si lo que
+//     hay escrito es más grave que lo que traen, se callan y lo dejan.
+//
+// Así la alerta aguanta hasta que se arregla de verdad la fila, y entonces el
+// recálculo de su propia hoja la retira.
+const NIVEL_CRITICO = 4;   // 🛑 error de estructura, pedimento repetido
+const NIVEL_ALTO    = 3;   // ⛔ duplicado entre hojas o entre pedimentos
+const NIVEL_MEDIO   = 2;   // ❌ guía inválida, guía que va en otro pedimento
+const NIVEL_AVISO   = 1;   // ⚠️ sobra, sin registrar en M-S · 🔄 duplicado local
+const NIVEL_INFO    = 0;   // ✅ ok · ➡ salió en · ⏳ esperando · vacío
+
+function nivelAlerta(texto) {
+    let t = String(texto).trim();
+    if (t === "") return NIVEL_INFO;
+    if (t.startsWith("🛑")) return NIVEL_CRITICO;
+    if (t.startsWith("⛔")) return NIVEL_ALTO;
+    if (t.startsWith("❌")) return NIVEL_MEDIO;
+    if (t.startsWith("⚠️") || t.startsWith("🔄")) return NIVEL_AVISO;
+    return NIVEL_INFO;
+}
+
+// ¿Puede un pase parcial escribir `nuevo` encima de `previo`? Solo si no baja
+// el nivel de alerta de la fila.
+function puedePisar(previo, nuevo) {
+    return nivelAlerta(nuevo) >= nivelAlerta(previo);
+}
+
 // Pedimento del bloque de preforma al que pertenece una fila de guía.
 function pedimentoDeFilaPreforma(bloquesPreforma, fila) {
     for (let b = 0; b < bloquesPreforma.length; b++) {
@@ -1391,13 +1431,13 @@ function pedimentoDeFilaPreforma(bloquesPreforma, fila) {
 // que son más graves.
 function escribirAvisoPreforma(resultadosP, coloresP, fila, texto, color) {
     let previo = String(resultadosP[fila][0]);
-    if (previo === "") {
-        resultadosP[fila][0] = texto;
-    } else if (previo.startsWith("⛔") || previo.startsWith("🛑")) {
-        return;
-    } else {
-        resultadosP[fila][0] = texto + " | " + previo;
-    }
+    if (!puedePisar(previo, texto)) return;
+    // Si lo que había ya era una alerta, no se apilan dos avisos en la misma
+    // celda: manda la que ya estaba.
+    if (nivelAlerta(previo) > NIVEL_INFO) return;
+    // El "► Resumen: N bultos" sí es informativo y no debe perderse: el aviso
+    // se antepone en vez de borrarlo.
+    resultadosP[fila][0] = previo === "" ? texto : texto + " | " + previo;
     coloresP[fila][0] = color;
 }
 
@@ -1677,7 +1717,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   });
 
   filasDuplicadasPreforma.forEach(fila => {
-      if (!resultadosP[fila][0].startsWith("⛔")) {
+      if (puedePisar(resultadosP[fila][0], "⚠️ PEDIMENTO REPETIDO")) {
           resultadosP[fila][0] = "⚠️ PEDIMENTO REPETIDO";
           coloresP[fila][0] = "#ffc107";
       }
