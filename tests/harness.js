@@ -29,8 +29,8 @@ function ok(nombre, cond) {
 }
 
 console.log("\n=== 1. Clasificación de hojas (insensible a mayúsculas) ===");
-ok("M-S T1 es bodega", esHojaBodega("M-S T1"));
-ok("'M-s t1' minúsculas es bodega", esHojaBodega("M-s t1"));
+ok("M-S T1 es M-S", esHojaMS("M-S T1"));
+ok("'M-s t1' minúsculas es M-S", esHojaMS("M-s t1"));
 ok("'Inventario B' es inventario", esHojaInventario("Inventario B"));
 ok("INVENTARIO no es principal", !esHojaPrincipal("INVENTARIO 1"));
 ok("CACHE_SISTEMA no es principal", !esHojaPrincipal("CACHE_SISTEMA"));
@@ -50,16 +50,16 @@ ok("una plantilla MACHO NO es interna (sí recibe la columna M)", !esHojaInterna
 ok("GLOBAL PENDIENTE no es interna ni MACHO",
    !esHojaInterna("GLOBAL PENDIENTE") && !esHojaMacho("GLOBAL PENDIENTE"));
 
-console.log("\n=== 1d. El tipo de bodega lo da la pestaña, no las guías ===");
-ok("M-S T1 -> M-S T1", tipoBodega("M-S T1") === "M-S T1");
-ok("M-S GLOBALES -> M-S GLOBALES", tipoBodega("M-S GLOBALES") === "M-S GLOBALES");
-ok("M-S A1 -> M-S A1", tipoBodega("M-S A1") === "M-S A1");
-ok("M-S CUENTAS ESPECIALES -> M-S CTAS ESP", tipoBodega("M-S CUENTAS ESPECIALES") === "M-S CTAS ESP");
-ok("M-S SEGUIMIENTOS -> M-S SEGUIMIENTOS", tipoBodega("M-S SEGUIMIENTOS") === "M-S SEGUIMIENTOS");
-ok("SIMPLES -> M-S T1", tipoBodega("SIMPLES") === "M-S T1");
-ok("MULTIPLES -> M-S GLOBALES", tipoBodega("MULTIPLES") === "M-S GLOBALES");
+console.log("\n=== 1d. El tipo de M-S lo da la pestaña, no las guías ===");
+ok("M-S T1 -> M-S T1", tipoMS("M-S T1") === "M-S T1");
+ok("M-S GLOBALES -> M-S GLOBALES", tipoMS("M-S GLOBALES") === "M-S GLOBALES");
+ok("M-S A1 -> M-S A1", tipoMS("M-S A1") === "M-S A1");
+ok("M-S CUENTAS ESPECIALES -> M-S CTAS ESP", tipoMS("M-S CUENTAS ESPECIALES") === "M-S CTAS ESP");
+ok("M-S SEGUIMIENTOS -> M-S SEGUIMIENTOS", tipoMS("M-S SEGUIMIENTOS") === "M-S SEGUIMIENTOS");
+ok("SIMPLES -> M-S T1", tipoMS("SIMPLES") === "M-S T1");
+ok("MULTIPLES -> M-S GLOBALES", tipoMS("MULTIPLES") === "M-S GLOBALES");
 
-console.log("\n=== 1e. Las bodegas no reservan columna de preforma ===");
+console.log("\n=== 1e. Las M-S no reservan columna de preforma ===");
 ok("M-S T1 no usa preforma", usaPreforma("M-S T1") === false);
 ok("M-S GLOBALES no usa preforma", usaPreforma("M-S GLOBALES") === false);
 ok("GLOBAL PENDIENTE sí usa preforma", usaPreforma("GLOBAL PENDIENTE") === true);
@@ -78,11 +78,11 @@ console.log("\n=== 3. Aislamiento de duplicados ===");
 const G = "1Z999AA10123456784";
 const cache = {
   map: new Map([[G, [
-    { hoja: "GLOBALES",     fila: 10, isBodega: false, isInventario: false },
-    { hoja: "M-S T1",       fila: 20, isBodega: true,  isInventario: false },
-    { hoja: "INVENTARIO A", fila: 30, isBodega: false, isInventario: true  },
-    { hoja: "INVENTARIO A", fila: 55, isBodega: false, isInventario: true  },
-    { hoja: "INVENTARIO B", fila: 40, isBodega: false, isInventario: true  }
+    { hoja: "GLOBALES",     fila: 10, isMS: false, isInventario: false },
+    { hoja: "M-S T1",       fila: 20, isMS: true,  isInventario: false },
+    { hoja: "INVENTARIO A", fila: 30, isMS: false, isInventario: true  },
+    { hoja: "INVENTARIO A", fila: 55, isMS: false, isInventario: true  },
+    { hoja: "INVENTARIO B", fila: 40, isMS: false, isInventario: true  }
   ]]]),
   headers: [], data: []
 };
@@ -96,7 +96,7 @@ ok("Inventario detecta duplicado en otra pestaña de inventario", r.encontrado &
 ok("Inventario NUNCA reporta GLOBALES ni M-S", !/GLOBALES|M-S/.test(r.ubicacion));
 
 r = verificarDuplicadoConCache(cache, "M-S GLOBALES", G, 7);
-ok("Bodega solo choca con otra bodega", r.encontrado && r.ubicacion.indexOf("M-S T1") === 0);
+ok("M-S solo choca con otra M-S", r.encontrado && r.ubicacion.indexOf("M-S T1") === 0);
 
 r = verificarDuplicadoConCache(cache, "AGA", G, 7);
 ok("Global solo choca con otra global", r.encontrado && r.ubicacion.indexOf("GLOBALES") === 0);
@@ -105,12 +105,12 @@ r = verificarDuplicadoConCache(cache, "GLOBALES", G, 10);
 ok("Una hoja no se marca a sí misma", !r.encontrado);
 
 const cacheSoloBodega = {
-  map: new Map([[G, [{ hoja: "M-S T1", fila: 20, isBodega: true, isInventario: false }]]]),
+  map: new Map([[G, [{ hoja: "M-S T1", fila: 20, isMS: true, isInventario: false }]]]),
   headers: [], data: []
 };
 ok("Guía que pasó por T1 se escanea en Global sin alerta",
    !verificarDuplicadoConCache(cacheSoloBodega, "GLOBALES", G, 3).encontrado);
-ok("Inventario ignora que la guía esté en bodega",
+ok("Inventario ignora que la guía esté en M-S",
    !verificarDuplicadoConCache(cacheSoloBodega, "INVENTARIO A", G, 3).encontrado);
 
 console.log("\n=== 4. calcularDuplicadosExternos (hoja completa) ===");
@@ -125,7 +125,7 @@ ok("apunta a inventario, no a global/bodega", dupsInv.get(30).isInventario === t
 let dupsGlobal = calcularDuplicadosExternos(datos, 60, "AGA", cache);
 ok("en hoja Global apunta a GLOBALES", dupsGlobal.get(30).hoja === "GLOBALES");
 
-ok("inventario no marca nada si la guía solo está en bodega",
+ok("inventario no marca nada si la guía solo está en M-S",
    calcularDuplicadosExternos(datos, 60, "INVENTARIO A", cacheSoloBodega).size === 0);
 
 console.log("\n=== 5. horaPreservada ===");
@@ -154,8 +154,8 @@ ok("una guía corta NO abre bloque", esCabeceraBloque("1234567890") === false);
 // El marcador no debe entrar al índice de duplicados entre pestañas.
 const cacheMarcador = {
   map: new Map([["SIN PEDIMENTO", [
-    { hoja: "GLOBAL PENDIENTE", fila: 5,  isBodega: false, isInventario: false },
-    { hoja: "AGA",              fila: 12, isBodega: false, isInventario: false }
+    { hoja: "GLOBAL PENDIENTE", fila: 5,  isMS: false, isInventario: false },
+    { hoja: "AGA",              fila: 12, isMS: false, isInventario: false }
   ]]]),
   headers: [], data: []
 };

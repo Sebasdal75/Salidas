@@ -61,7 +61,7 @@ function esHojaSistema(nombreHoja) {
     return esHojaInterna(nombreHoja) || esHojaMacho(nombreHoja);
 }
 
-function esHojaBodega(nombreHoja) {
+function esHojaMS(nombreHoja) {
     let n = claveHoja(nombreHoja);
     return n.startsWith("M-S ") || n.startsWith("SIMPLES") || n.startsWith("MULTIPLES");
 }
@@ -69,7 +69,7 @@ function esHojaBodega(nombreHoja) {
 // El tipo de una bodega lo decide el operador al elegir la pestaña. No se
 // puede deducir de las guías: con guías cortas no hay nada que distinga un T1
 // de un global, y con guías 1Z el prefijo del embarcador tampoco lo dice.
-function tipoBodega(nombreHoja) {
+function tipoMS(nombreHoja) {
     let n = claveHoja(nombreHoja);
     if (n.indexOf("CUENTAS ESPECIALES") !== -1) return "M-S CTAS ESP";
     if (n.indexOf("A1") !== -1) return "M-S A1";
@@ -87,7 +87,7 @@ function esHojaPrincipal(nombreHoja) {
     let n = claveHoja(nombreHoja);
     if (esHojaSistema(n)) return false;
     if (esHojaInventario(n)) return false;
-    if (esHojaBodega(n)) return false;
+    if (esHojaMS(n)) return false;
     return true;
 }
 
@@ -411,6 +411,15 @@ function intentarLock(lock) {
 
 const TXT_PENDIENTE = "⏳ Pendiente (reintenta)";
 
+// Estado de una guía de M-S que ya salió en una unidad. Se reconoce también el
+// texto antiguo ("➡ Movido a ...") para que las hojas ya escritas se migren
+// solas en la siguiente pasada en vez de dejar de reconocerse.
+const TXT_SALIO = "➡ Salió en ";
+function esEstadoSalida(txt) {
+    let t = String(txt).trim();
+    return t.startsWith(TXT_SALIO) || t.toUpperCase().startsWith("➡ MOVIDO A");
+}
+
 // Una fila está sin validar si tiene dato pero no estado, o si quedó marcada
 // como pendiente porque el lock estaba ocupado. Lo segundo importa: si solo se
 // mirara "estado vacío", las filas que marcamos como pendientes serían
@@ -464,7 +473,7 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
 function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas) {
     let n = claveHoja(hoja.getName());
     if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo);
-    else if (esHojaBodega(n)) actualizarConteos(hoja, source, cacheInfo);
+    else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo);
     else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas);
 }
 
@@ -491,14 +500,14 @@ function getCacheData(source) {
         if (!header.endsWith("_FISICO")) continue;
 
         let hojaHeader = claveHoja(header.replace("_FISICO", ""));
-        let isBodegaHeader = esHojaBodega(hojaHeader);
+        let isMSHeader = esHojaMS(hojaHeader);
         let isInventarioHeader = esHojaInventario(hojaHeader);
 
         for (let r = 1; r < globalCacheData.length; r++) {
             let v = String(globalCacheData[r][c]).trim().toUpperCase();
             if (v === "" || esMarcadorEstructural(v)) continue;
             let arr = globalCacheMap.get(v) || [];
-            arr.push({ hoja: hojaHeader, fila: r, isBodega: isBodegaHeader, isInventario: isInventarioHeader });
+            arr.push({ hoja: hojaHeader, fila: r, isMS: isMSHeader, isInventario: isInventarioHeader });
             globalCacheMap.set(v, arr);
         }
     }
@@ -538,7 +547,7 @@ function verificarDuplicadoConCache(cacheInfo, nombreHojaActual, guiaBuscada, fi
     if (!cacheInfo || !cacheInfo.map) return { encontrado: false };
 
     let clave = claveHoja(nombreHojaActual);
-    let isCurrentBodega = esHojaBodega(clave);
+    let isCurrentMS = esHojaMS(clave);
     let isCurrentInv = esHojaInventario(clave);
     let matches = cacheInfo.map.get(guiaBuscada);
     if (!matches) return { encontrado: false };
@@ -557,10 +566,10 @@ function verificarDuplicadoConCache(cacheInfo, nombreHojaActual, guiaBuscada, fi
 
         if (match.hoja === clave) continue;
 
-        if (isCurrentBodega) {
-            if (match.isBodega) return { encontrado: true, ubicacion: match.hoja + " Fila " + match.fila };
+        if (isCurrentMS) {
+            if (match.isMS) return { encontrado: true, ubicacion: match.hoja + " Fila " + match.fila };
         } else {
-            if (!match.isBodega && !match.isInventario) {
+            if (!match.isMS && !match.isInventario) {
                 return { encontrado: true, ubicacion: match.hoja + " Fila " + match.fila };
             }
         }
@@ -578,7 +587,7 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
     if (!cacheInfo || !cacheInfo.map) return res;
 
     let esInv = esHojaInventario(claveEsta);
-    let esBod = esHojaBodega(claveEsta);
+    let esMS = esHojaMS(claveEsta);
 
     for (let i = 0; i < ultimaFila; i++) {
         let v = String(datosMasivos[i][0]).trim().toUpperCase();
@@ -593,10 +602,10 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
 
             if (esInv) {
                 if (!match.isInventario) continue;   // inventario ignora Global y Bodegas
-            } else if (esBod) {
-                if (!match.isBodega || match.hoja === claveEsta) continue;
+            } else if (esMS) {
+                if (!match.isMS || match.hoja === claveEsta) continue;
             } else {
-                if (match.isBodega || match.isInventario || match.hoja === claveEsta) continue;
+                if (match.isMS || match.isInventario || match.hoja === claveEsta) continue;
             }
 
             res.set(i, match);
@@ -635,7 +644,7 @@ function actualizarBloqueEnCache(source, nombreHoja, filaInicial, numRows, colIn
         return null;
     }
 
-    let isBodegaActual = esHojaBodega(clave);
+    let isMSActual = esHojaMS(clave);
     let isInventarioActual = esHojaInventario(clave);
     let guiasAfectadas = new Set();
 
@@ -682,7 +691,7 @@ function actualizarBloqueEnCache(source, nombreHoja, filaInicial, numRows, colIn
                 if (vStr !== "") {
                     let arr = globalCacheMap.get(vStr) || [];
                     if (!arr.some(m => m.hoja === clave && m.fila === filaInicial + r)) {
-                        arr.push({ hoja: clave, fila: filaInicial + r, isBodega: isBodegaActual, isInventario: isInventarioActual });
+                        arr.push({ hoja: clave, fila: filaInicial + r, isMS: isMSActual, isInventario: isInventarioActual });
                         globalCacheMap.set(vStr, arr);
                     }
                 }
@@ -720,7 +729,7 @@ function buscarHojaPorClave(source, clave) {
 // Las bodegas (M-S ...) no llevan preforma: su columna O siempre está vacía.
 // No tiene sentido reservarles columna en el caché ni leerla en cada foto.
 function usaPreforma(nombreHoja) {
-    return !esHojaBodega(nombreHoja);
+    return !esHojaMS(nombreHoja);
 }
 
 // Devuelve la columna (1-based) del header, creándola al final si no existe.
@@ -984,10 +993,10 @@ function obtenerGuiasRezagoDesdeCache(cacheInfo) {
     return guias;
 }
 
-function obtenerDatosBodegaDesdeCache(cacheInfo, nombreHojaActual) {
+function obtenerRegistroMSDesdeCache(cacheInfo, nombreHojaActual) {
     let guiasOrigen = new Map();
-    let preformaBodega = new Map();
-    if (!cacheInfo || !cacheInfo.headers) return { guiasOrigen: guiasOrigen, preformaBodega: preformaBodega };
+    let registroMS = new Map();
+    if (!cacheInfo || !cacheInfo.headers) return { guiasOrigen: guiasOrigen, registroMS: registroMS };
 
     let claveActual = claveHoja(nombreHojaActual);
     let esA1 = claveActual.indexOf("A1") !== -1;
@@ -998,7 +1007,7 @@ function obtenerDatosBodegaDesdeCache(cacheInfo, nombreHojaActual) {
         if (!header.endsWith("_FISICO")) continue;
 
         let nombreHoja = claveHoja(header.replace("_FISICO", ""));
-        if (!esHojaBodega(nombreHoja)) continue;
+        if (!esHojaMS(nombreHoja)) continue;
 
         let origen = "";
         if (nombreHoja.startsWith("M-S T1") || nombreHoja.startsWith("SIMPLES")) origen = "M-S T1";
@@ -1020,21 +1029,21 @@ function obtenerDatosBodegaDesdeCache(cacheInfo, nombreHojaActual) {
             let v = String(cacheInfo.data[r][c]).trim().toUpperCase();
             if (/^\d{7}$/.test(v)) {
                 pedActual = v;
-                if (!preformaBodega.has(pedActual)) preformaBodega.set(pedActual, new Set());
+                if (!registroMS.has(pedActual)) registroMS.set(pedActual, new Set());
             } else if (v !== "" && !esMarcadorEstructural(v)) {
                 if (!guiasOrigen.has(v)) guiasOrigen.set(v, origen);
-                if (pedActual !== "") preformaBodega.get(pedActual).add(v);
+                if (pedActual !== "") registroMS.get(pedActual).add(v);
             }
         }
     }
-    return { guiasOrigen: guiasOrigen, preformaBodega: preformaBodega };
+    return { guiasOrigen: guiasOrigen, registroMS: registroMS };
 }
 
 // Marca en las bodegas las guías que ya fueron escaneadas en una hoja destino.
 // `guiasAfectadas` acota el trabajo: si sabemos qué guías cambiaron, las bodegas
 // que no las contienen no se tocan (cero llamadas a la API). Con null hace
 // barrido completo (menú / trigger por tiempo).
-function sincronizarMovidosBodegaDesdeCache(source, cacheInfo, guiasAfectadas) {
+function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
     if (!cacheInfo || !cacheInfo.headers) return;
 
     let escaneadosDestino = new Map();
@@ -1045,7 +1054,7 @@ function sincronizarMovidosBodegaDesdeCache(source, cacheInfo, guiasAfectadas) {
         if (!header.endsWith("_FISICO")) continue;
 
         let n = claveHoja(header.replace("_FISICO", ""));
-        if (esHojaBodega(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
+        if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
 
         for (let r = 1; r < cacheInfo.data.length; r++) {
             let v = String(cacheInfo.data[r][c]).trim().toUpperCase();
@@ -1054,22 +1063,22 @@ function sincronizarMovidosBodegaDesdeCache(source, cacheInfo, guiasAfectadas) {
     }
 
     let hojas = source.getSheets();
-    let bodegasModificadas = [];
+    let msModificadas = [];
 
     for (let i = 0; i < hojas.length; i++) {
-        let hojaBodega = hojas[i];
-        let nBodega = claveHoja(hojaBodega.getName());
-        if (!esHojaBodega(nBodega)) continue;
+        let hojaMS = hojas[i];
+        let nMS = claveHoja(hojaMS.getName());
+        if (!esHojaMS(nMS)) continue;
 
         // Filtro en RAM: evita abrir bodegas que no tienen nada que ver con este escaneo.
         if (guiasAfectadas && guiasAfectadas.size > 0) {
-            if (!hojaContieneAlgunaGuia(cacheInfo, colPorHoja.get(nBodega), guiasAfectadas)) continue;
+            if (!hojaContieneAlgunaGuia(cacheInfo, colPorHoja.get(nMS), guiasAfectadas)) continue;
         }
 
-        let lr = hojaBodega.getLastRow();
+        let lr = hojaMS.getLastRow();
         if (lr < 1) continue;
 
-        let rangoStatus = hojaBodega.getRange(1, 1, lr, 2);
+        let rangoStatus = hojaMS.getRange(1, 1, lr, 2);
         let vals = rangoStatus.getValues();
         let modificados = false;
 
@@ -1081,20 +1090,20 @@ function sincronizarMovidosBodegaDesdeCache(source, cacheInfo, guiasAfectadas) {
             let destino = escaneadosDestino.get(v);
 
             if (destino) {
-                let textoEsperado = "➡ Movido a " + destino;
+                let textoEsperado = TXT_SALIO + destino;
                 if (statusActual !== textoEsperado) { vals[r][1] = textoEsperado; modificados = true; }
-            } else if (statusActual.startsWith("➡ Movido a")) {
+            } else if (esEstadoSalida(statusActual)) {
                 vals[r][1] = ""; modificados = true;
             }
         }
 
         if (modificados) {
             rangoStatus.setValues(vals);
-            bodegasModificadas.push(hojaBodega);
+            msModificadas.push(hojaMS);
         }
     }
 
-    bodegasModificadas.forEach(hojaBodega => actualizarConteos(hojaBodega, source, cacheInfo));
+    msModificadas.forEach(hojaMS => actualizarMS(hojaMS, source, cacheInfo));
 }
 
 // Propaga un cambio al resto de pestañas de INVENTARIO. Solo se abren las que
@@ -1246,13 +1255,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
   const horaActual = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
 
   let nombreHoja = claveHoja(hoja.getName());
-  let esHojaBodegaL = esHojaBodega(nombreHoja);
+  let esHojaMSLocal = esHojaMS(nombreHoja);
   let esRezago = nombreHoja.indexOf("REZAGO") !== -1;
-  let requiereAlertaBodega = !esHojaBodegaL && esHojaPrincipal(nombreHoja) && !esRezago;
+  let requiereAlertaMS = !esHojaMSLocal && esHojaPrincipal(nombreHoja) && !esRezago;
 
-  let datosBodega = obtenerDatosBodegaDesdeCache(cacheInfo, nombreHoja);
-  let guiasBodega = datosBodega.guiasOrigen;
-  let preformaBodega = datosBodega.preformaBodega;
+  let datosMS = obtenerRegistroMSDesdeCache(cacheInfo, nombreHoja);
+  let guiasEnMS = datosMS.guiasOrigen;
+  let registroMS = datosMS.registroMS;
   let guiasRezagoGlobal = esRezago ? obtenerGuiasRezagoDesdeCache(cacheInfo) : null;
 
   // Duplicados externos reevaluados desde el caché en cada pasada.
@@ -1340,8 +1349,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
       }
   });
 
-  if (!esHojaBodegaL && !esRezago) {
-      preformaBodega.forEach((guiasSet, pedimento) => {
+  if (!esHojaMSLocal && !esRezago) {
+      registroMS.forEach((guiasSet, pedimento) => {
           if (!mapaPreformas[pedimento]) mapaPreformas[pedimento] = new Set();
           guiasSet.forEach(g => {
               mapaPreformas[pedimento].add(g);
@@ -1355,7 +1364,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
     let valB = String(datosMasivos[i][0]).trim();
     let estB = String(datosMasivos[i][1]).trim();
     let esErrEstructura = estB.startsWith("🛑 ERROR");
-    let esMovido = estB.startsWith("➡ Movido a");
+    let esMovido = esEstadoSalida(estB);
     let dup = dupExternos.get(i);
 
     let fijo = '';
@@ -1425,17 +1434,17 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
       let origenesReales = new Set();
 
       let txtFalta = "";
-      if (requiereAlertaBodega) {
+      if (requiereAlertaMS) {
           // Ya no se adivina si "debería" haber pasado por T1 o por GLOBALES:
           // no hay nada en la guía que lo indique.
           txtFalta = nombreHoja.indexOf("CUENTAS ESPECIALES") !== -1
-              ? " ⚠️ Sin escaneo de M-S CTAS ESP"
-              : " ⚠️ Sin escaneo en Bodegas";
+              ? " ⚠️ Sin registrar en M-S CTAS ESP"
+              : " ⚠️ Sin registrar en M-S";
       }
 
       bloque.guias.forEach((g, idx) => {
           let filaG = bloque.filasGuias[idx];
-          let origen = guiasBodega.get(g);
+          let origen = guiasEnMS.get(g);
           let pedReal = mapaInversoPreforma.get(g);
 
           if (guiasVistasGeneral.has(g)) { resultadosB[filaG][0] = "🔄 Duplicado local"; coloresB[filaG][0] = "#acacac"; }
@@ -1456,7 +1465,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
               } else {
                   if (esperadas.size === 0) {
                       resultadosB[filaG][0] = "✅ Guía" + (origen ? " (Escaneado en " + origen + ")" : "");
-                      coloresB[filaG][0] = (!origen && requiereAlertaBodega) ? "#ffc107" : "#71b3e6";
+                      coloresB[filaG][0] = (!origen && requiereAlertaMS) ? "#ffc107" : "#71b3e6";
                   } else if (esperadas.has(g)) {
                       resultadosB[filaG][0] = "✅ Ok" + (origen ? " (Escaneado en " + origen + ")" : "");
                       coloresB[filaG][0] = "#07c369";
@@ -1477,10 +1486,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
                   estadoStr = "⚠️ No en preforma";
                   coloresB[bloque.filaPedimento][0] = "#FFF3CD";
               } else {
-                  let escaneadoEnBodega = true;
-                  bloque.guias.forEach(g => { if (!guiasBodega.has(g)) escaneadoEnBodega = false; });
+                  let registradoEnMS = true;
+                  bloque.guias.forEach(g => { if (!guiasEnMS.has(g)) registradoEnMS = false; });
 
-                  if (!escaneadoEnBodega && requiereAlertaBodega) {
+                  if (!registradoEnMS && requiereAlertaMS) {
                       estadoStr = txtFalta.trim();
                       coloresB[bloque.filaPedimento][0] = "#ffc107";
                   } else {
@@ -1562,14 +1571,14 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
   if (q1q2Actual[0][0] !== q1q2Nuevo[0][0] || q1q2Actual[1][0] !== q1q2Nuevo[1][0]) hoja.getRange("Q1:Q2").setValues(q1q2Nuevo);
 
   if (!esRezago) {
-      sincronizarMovidosBodegaDesdeCache(source, cacheInfo, guiasAfectadas);
+      sincronizarSalidasMS(source, cacheInfo, guiasAfectadas);
   }
 }
 
 // =========================================================================
 // CEREBRO PRINCIPAL: BODEGAS (M-S)
 // =========================================================================
-function actualizarConteos(hoja, source, cacheInfo) {
+function actualizarMS(hoja, source, cacheInfo) {
   const ultimaFila = Math.max(hoja.getLastRow(), 1);
   if (ultimaFila < 1) return;
 
@@ -1587,7 +1596,7 @@ function actualizarConteos(hoja, source, cacheInfo) {
     let valB = String(datosMasivos[i][0]).trim();
     let estB = String(datosMasivos[i][1]).trim();
     let esErrEstructura = estB.startsWith("🛑 ERROR");
-    let esMovido = estB.startsWith("➡ Movido a");
+    let esMovido = esEstadoSalida(estB);
     let dup = dupExternos.get(i);
 
     let fijo = '';
@@ -1608,7 +1617,7 @@ function actualizarConteos(hoja, source, cacheInfo) {
 
   for (let i = 0; i < ultimaFila; i++) {
       let v = String(datosMasivos[i][0]).trim().toUpperCase(); if (v === "") continue;
-      let esErr = resultadosB[i][0] !== '' && !resultadosB[i][0].startsWith("➡ Movido a");
+      let esErr = resultadosB[i][0] !== '' && !esEstadoSalida(resultadosB[i][0]);
 
       if (esCabeceraBloque(v)) {
           let esPedimento = /^\d{7}$/.test(v);
@@ -1634,7 +1643,7 @@ function actualizarConteos(hoja, source, cacheInfo) {
   let totalPedimentosTipo = 0;
 
   // El tipo lo da la pestaña en la que el operador decidió meter el pedimento.
-  const tipoStr = tipoBodega(nombreHojaMayus);
+  const tipoStr = tipoMS(nombreHojaMayus);
 
   bloquesFisicos.forEach(bloque => {
       let guiasUnicas = new Set();
@@ -1644,7 +1653,7 @@ function actualizarConteos(hoja, source, cacheInfo) {
           let filaG = bloque.filasGuias[idx];
           let statusActual = resultadosB[filaG][0];
 
-          if (statusActual.startsWith("➡ Movido a")) {
+          if (esEstadoSalida(statusActual)) {
               movidas++; totalMovidas++;
               guiasUnicas.add(g);
           } else if (guiasUnicas.has(g)) {
@@ -1667,7 +1676,7 @@ function actualizarConteos(hoja, source, cacheInfo) {
               msg = "⏳ Esperando guías...";
               coloresB[bloque.filaPedimento][0] = "#e2e3e5";
           } else if (faltantes === 0) {
-              msg = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ") | ✅ TODO MOVIDO";
+              msg = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ") | ✅ TODO SALIÓ";
               coloresB[bloque.filaPedimento][0] = "#07c369";
           } else {
               msg = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ") | ⚠️ Faltan " + faltantes + " por mover";
@@ -1698,7 +1707,7 @@ function actualizarConteos(hoja, source, cacheInfo) {
   // El total incluye las guías ya movidas; se desglosa para no perder el dato
   // de cuántas siguen físicamente en la bodega.
   let textoBultos = "Total bultos: " + guiasGlobales.size;
-  if (totalMovidas > 0) textoBultos += " (movidos: " + totalMovidas + " | en bodega: " + (guiasGlobales.size - totalMovidas) + ")";
+  if (totalMovidas > 0) textoBultos += " (salieron: " + totalMovidas + " | en piso: " + (guiasGlobales.size - totalMovidas) + ")";
 
   let nuevosResumenes = [ [textoBultos], ["Total pedimentos: " + totalPedimentos], [fila3Resumen] ];
   let actualesResumenes = hoja.getRange("C1:C3").getValues();
@@ -1917,7 +1926,7 @@ function diagnosticoSistema() {
           ? "✅ Sin columnas huérfanas"
           : "⚠️ Columnas de pestañas que ya no existen: " + huerfanas.join(", "));
       if (preformasSobrantes.length > 0) {
-          L.push("⚠️ Preformas sobrantes de bodegas: " + preformasSobrantes.join(", "));
+          L.push("⚠️ Preformas sobrantes de hojas M-S: " + preformasSobrantes.join(", "));
       }
       if (huerfanas.length > 0 || preformasSobrantes.length > 0) {
           L.push("   → Se limpian con «Reconstruir caché completo».");
@@ -2037,7 +2046,7 @@ function actualizadorAutomaticoGlobal() {
 
         let necesitaActualizar = false;
 
-        if (esHojaBodega(nombreHoja) || esHojaInventario(nombreHoja)) {
+        if (esHojaMS(nombreHoja) || esHojaInventario(nombreHoja)) {
             let datos = hoja.getRange(2, 1, lr - 1, 2).getValues();
             for (let i = 0; i < datos.length; i++) {
                 if (filaSinValidar(datos[i][0], datos[i][1])) { necesitaActualizar = true; break; }
@@ -2070,7 +2079,7 @@ function actualizadorAutomaticoGlobal() {
     pendientes.forEach(hoja => recalcularHoja(hoja, ss, cacheInfo, null));
 
     // Barrido completo de "movidos" fuera del camino crítico del escaneo.
-    sincronizarMovidosBodegaDesdeCache(ss, cacheInfo, null);
+    sincronizarSalidasMS(ss, cacheInfo, null);
   } finally {
     lock.releaseLock();
   }
@@ -2112,8 +2121,8 @@ function agruparPorPedimento() {
         }
     }
 
-    let datosBodega = obtenerDatosBodegaDesdeCache(cacheInfo, nombreHoja);
-    datosBodega.preformaBodega.forEach((guias, ped) => {
+    let datosMS = obtenerRegistroMSDesdeCache(cacheInfo, nombreHoja);
+    datosMS.registroMS.forEach((guias, ped) => {
         guias.forEach(g => { if (!mapaPreforma.has(g)) mapaPreforma.set(g, ped); });
     });
 
@@ -2135,7 +2144,7 @@ function agruparPorPedimento() {
       let valB = String(fila[1]).trim();
       if (valA === "") continue;
 
-      let estaMovida = valB.toUpperCase().startsWith("➡ MOVIDO A");
+      let estaMovida = esEstadoSalida(valB);
 
       if (/^\d{7}$/.test(valA)) {
           pedFisicoActual = valA;
@@ -2208,11 +2217,11 @@ function limpiarGuiasMovidasSeleccion() {
 
     for (let i = 0; i < numFilasSeleccion && i < valores.length; i++) {
         let valB = String(valores[i][1]).trim();
-        if (valB.toUpperCase().startsWith("➡ MOVIDO A")) {
+        if (esEstadoSalida(valB)) {
             paraEliminar.add(i);
             let guiaBorrada = String(valores[i][0]).trim();
             if (guiaBorrada !== "") {
-                filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, "LIMPIEZA DE GUÍA MOVIDA"));
+                filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, "LIMPIEZA DE GUÍA YA SALIDA"));
             }
         }
     }

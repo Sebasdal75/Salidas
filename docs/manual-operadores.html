@@ -233,6 +233,14 @@
   }
   ul.nope li::before { content: "✕"; color: var(--malo); font-weight: 700; }
 
+  /* ---------- Menú (definiciones) ---------- */
+  .menu { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+  .item { background: var(--surface); padding: 1.1rem 1.25rem; display: flex; flex-direction: column; gap: .55rem; }
+  .item .nombre { font-weight: 660; font-size: 1.02rem; display: flex; align-items: center; gap: .5rem; }
+  .item .cuando { display: inline-block; font-family: var(--mono); font-size: .68rem; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); background: var(--accent-soft); padding: .12rem .5rem; border-radius: 3px; align-self: flex-start; }
+  .item p { font-size: .93rem; margin: 0; color: var(--muted); }
+  .item p b { color: var(--ink); font-weight: 600; }
+
   footer {
     margin-top: 4rem; padding-top: 1.5rem;
     border-top: 1px solid var(--line);
@@ -361,8 +369,8 @@
     <div class="msg">
       <div class="bar" style="background:var(--ok)"></div>
       <div class="body">
-        <div class="txt">Bultos: 12 (M-S T1) | ✅ TODO MOVIDO</div>
-        <div class="sig">En bodega: todas las guías ya salieron a una Global.</div>
+        <div class="txt">Bultos: 12 (M-S T1) | ✅ TODO SALIÓ</div>
+        <div class="sig">En una M-S: todas las guías ya salieron en su unidad.</div>
       </div>
     </div>
   </div>
@@ -423,8 +431,8 @@
     <div class="msg">
       <div class="bar" style="background:var(--aviso)"></div>
       <div class="body">
-        <div class="txt">⚠️ Sin escaneo en Bodegas</div>
-        <div class="sig">Llegó a la Global sin haber pasado por ninguna bodega. Puede que se saltara un paso.</div>
+        <div class="txt">⚠️ Sin registrar en M-S</div>
+        <div class="sig">Llegó a la Global sin haberse registrado antes en ninguna M-S. Puede que se saltara un paso.</div>
       </div>
     </div>
     <div class="msg">
@@ -475,15 +483,15 @@
     <div class="msg">
       <div class="bar" style="background:var(--movido)"></div>
       <div class="body">
-        <div class="txt">➡ Movido a GLOBAL PENDIENTE</div>
-        <div class="sig">En bodega: esa guía ya salió a esa Global. Sale tachada y en gris. Puedes limpiarla desde el menú.</div>
+        <div class="txt">➡ Salió en GLOBAL PENDIENTE</div>
+        <div class="sig">En una M-S: esa guía ya salió en esa unidad. Sale tachada y en gris. Puedes limpiarla desde el menú.</div>
       </div>
     </div>
     <div class="msg">
       <div class="bar" style="background:var(--aviso)"></div>
       <div class="body">
-        <div class="txt">Bultos: 8 (M-S GLOBALES) | ⚠️ Faltan 3 por mover</div>
-        <div class="sig">En bodega: quedan 3 guías sin salir. Solo informativo.</div>
+        <div class="txt">Bultos: 8 (M-S GLOBALES) | ⚠️ Faltan 3 por salir</div>
+        <div class="sig">En una M-S: quedan 3 guías registradas que aún no salen. Solo informativo.</div>
       </div>
     </div>
   </div>
@@ -523,7 +531,7 @@
       </thead>
       <tbody>
         <tr><td><strong>GLOBAL PENDIENTE</strong> y similares</td><td>Salida final. Aquí se cuadra contra la preforma</td><td>Sí, columna O</td></tr>
-        <tr><td><strong>M-S T1</strong>, <strong>M-S GLOBALES</strong>, <strong>M-S A1</strong>, <strong>M-S SEGUIMIENTOS</strong>, <strong>M-S CUENTAS ESPECIALES</strong></td><td>Bodegas de paso</td><td>No</td></tr>
+        <tr><td><strong>M-S T1</strong>, <strong>M-S GLOBALES</strong>, <strong>M-S A1</strong>, <strong>M-S SEGUIMIENTOS</strong>, <strong>M-S CUENTAS ESPECIALES</strong></td><td>Registro previo: el bulto ya lo tienes, pero aún no sabes en qué unidad se va</td><td>No</td></tr>
         <tr><td><strong>INVENTARIO…</strong></td><td>Ubicaciones finales, empiezan con <span class="lit">IW</span></td><td>No</td></tr>
         <tr><td><strong>MACHO</strong></td><td>Guías retenidas por la Guardia Nacional</td><td>—</td></tr>
         <tr><td><strong>CACHE_SISTEMA</strong>, <strong>HISTORIAL_BORRADOS</strong></td><td>Del sistema. No tocar</td><td>—</td></tr>
@@ -544,7 +552,7 @@
         <tr><td>C1</td><td><span class="lit">Total bultos: 67</span> — guías distintas escaneadas</td></tr>
         <tr><td>C2</td><td><span class="lit">Total pedimentos: 3</span></td></tr>
         <tr><td>C3 en bodegas</td><td><span class="lit">M-S T1: 92</span> — pedimentos de esa bodega</td></tr>
-        <tr><td>C1 en bodegas con movidas</td><td><span class="lit">Total bultos: 120 (movidos: 45 | en bodega: 75)</span></td></tr>
+        <tr><td>C1 en hojas M-S</td><td><span class="lit">Total bultos: 120 (salieron: 45 | en piso: 75)</span></td></tr>
         <tr><td>C2 en inventarios</td><td><span class="lit">Ubicaciones (IW): 12</span></td></tr>
         <tr><td>Q1 y Q2, solo Globales</td><td><span class="lit">Bultos (Preforma): 67</span> — lo que <em>debería</em> llegar</td></tr>
       </tbody>
@@ -562,17 +570,48 @@
 
 <section>
   <h2>El menú <span class="lit">📦 Opciones Avanzadas</span></h2>
-  <div class="tablewrap">
-    <table>
-      <thead><tr><th>Opción</th><th>Qué hace</th></tr></thead>
-      <tbody>
-        <tr><td>📋 Agrupar Guías por Pedimento</td><td>Reordena la columna A juntando cada guía con su pedimento y sube todo arriba</td></tr>
-        <tr><td>🧹 Limpiar guías movidas</td><td>En bodegas: selecciona un rango y borra las que ya salieron. Queda registro en el historial</td></tr>
-        <tr><td>🔄 Forzar Actualización</td><td>Recalcula la pestaña actual. Úsalo si algo se ve raro</td></tr>
-        <tr><td>♻️ Reconstruir caché completo</td><td>Rehace el índice de duplicados desde cero</td></tr>
-        <tr><td>🩺 Diagnóstico del sistema</td><td>Informe del estado: caché, filas sin validar, duplicados, disparadores</td></tr>
-      </tbody>
-    </table>
+  <p>Está arriba, a la derecha de <strong>Ayuda / Help</strong>. Cada opción con detalle: qué hace, cuándo usarla y qué esperar.</p>
+  <div class="menu">
+    <div class="item">
+      <div class="nombre">📋 Agrupar Guías por Pedimento (Col A)</div>
+      <span class="cuando">Cuando escaneaste en desorden</span>
+      <p>Toma toda la columna A y la reordena: junta cada guía debajo de su pedimento y sube los bloques arriba, sin huecos. Usa la preforma y las M-S para saber a qué pedimento va cada guía, así que reacomoda incluso las que escaneaste lejos de su sitio. <b>Es seguro correrla las veces que quieras.</b></p>
+    </div>
+    <div class="item">
+      <div class="nombre">🧹 Limpiar guías movidas (Rango seleccionado)</div>
+      <span class="cuando">Al final del día, en una M-S</span>
+      <p>Selecciona primero las filas. Borra del rango las guías que ya salieron (<span class="lit">➡ Salió en …</span>, tachadas y en gris) y las cabeceras que quedan sin guías. <b>Solo toca lo que ya salió</b>; lo pendiente lo respeta. Cada borrado queda en el historial con tu usuario.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🔄 Forzar Actualización de esta pestaña</div>
+      <span class="cuando">Tu primer recurso si algo se ve raro</span>
+      <p>Recalcula la pestaña actual de cero: estados, colores, contadores y duplicados. <b>No borra ni mueve nada</b>, solo repinta. Antes de asustarte por cualquier cosa, prueba esto.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">♻️ Reconstruir caché completo</div>
+      <span class="cuando">Si los duplicados fallan</span>
+      <p>Rehace desde cero el índice de duplicados leyendo todas las hojas, y limpia columnas de pestañas viejas. Úsala cuando los duplicados dejan de detectarse, o cuando una guía marca <span class="lit">⛔ DUPLICADO</span> señalando una fila <b>que ya está vacía</b>. Corre unos segundos. Para el día a día basta con Forzar Actualización.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🩺 Diagnóstico del sistema</div>
+      <span class="cuando">Para ver qué pasa por dentro</span>
+      <p>Abre un cuadro con el estado en texto: pestañas indexadas, guías, columnas sobrantes, filas sin validar por hoja, disparadores activos y hojas protegidas. <b>No cambia nada, solo informa.</b> Si tienes que reportar un problema, copia esto.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🔒 Proteger hojas del sistema</div>
+      <span class="cuando">Una vez, al montar el archivo</span>
+      <p>Pone un aviso sobre <span class="lit">CACHE_SISTEMA</span> e <span class="lit">HISTORIAL_BORRADOS</span>: si alguien intenta editarlas a mano, Sheets pregunta "¿seguro?". <b>No bloquea al sistema ni a nadie</b>, solo evita el borrón accidental.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">⚙️ Instalar trigger avanzado (recomendado)</div>
+      <span class="cuando">Una vez, al configurar</span>
+      <p>Cambia el motor a su modo bueno: sube el límite de cada operación de 30 s a 6 min, registra el usuario en el historial y enciende un repaso automático cada 5 min que recoge los escaneos que se quedaron sin validar. Después, revisa que no haya quedado un disparador duplicado (ícono del reloj ⏰ en el editor de Apps Script).</p>
+    </div>
+    <div class="item">
+      <div class="nombre">↩️ Volver al trigger simple</div>
+      <span class="cuando">Casi nunca</span>
+      <p>Deshace lo anterior. Solo si el trigger avanzado da problemas y quieres descartar que sea la causa.</p>
+    </div>
   </div>
 </section>
 

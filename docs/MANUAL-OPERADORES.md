@@ -24,12 +24,12 @@ columna B.**
 | Pestaña | Para qué es | ¿Lleva preforma? |
 |---|---|---|
 | **GLOBAL PENDIENTE** y similares | Salida final. Aquí se cuadra contra la preforma | Sí (columna O) |
-| **M-S T1**, **M-S GLOBALES**, **M-S A1**, **M-S SEGUIMIENTOS**, **M-S CUENTAS ESPECIALES** | Bodegas de paso | **No** |
+| **M-S T1**, **M-S GLOBALES**, **M-S A1**, **M-S SEGUIMIENTOS**, **M-S CUENTAS ESPECIALES** | Registro previo: escaneas el bulto cuando ya lo tienes pero aún no sabes en qué unidad se va | **No** |
 | **INVENTARIO...** | Ubicaciones finales (empiezan con `IW`) | No |
 | **MACHO** | Lista de guías retenidas por la Guardia Nacional | — |
 | **CACHE_SISTEMA**, **HISTORIAL_BORRADOS** | Del sistema. **No tocar** | — |
 
-Una guía **puede** estar en una bodega y luego en una Global: eso es normal y no
+Una guía **puede** estar en una M-S y luego en una Global: eso es normal y no
 da alerta. Lo que sí avisa es la misma guía **dos veces en el mismo tipo de
 sitio**.
 
@@ -57,9 +57,9 @@ después ya no cambia.
 |---|---|---|
 | **✅ Ok** | La guía estaba en la preforma. Cuadra | Nada |
 | **✅ Guía** | Guía correcta, pero ese pedimento no tiene preforma cargada | Nada. Si debería tenerla, avisa |
-| **✅ Ok (Escaneado en M-S T1)** | Además ya había pasado por esa bodega | Nada. Es lo esperado |
+| **✅ Ok (Escaneado en M-S T1)** | Además ya se había registrado en esa M-S | Nada. Es lo esperado |
 | **✅ COMPLETO** | En la cabecera: llegaron todas las guías del pedimento | Cerrar el pedimento |
-| **✅ TODO MOVIDO** | En bodega: todas las guías ya salieron a una Global | Nada |
+| **✅ TODO SALIÓ** | En una M-S: todas las guías ya salieron en su unidad | Nada |
 
 ### Ojo con esto
 
@@ -87,9 +87,9 @@ después ya no cambia.
 | Mensaje | Qué significa | Qué hacer |
 |---|---|---|
 | **⏳ Esperando guías...** | Pedimento escaneado, todavía sin guías debajo | Nada, sigue escaneando |
-| **➡ Movido a GLOBAL PENDIENTE** | En bodega: esa guía ya salió a esa Global. Sale tachada y en gris | Nada. Puedes limpiarla con el menú |
-| **⚠️ Faltan 3 por mover** | En bodega: quedan 3 guías sin salir | Nada, es informativo |
-| **⚠️ Sin escaneo en Bodegas** | Llegó a la Global sin haber pasado por ninguna bodega | Verifica si se saltó un paso |
+| **➡ Salió en GLOBAL PENDIENTE** | En una M-S: esa guía ya salió en esa unidad. Sale tachada y en gris | Nada. Puedes limpiarla con el menú |
+| **⚠️ Faltan 3 por salir** | En una M-S: quedan 3 guías registradas que aún no salen | Nada, es informativo |
+| **⚠️ Sin registrar en M-S** | Llegó a la Global sin haberse registrado antes en ninguna M-S | Verifica si se saltó un paso |
 | **⚠️ No en preforma** | El pedimento no aparece en ninguna preforma | Verifica que sea el pedimento correcto |
 | **⏳ Pendiente (reintenta)** | El sistema estaba ocupado y no alcanzó a validar | **Vuelve a escribir la guía.** Se corrige solo en 5 minutos |
 
@@ -113,7 +113,7 @@ después ya no cambia.
 | 🟧 Naranja | Duplicado — **hay que resolverlo** |
 | 🟨 Amarillo | Aviso: error de captura o falta un paso |
 | 🟥 Rojo | Guía inválida o ajena |
-| 🩶 Gris | Repetida en la misma hoja, o ya movida |
+| 🩶 Gris | Repetida en la misma hoja, o ya salida |
 
 **Regla rápida: verde y azul, sigues. Naranja y rojo, te detienes y revisas.**
 
@@ -124,8 +124,8 @@ después ya no cambia.
 **Columna C (filas 1 a 3):**
 - `Total bultos: 67` — guías distintas escaneadas
 - `Total pedimentos: 3`
-- En bodegas: `M-S T1: 92` — pedimentos de esa bodega
-- En bodegas, si hay movidas: `Total bultos: 120 (movidos: 45 | en bodega: 75)`
+- En hojas M-S: `M-S T1: 92` — pedimentos de esa M-S
+- En hojas M-S, si algunas ya salieron: `Total bultos: 120 (salieron: 45 | en piso: 75)`
 - En inventarios: `Ubicaciones (IW): 12`
 
 **Columna Q (filas 1 y 2), solo en Globales:**
@@ -154,12 +154,96 @@ bloque a la columna A ya ordenado. Si debajo hay datos, avisa
 
 ## 8. El menú `📦 Opciones Avanzadas`
 
-| Opción | Qué hace |
-|---|---|
-| **📋 Agrupar Guías por Pedimento** | Reordena la columna A juntando cada guía con su pedimento y sube todo arriba |
-| **🧹 Limpiar guías movidas** | En bodegas: selecciona un rango y borra las que ya salieron. Queda registro en el historial |
-| **🔄 Forzar Actualización** | Recalcula la pestaña actual. Úsalo si algo se ve raro |
-| **♻️ Reconstruir caché completo** | Rehace el índice de duplicados desde cero. Solo si los duplicados dejan de detectarse |
+El menú está arriba, a la derecha de **Ayuda / Help**. Aquí va cada opción con
+detalle: qué hace, cuándo usarla y qué esperar.
+
+### 📋 Agrupar Guías por Pedimento (Col A)
+
+**Qué hace:** toma toda la columna A y la reordena. Junta cada guía debajo de
+su pedimento y sube todos los bloques a la parte de arriba, sin huecos.
+
+**Cuándo:** cuando escaneaste en desorden — guías sueltas, pedimentos
+mezclados — y quieres dejar la hoja limpia. Usa la preforma y las M-S para
+saber a qué pedimento va cada guía, así que aunque una guía la hayas escaneado
+lejos de su pedimento, la reacomoda en su sitio.
+
+**Después:** la hoja se recalcula sola. Es seguro correrla las veces que
+quieras.
+
+### 🧹 Limpiar guías movidas (Rango seleccionado)
+
+**Qué hace:** en una hoja M-S, borra las guías que ya salieron (las que dicen
+`➡ Salió en …`, tachadas y en gris) del rango que tengas seleccionado. También
+borra las cabeceras de pedimento que se quedan sin ninguna guía.
+
+**Cuándo:** al final del día o cuando una M-S se llena de guías ya despachadas y
+estorban. Primero **selecciona** las filas, luego corre la opción.
+
+**Importante:** solo borra lo que ya salió. Una guía que todavía no se despacha
+**no** la toca. Cada borrado queda anotado en `HISTORIAL_BORRADOS` con tu
+usuario, así que hay rastro de qué se limpió.
+
+### 🔄 Forzar Actualización de esta pestaña
+
+**Qué hace:** recalcula la pestaña en la que estás parado, de cero. Repasa
+estados, colores, contadores y duplicados.
+
+**Cuándo:** siempre que algo se vea raro y no sepas por qué — un color que no
+cuadra, un contador viejo, un duplicado que crees que ya no debería estar. Es
+la opción de "arréglate". No borra ni mueve nada; solo repinta.
+
+**Es tu primer recurso.** Antes de asustarte por cualquier cosa, prueba esto.
+
+### ♻️ Reconstruir caché completo
+
+**Qué hace:** rehace desde cero el índice interno de duplicados (la pestaña
+oculta `CACHE_SISTEMA`), leyendo todas las hojas otra vez. También limpia
+columnas sobrantes de pestañas viejas.
+
+**Cuándo:** cuando los duplicados dejan de detectarse, o cuando una guía marca
+`⛔ DUPLICADO` señalando una fila que **ya está vacía**. Es más pesada que la
+anterior; corre unos segundos.
+
+**Cuándo NO:** para el día a día. Con **Forzar Actualización** basta casi
+siempre. Reserva ésta para cuando el índice de verdad se descuadró.
+
+### 🩺 Diagnóstico del sistema
+
+**Qué hace:** abre un cuadro con el estado del sistema en texto: cuántas
+pestañas hay indexadas, cuántas guías, si hay columnas sobrantes, cuántas filas
+quedaron sin validar en cada hoja, qué disparadores están activos y qué hojas
+están protegidas.
+
+**Cuándo:** cuando algo no cuadra y quieres ver qué está pasando por dentro
+antes de tocar nada. No cambia nada: solo informa. Si te toca reportar un
+problema, la información de aquí es justo lo que hay que copiar.
+
+### 🔒 Proteger hojas del sistema
+
+**Qué hace:** pone un **aviso** sobre `CACHE_SISTEMA` e `HISTORIAL_BORRADOS`. Si
+alguien intenta editarlas a mano, Sheets le pregunta "¿seguro?". No bloquea al
+sistema ni a nadie: solo evita el borrón accidental.
+
+**Cuándo:** una sola vez, al montar el archivo. No hay que repetirlo.
+
+### ⚙️ Instalar trigger avanzado (recomendado)
+
+**Qué hace:** cambia el motor a su modo bueno. Sube el límite de tiempo de cada
+operación de 30 segundos a 6 minutos, activa el registro del usuario en el
+historial y enciende un repaso automático cada 5 minutos que recoge los
+escaneos que se hayan quedado sin validar.
+
+**Cuándo:** una vez, al configurar. Después de instalarlo, revisa que no haya
+quedado un disparador duplicado (ícono del reloj ⏰ en el editor de Apps
+Script). El **Diagnóstico** también te lo dice.
+
+### ↩️ Volver al trigger simple
+
+**Qué hace:** deshace lo anterior. Vuelve al modo básico y quita el repaso
+automático.
+
+**Cuándo:** casi nunca. Solo si el trigger avanzado da problemas y quieres
+descartar que sea la causa.
 
 ---
 
@@ -181,7 +265,7 @@ bloque a la columna A ya ordenado. Si debajo hay datos, avisa
 - ❌ **No pegues guías con formato** desde otro lado. Pega solo valores
   (`Ctrl+Shift+V`).
 - ❌ **No renombres las pestañas** sin avisar. El sistema las reconoce por su
-  nombre: `M-S ...` son bodegas, las que dicen `INVENTARIO` son inventarios.
+  nombre: `M-S ...` son de registro previo, las que dicen `INVENTARIO` son inventarios.
 
 ---
 
