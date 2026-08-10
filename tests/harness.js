@@ -293,6 +293,47 @@ ok("solo headers -> 0", ultimaFilaEnCache({ data: [["X_FISICO"]] }, 0) === 0);
 ok("celda con espacios no cuenta",
    ultimaFilaEnCache({ data: [["X_FISICO"], ["1Z1"], ["   "]] }, 0) === 1);
 
+console.log("\n=== 5k. Inventario: la misma guía en dos ubicaciones IW de la misma hoja ===");
+// Este caso NO lo ve la lógica local (guiasFisicas se vacía en cada IW): lo
+// detecta el caché. Hay que comprobar que marca las DOS filas, no solo una,
+// porque si no, en la columna A una quedaría verde.
+const cacheDosIW = {
+  map: new Map([[G, [
+    { hoja: "INVENTARIO A", fila: 30, isMS: false, isInventario: true },
+    { hoja: "INVENTARIO A", fila: 55, isMS: false, isInventario: true }
+  ]]]),
+  headers: [], data: []
+};
+let filasInv = [];
+for (let i = 0; i < 60; i++) filasInv.push([""]);
+filasInv[30] = [G];
+filasInv[55] = [G];
+
+let dupDosIW = calcularDuplicadosExternos(filasInv, 60, "INVENTARIO A", cacheDosIW);
+ok("marca la fila 30", dupDosIW.has(30));
+ok("marca también la fila 55", dupDosIW.has(55));
+ok("cada una apunta a la otra",
+   dupDosIW.get(30).fila === 55 && dupDosIW.get(55).fila === 30);
+// Y por tanto las dos llevan "⛔ DUPLICADO" en la B, que la columna A pinta de rojo.
+ok("las dos acaban rojas en la columna A",
+   colorColumnaA(G, "⛔ DUPLICADO (En: INVENTARIO A Fila 55)") === "#df5f6b" &&
+   colorColumnaA(G, "⛔ DUPLICADO (En: INVENTARIO A Fila 30)") === "#df5f6b");
+
+// En cambio una hoja Global NO se marca a sí misma por caché: ese caso lo lleva
+// la lógica local de pedimentos, que es la que empareja las dos filas.
+const cacheDosGlobal = {
+  map: new Map([[G, [
+    { hoja: "GLOBAL 2", fila: 10, isMS: false, isInventario: false },
+    { hoja: "GLOBAL 2", fila: 40, isMS: false, isInventario: false }
+  ]]]),
+  headers: [], data: []
+};
+let filasGlob = [];
+for (let i = 0; i < 60; i++) filasGlob.push([""]);
+filasGlob[10] = [G]; filasGlob[40] = [G];
+ok("Global no se duplica contra sí misma por caché",
+   calcularDuplicadosExternos(filasGlob, 60, "GLOBAL 2", cacheDosGlobal).size === 0);
+
 console.log("\n=== 5j. La columna A pinta las DOS de la pareja ===");
 // Fila 3 es la primera (se queda en "✅ Ok"), fila 7 la repetida en gris.
 const filaA = v => { let f = new Array(20).fill(""); f[0] = v; return f; };
