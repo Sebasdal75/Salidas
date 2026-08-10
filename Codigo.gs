@@ -607,6 +607,26 @@ function mapaColumnasFisico(cacheInfo) {
     return m;
 }
 
+// Última fila con dato en la columna A de una hoja, sacada del caché en vez de
+// preguntársela a Sheets.
+//
+// getLastRow() resultó ser, con diferencia, la llamada más cara de todo el
+// escaneo: 128-409 ms cada una, contra los ~48 ms de una llamada normal. En el
+// barrido de M-S se pagaba una por pestaña, y solo eso eran 641 ms de un
+// recálculo de 1,690 ms (y 2,044 ms del barrido completo).
+//
+// El caché mantiene la columna A de cada hoja en su columna _FISICO, con la
+// fila del caché igual a la fila de la hoja, así que la respuesta ya está en
+// memoria. Devuelve -1 si esa hoja no está indexada, para poder caer de vuelta
+// en getLastRow().
+function ultimaFilaEnCache(cacheInfo, colIdx) {
+    if (!cacheInfo || !cacheInfo.data || colIdx === undefined || colIdx === null || colIdx < 0) return -1;
+    for (let r = cacheInfo.data.length - 1; r >= 1; r--) {
+        if (String(cacheInfo.data[r][colIdx]).trim() !== "") return r;
+    }
+    return 0;
+}
+
 function hojaContieneAlgunaGuia(cacheInfo, colIdx, guias) {
     if (colIdx === undefined || !guias || guias.size === 0) return false;
     for (let r = 1; r < cacheInfo.data.length; r++) {
@@ -1144,7 +1164,10 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
             if (!hojaContieneAlgunaGuia(cacheInfo, colPorHoja.get(nMS), guiasAfectadas)) continue;
         }
 
-        let lr = perf("M-S: getLastRow", 0, () => hojaMS.getLastRow());
+        // El caché sabe hasta dónde llega la columna A de esta M-S; solo se le
+        // pregunta a Sheets si la pestaña todavía no está indexada.
+        let lr = ultimaFilaEnCache(cacheInfo, colPorHoja.get(nMS));
+        if (lr < 0) lr = perf("M-S: getLastRow (sin caché)", 0, () => hojaMS.getLastRow());
         if (lr < 1) continue;
 
         let rangoStatus = hojaMS.getRange(1, 1, lr, 2);
@@ -2168,39 +2191,58 @@ function medirRendimiento() {
          (cacheInfo ? "  ·  " + cacheInfo.map.size + " guías indexadas" : "  ·  SIN CACHÉ"));
 
   // 2. Recálculo completo de la hoja: es el grueso de cada escaneo.
+  // 2. Un escaneo de verdad: el recálculo YA arrastra dentro la sincronización
+  //    de M-S, así que medirlas por separado y sumarlas contaba ese barrido dos
+  //    veces e inflaba el resultado. Y se le pasa una guía real de la hoja,
+  //    porque con el conjunto vacío el filtro se desactiva y se abren TODAS las
+  //    M-S: eso es el peor caso, no un escaneo normal.
+  let guiaMuestra = null;
+  if (lr > 0) {
+    let colA = hoja.getRange(1, 1, lr, 1).getValues();
+    for (let i = lr - 1; i >= 0 && !guiaMuestra; i--) {
+      let v = String(colA[i][0]).trim().toUpperCase();
+      if (v !== "" && esGuiaUPSValida(v)) guiaMuestra = v;
+    }
+  }
+  let guiasAfectadas = guiaMuestra ? new Set([guiaMuestra]) : new Set();
+
   perfIniciar();
   t0 = Date.now();
-  recalcularHoja(hoja, ss, cacheInfo, null, false);
-  let tRecalc = Date.now() - t0;
-  let perfRecalc = perfFin();
-  L.push("Recalcular esta hoja:        " + tRecalc + " ms");
+  recalcularHoja(hoja, ss, cacheInfo, guiasAfectadas, false);
+  let tEscaneo = Date.now() - t0;
+  let perfEscaneo = perfFin();
+  L.push("Un escaneo completo:         " + tEscaneo + " ms" +
+         (guiaMuestra ? "  (probando con una guía real de la hoja)" : "  (hoja vacía)"));
 
-  // 3. Barrido de salidas M-S, si aplica.
-  let tSync = 0;
-  let perfSync = null;
+  // 3. Barrido completo de M-S: no pasa en un escaneo normal, solo cuando la
+  //    guía toca muchas pestañas o al forzar desde el menú. Se mide aparte y NO
+  //    se suma al tiempo por escaneo.
+  let tSyncTodo = 0;
+  let perfSyncTodo = null;
   if (esHojaPrincipal(nombre) && nombre.indexOf("REZAGO") === -1) {
     perfIniciar();
     t0 = Date.now();
     sincronizarSalidasMS(ss, cacheInfo, new Set());
-    tSync = Date.now() - t0;
-    perfSync = perfFin();
-    L.push("Sincronizar salidas M-S:     " + tSync + " ms");
+    tSyncTodo = Date.now() - t0;
+    perfSyncTodo = perfFin();
+    L.push("Barrido de TODAS las M-S:    " + tSyncTodo + " ms  (peor caso, aparte)");
   }
 
   // Dónde se va el tiempo, llamada por llamada. Es lo que decide qué se
   // optimiza después: sin esto solo se puede especular.
   L.push("");
-  L.push("── DÓNDE SE VA EL RECÁLCULO ──");
-  perfLineas(perfRecalc, tRecalc).forEach(x => L.push(x));
-  if (perfSync) {
+  L.push("── DÓNDE SE VA EL ESCANEO ──");
+  perfLineas(perfEscaneo, tEscaneo).forEach(x => L.push(x));
+  if (perfSyncTodo) {
     L.push("");
-    L.push("── DÓNDE SE VA LA SINCRONIZACIÓN M-S ──");
-    perfLineas(perfSync, tSync).forEach(x => L.push(x));
+    L.push("── DÓNDE SE VA EL BARRIDO COMPLETO ──");
+    perfLineas(perfSyncTodo, tSyncTodo).forEach(x => L.push(x));
   }
 
   // El caché ya está caliente entre escaneos seguidos, así que el coste
-  // representativo de un escaneo es el recálculo más la sincronización.
-  let porEscaneo = tRecalc + tSync;
+  // representativo es el del escaneo medido arriba, que ya incluye la
+  // sincronización de las M-S que de verdad toca esa guía.
+  let porEscaneo = tEscaneo;
   let porMinuto = porEscaneo > 0 ? Math.floor(60000 / porEscaneo) : 0;
 
   L.push("");

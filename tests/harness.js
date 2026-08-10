@@ -268,6 +268,28 @@ ok("solo hay 2 repetidas", repes.size === 2);
 ok("preforma limpia no marca nada",
    filasGuiaRepetidaEnPreforma([filaO("6100166"), filaO("1Z999AA10123456784")], 2).size === 0);
 
+console.log("\n=== 5g. ultimaFilaEnCache (evita getLastRow) ===");
+// data[0] son los headers; data[r] corresponde a la fila r de la hoja.
+const cacheFilas = { data: [
+  ["GLOBALES_FISICO", "M-S T1_FISICO", "VACIA_FISICO"],
+  ["6100166",         "1Z111",         ""],
+  ["1Z999",           "",              ""],
+  ["",                "1Z222",         ""],
+  ["",                "",              ""]
+], headers: [], map: new Map() };
+
+ok("última fila con dato de la columna 0", ultimaFilaEnCache(cacheFilas, 0) === 2);
+ok("no se queda en el primer hueco de la columna 1", ultimaFilaEnCache(cacheFilas, 1) === 3);
+ok("columna sin nada -> 0", ultimaFilaEnCache(cacheFilas, 2) === 0);
+ok("hoja no indexada -> -1 (hay que preguntar a Sheets)", ultimaFilaEnCache(cacheFilas, undefined) === -1);
+ok("columna negativa -> -1", ultimaFilaEnCache(cacheFilas, -1) === -1);
+ok("sin caché -> -1", ultimaFilaEnCache(null, 0) === -1);
+ok("caché sin data -> -1", ultimaFilaEnCache({}, 0) === -1);
+ok("solo headers -> 0", ultimaFilaEnCache({ data: [["X_FISICO"]] }, 0) === 0);
+// Los espacios no cuentan como dato.
+ok("celda con espacios no cuenta",
+   ultimaFilaEnCache({ data: [["X_FISICO"], ["1Z1"], ["   "]] }, 0) === 1);
+
 console.log("\n=== 5f. Cronómetro de llamadas a la API ===");
 // PERF es un `let` dentro del eval, así que no se ve desde aquí: se prueba
 // por comportamiento, que es lo que importa.

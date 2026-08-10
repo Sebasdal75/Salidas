@@ -358,3 +358,50 @@ Puntos instrumentados en el camino del escaneo:
 
 Coste con el cronómetro apagado: una llamada a función que hace `return fn()`.
 Nada frente a los ~59 ms de cualquier ida y vuelta a Sheets.
+
+---
+
+## getLastRow() era el cuello de botella (y la medición se contaba doble)
+
+El cronómetro por llamada dio el desglose real con 298 filas en GLOBAL 2, y
+desmontó las dos hipótesis que había sobre la mesa:
+
+```
+── DÓNDE SE VA EL RECÁLCULO ──
+   694 ms  41%  ·  5 llamadas, 1,362 celdas  ·  M-S: leer A:B
+   641 ms  38%  ·  5 llamadas               ·  M-S: getLastRow
+   150 ms   9%  ·  1 llamada, 5,662 celdas  ·  leer la hoja A:S
+   117 ms   7%  ·  1 llamada                ·  getLastRow
+     2 ms   0%  ·  1 llamada                ·  asegurarColumnas
+```
+
+**El payload no era el problema.** Leer 5,662 celdas de golpe costó 150 ms, un
+9%. Estrechar la lectura para saltarse las columnas E-K habría ahorrado
+milisegundos y costado una llamada extra: mala idea, descartada.
+
+**`getLastRow()` sí lo era.** 641 ms entre 5 llamadas son ~128 ms cada una, casi
+tres veces lo que cuesta una llamada normal (48 ms), y en el barrido completo
+llegó a 409 ms por llamada. No devuelve un dato guardado: obliga a Sheets a
+recorrer la hoja.
+
+La respuesta ya estaba en memoria. El caché guarda la columna A de cada hoja en
+su columna `_FISICO`, con la fila del caché igual a la fila de la hoja, así que
+`ultimaFilaEnCache()` la saca sin tocar la API. Se cae de vuelta a `getLastRow()`
+solo si esa pestaña aún no está indexada. Es seguro porque el barrido de M-S
+únicamente modifica filas que tienen guía en la columna A — exactamente las que
+el caché conoce — y en `onEdit` el caché se actualiza antes del recálculo.
+
+### La medición se contaba dos veces
+
+`actualizarGlobalPreforma` termina llamando a `sincronizarSalidasMS`, así que el
+tiempo de «Recalcular esta hoja» **ya incluía** el barrido de M-S. La medición lo
+volvía a ejecutar aparte y sumaba las dos cifras: los «~3.8 s por escaneo» eran
+en realidad ~1.7 s. Las tres mediciones anteriores estaban infladas igual.
+
+Además pasaba `new Set()` como guías afectadas, y con el conjunto vacío el
+filtro se desactiva y se abren **todas** las M-S. Eso es el peor caso, no un
+escaneo normal.
+
+Ahora la medición coge una guía real de la hoja, ejecuta un escaneo completo y
+reporta **ese** número; el barrido total de M-S se mide aparte y se etiqueta
+como peor caso, sin sumarse al tiempo por escaneo.
