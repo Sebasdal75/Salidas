@@ -293,6 +293,30 @@ ok("solo headers -> 0", ultimaFilaEnCache({ data: [["X_FISICO"]] }, 0) === 0);
 ok("celda con espacios no cuenta",
    ultimaFilaEnCache({ data: [["X_FISICO"], ["1Z1"], ["   "]] }, 0) === 1);
 
+console.log("\n=== 5j. La columna A pinta las DOS de la pareja ===");
+// Fila 3 es la primera (se queda en "✅ Ok"), fila 7 la repetida en gris.
+const filaA = v => { let f = new Array(20).fill(""); f[0] = v; return f; };
+let hojaPar = [];
+for (let i = 0; i < 10; i++) hojaPar.push(filaA(""));
+hojaPar[0] = filaA("6100166");
+hojaPar[3] = filaA("1Z999AA10123456784");
+hojaPar[7] = filaA("1Z999AA10123456784");
+let estados = hojaPar.map(() => [""]);
+estados[3][0] = "✅ Ok";
+estados[7][0] = "🔄 Duplicado local";
+
+let sinPareja = coloresDeColumnaA(hojaPar, estados, 10, null);
+ok("sin el conjunto, la primera se queda verde", sinPareja[3][0] === "#00ff00");
+
+let conPareja = coloresDeColumnaA(hojaPar, estados, 10, new Set([3, 7]));
+ok("la primera de la pareja sale roja", conPareja[3][0] === "#df5f6b");
+ok("la repetida también sale roja", conPareja[7][0] === "#df5f6b");
+ok("el pedimento sigue azul", conPareja[0][0] === "#178ccc");
+ok("las filas vacías siguen sin color", conPareja[5][0] === "#ffffff");
+
+// Una fila vacía marcada por error no se pinta: sin dato no hay duplicado.
+ok("fila vacía marcada no se pinta", coloresDeColumnaA(hojaPar, estados, 10, new Set([5]))[5][0] === "#ffffff");
+
 console.log("\n=== 5i. Duplicados dentro de la misma hoja ===");
 // Mismo pedimento: doble escaneo sin más. Gris, discreto, sin marcar la primera.
 let dMismo = duplicadoLocal({ ped: "6100166", idx: 11 }, "6100166");

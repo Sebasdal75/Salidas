@@ -493,6 +493,16 @@ ya, no hay nada que investigar. Va en gris y ni se toca la primera. En cambio la
 misma guía en dos pedimentos distintos obliga a decidir a cuál pertenece, y ahí
 sí hace falta el naranja y la referencia.
 
+Eso es la columna B. **En la columna A las dos guías salen rojas siempre**, en
+los dos casos: son un duplicado que hay que borrar, y verlo de un vistazo es el
+objetivo de ese color.
+
+Para eso el color de la A no puede deducirse solo del texto de la B — la primera
+de la pareja conserva su `✅ Ok` cuando el aviso es el discreto. Los tres
+cerebros llevan un `filasParejaDuplicada` con las filas de **ambas** guías, y
+`coloresDeColumnaA()` lo recibe y las fuerza a rojo. Una fila sin dato en A no se
+pinta aunque esté en el conjunto.
+
 ### En el caso grave se pintan las dos, no solo una
 
 Antes solo se marcaba la repetida; la primera se quedaba en `✅ Ok` y no había

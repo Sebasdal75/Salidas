@@ -1372,11 +1372,18 @@ function anotarRepeticion(repeticiones, idx, filaRepetida) {
 
 // Construye los colores de la columna A a partir del valor y del estado final
 // ya calculado. Devuelve null si el coloreado por script está desactivado.
-function coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila) {
+// `filasParejaDuplicada` son las filas de AMBAS guías de cada pareja repetida
+// dentro de la hoja. Hace falta aparte porque el color no se puede deducir solo
+// del texto de la B: la primera de la pareja conserva su "✅ Ok" cuando el
+// duplicado es del tipo discreto, y aun así en la columna A tiene que salir
+// roja igual que la otra.
+function coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada) {
     if (!COLOREAR_COLUMNA_A) return null;
     let out = [];
     for (let i = 0; i < ultimaFila; i++) {
-        out.push([colorColumnaA(datosMasivos[i][0], resultadosB[i][0])]);
+        let esPareja = filasParejaDuplicada && filasParejaDuplicada.has(i) &&
+                       String(datosMasivos[i][0]).trim() !== "";
+        out.push([esPareja ? COLOR_A_DUPLICADO : colorColumnaA(datosMasivos[i][0], resultadosB[i][0])]);
     }
     return out;
 }
@@ -1725,7 +1732,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // había dos (un Set y un Map) que se llenaban a la vez, y el Set tapaba
   // siempre al Map: por eso el mensaje con el pedimento nunca salía.
   let primeraAparicion = new Map();
-  let repeticiones = new Map();   // idx de la primera -> { veces, fila }
+  let repeticiones = new Map();          // idx de la primera -> { veces, fila }
+  let filasParejaDuplicada = new Set();  // las DOS filas de cada pareja, para el rojo de la columna A
   let pedimentosCompletos = new Set(); let guiasFaltantesMap = new Map();
 
   for (let ped in mapaPreformas) {
@@ -1759,6 +1767,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               let dupLocal = duplicadoLocal(previa, ped);
               resultadosB[filaG][0] = dupLocal.texto;
               coloresB[filaG][0] = dupLocal.color;
+              // En la columna A se pintan las dos siempre, aunque el aviso de
+              // la B sea el discreto y la primera conserve su "✅ Ok".
+              filasParejaDuplicada.add(filaG); filasParejaDuplicada.add(previa.idx);
               if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa.idx, filaG + 1);
           }
           else {
@@ -1871,7 +1882,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       totalPedimentos = pedimentosCompletos.size;
   }
 
-  let coloresA = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila);
+  let coloresA = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada);
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA, repintarTodo);
   aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null, repintarTodo);
 
@@ -1979,8 +1990,9 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
   }
   if (bAAct) bloquesFisicos.push(bAAct);
 
-  let primeraAparicion = new Map();   // guía -> { ped, idx } de la 1ª vez
-  let repeticiones = new Map();       // idx de la 1ª -> { veces, fila }
+  let primeraAparicion = new Map();      // guía -> { ped, idx } de la 1ª vez
+  let repeticiones = new Map();          // idx de la 1ª -> { veces, fila }
+  let filasParejaDuplicada = new Set();  // las DOS filas de cada pareja
   let totalMovidas = 0;
   let totalPedimentosTipo = 0;
 
@@ -2004,6 +2016,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
                   let dupLocal = duplicadoLocal(previa, bloque.pedimento);
                   resultadosB[filaG][0] = dupLocal.texto;
                   coloresB[filaG][0] = dupLocal.color;
+                  filasParejaDuplicada.add(filaG); filasParejaDuplicada.add(previa.idx);
                   if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa.idx, filaG + 1);
               } else {
                   primeraAparicion.set(g, { ped: bloque.pedimento, idx: filaG });
@@ -2056,7 +2069,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
   });
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila), repintarTodo);
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
 
   let fila3Resumen = tipoStr + ": " + totalPedimentosTipo;
 
@@ -2155,6 +2168,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
   // poder señalarla y pintar las dos guías de la pareja.
   let guiasFisicas = new Map(); let totalUbicaciones = 0; let totalBultosInventario = 0;
   let repeticiones = new Map();
+  let filasParejaDuplicada = new Set();
 
   function cerrarUbicacion() {
       if (filaUbicacionActual === -1 || resultadosB[filaUbicacionActual][0] !== '') return;
@@ -2186,6 +2200,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
           let dupLocal = duplicadoLocal({ ped: ubi, idx: previa }, ubi, "Ubic");
           resultadosB[i][0] = dupLocal.texto;
           coloresB[i][0] = dupLocal.color;
+          filasParejaDuplicada.add(i); filasParejaDuplicada.add(previa);
           if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa, i + 1);
       } else {
           guiasFisicas.set(valor, i);
@@ -2204,7 +2219,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
   });
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila), repintarTodo);
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
 
   // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
   let c1c3Nuevo = [ ["Total bultos: " + totalBultosInventario], ["Ubicaciones (IW): " + totalUbicaciones], [""] ];
