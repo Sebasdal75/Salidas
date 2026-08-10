@@ -231,7 +231,10 @@ ok("pedimento -> azul", colorColumnaA("6100166", "Bultos: 30 | ✅ COMPLETO") ==
 ok("guía válida -> verde", colorColumnaA("1Z999AA10123456784", "✅ Ok") === "#00ff00");
 ok("guía corta -> verde", colorColumnaA("1234567890", "✅ Guía") === "#00ff00");
 ok("duplicada entre hojas -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (En: M-S T1 Fila 4)") === "#df5f6b");
-ok("duplicada local -> rojo", colorColumnaA("1Z999AA10123456784", "🔄 Duplicado local") === "#df5f6b");
+ok("duplicada en el mismo pedimento -> rojo", colorColumnaA("1Z999AA10123456784", "🔄 DUPLICADO (repetida en el mismo Ped: 6100166, fila 12)") === "#df5f6b");
+ok("duplicada en otro pedimento -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (ya en Ped: 6100166, fila 12)") === "#df5f6b");
+ok("la PRIMERA de la pareja también en rojo", colorColumnaA("1Z999AA10123456784", "⚠️ DUPLICADO (repetida en la fila 45)") === "#df5f6b");
+ok("la primera con cola de resumen sigue en rojo", colorColumnaA("1Z999AA10123456784", "⚠️ DUPLICADO (repetida en la fila 45)   ►   Bultos: 8 | ✅ COMPLETO") === "#df5f6b");
 ok("guía inválida -> rojo", colorColumnaA("ABC", "❌ Guía Inválida") === "#df5f6b");
 ok("ubicación IW -> azul claro", colorColumnaA("IW-A-01", "Bultos: 5") === "#a4c2f4");
 ok("fila vacía -> sin color", colorColumnaA("", "") === "#ffffff");
@@ -289,6 +292,32 @@ ok("solo headers -> 0", ultimaFilaEnCache({ data: [["X_FISICO"]] }, 0) === 0);
 // Los espacios no cuentan como dato.
 ok("celda con espacios no cuenta",
    ultimaFilaEnCache({ data: [["X_FISICO"], ["1Z1"], ["   "]] }, 0) === 1);
+
+console.log("\n=== 5i. Mensajes de duplicado dentro de la misma hoja ===");
+ok("otro pedimento: dice cuál y en qué fila",
+   textoDuplicadoLocal({ ped: "6100166", idx: 11 }, "6100200") === "⛔ DUPLICADO (ya en Ped: 6100166, fila 12)");
+ok("mismo pedimento: lo distingue",
+   textoDuplicadoLocal({ ped: "6100166", idx: 11 }, "6100166") === "🔄 DUPLICADO (repetida en el mismo Ped: 6100166, fila 12)");
+ok("bloque sin cabecera: se cae a la fila",
+   textoDuplicadoLocal({ ped: "SIN_CABECERA", idx: 4 }, "6100166") === "⛔ DUPLICADO (ya escaneada en la fila 5)");
+ok("marcador estructural: se cae a la fila",
+   textoDuplicadoLocal({ ped: "SIN PEDIMENTO", idx: 4 }, "6100166") === "⛔ DUPLICADO (ya escaneada en la fila 5)");
+ok("inventarios hablan de ubicación, no de pedimento",
+   textoDuplicadoLocal({ ped: "IW-A-01", idx: 6 }, "IW-A-01", "Ubic") === "🔄 DUPLICADO (repetida en el mismo Ubic: IW-A-01, fila 7)");
+
+ok("aviso en la primera, una repetición",
+   textoPrimeraDuplicada({ veces: 1, fila: 45 }) === "⚠️ DUPLICADO (repetida en la fila 45)");
+ok("aviso en la primera, varias repeticiones",
+   textoPrimeraDuplicada({ veces: 3, fila: 45 }) === "⚠️ DUPLICADO (repetida 3 veces, la 1ª en la fila 45)");
+
+// anotarRepeticion cuenta y se queda con la PRIMERA repetición encontrada.
+let repes2 = new Map();
+anotarRepeticion(repes2, 10, 45);
+ok("primera anotación", repes2.get(10).veces === 1 && repes2.get(10).fila === 45);
+anotarRepeticion(repes2, 10, 60);
+ok("segunda anotación suma pero no mueve la fila", repes2.get(10).veces === 2 && repes2.get(10).fila === 45);
+anotarRepeticion(repes2, 20, 70);
+ok("cada primera aparición lleva su cuenta", repes2.size === 2 && repes2.get(20).veces === 1);
 
 console.log("\n=== 5h. hojasMSConGuias (evita recorrer todas las pestañas) ===");
 const cacheGuiasMS = { map: new Map([

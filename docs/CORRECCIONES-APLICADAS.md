@@ -457,3 +457,44 @@ de red en la próxima medición.
 El envoltorio que medía la sincronización entera se quitó a propósito: sus
 llamadas internas ya se miden una por una y contar además el total las sumaría
 dos veces.
+
+---
+
+## El duplicado dentro de la hoja nunca decía en qué pedimento
+
+Escanear una guía en un pedimento y volver a escanearla en otro de la misma hoja
+daba `🔄 Duplicado local`, a secas. El mensaje útil existía en el código:
+
+```js
+if (guiasVistasGeneral.has(g))            { ... "🔄 Duplicado local" }
+else if (guiasYaAsignadasGlobal.has(g))   { ... "⛔ Duplicado local (Ya en Ped: X)" }
+```
+
+…pero era **inalcanzable**. Las dos estructuras se llenaban en la misma línea
+del `else`, así que cuando el `Map` tenía la guía el `Set` también, y la primera
+rama se quedaba siempre con el caso. La segunda no se ejecutó nunca.
+
+Se fusionan en una sola, `primeraAparicion: guía -> { ped, idx }`, y el mensaje
+ahora siempre dice dónde está la otra:
+
+| Situación | Mensaje |
+|---|---|
+| Otro pedimento | `⛔ DUPLICADO (ya en Ped: 6100166, fila 12)` |
+| El mismo pedimento | `🔄 DUPLICADO (repetida en el mismo Ped: 6100166, fila 12)` |
+| Bloque sin cabecera o marcador | `⛔ DUPLICADO (ya escaneada en la fila 12)` |
+| Inventarios | igual, pero con `Ubic:` y la ubicación IW |
+
+### Se pintan las dos, no solo una
+
+Antes solo se marcaba la repetida; la primera se quedaba en `✅ Ok` y no había
+forma de ver la pareja. Ahora la primera recibe
+`⚠️ DUPLICADO (repetida en la fila 45)` — o `repetida 3 veces, la 1ª en la fila
+45` si hay más de una — y el mismo fondo naranja.
+
+Ese pase corre **después** de los resúmenes de bloque, así que si la primera era
+la última guía de su bloque y arrastraba el `► Bultos: …`, esa cola se conserva.
+
+El coloreado de la columna A pasa a buscar la raíz `DUPLICAD` sin distinguir
+mayúsculas, para que ningún texto nuevo se escape del rojo.
+
+Aplicado en los tres cerebros: Global/preforma, M-S e inventarios.

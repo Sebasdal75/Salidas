@@ -66,8 +66,9 @@ después ya no cambia.
 | Mensaje | Qué significa | Qué hacer |
 |---|---|---|
 | **⛔ DUPLICADO (En: ...)** | Esta guía **ya está escaneada en otra pestaña** del mismo tipo. Te dice cuál y en qué fila | Ve a esa fila. Decide cuál es la buena y **borra la otra** |
-| **🔄 Duplicado local** | La escaneaste **dos veces seguidas aquí mismo** | Borra la repetida |
-| **⛔ Duplicado local (Ya en Ped: X)** | La misma guía está en dos pedimentos distintos de esta hoja | Averigua a cuál pertenece y borra la otra |
+| **🔄 DUPLICADO (repetida en el mismo Ped: X, fila N)** | La escaneaste **dos veces dentro del mismo pedimento** | Borra la repetida |
+| **⛔ DUPLICADO (ya en Ped: X, fila N)** | La misma guía está en **dos pedimentos distintos** de esta hoja. Te dice en cuál quedó la primera y en qué fila | Ve a esa fila, averigua a cuál pertenece y borra la otra |
+| **⚠️ DUPLICADO (repetida en la fila N)** | Este es el aviso que aparece en la **primera** de las dos. Las dos se pintan, para que veas la pareja completa | Compara las dos filas y borra la que sobra |
 | **❌ Va en: 6098352** | La guía es buena, pero pertenece a **otro pedimento** | Muévela al bloque correcto |
 | **⚠️ Sobra (Ajena)** | Esta guía no está en ninguna preforma | Verifica el paquete. Puede ser de otro embarque |
 | **❌ Faltan 3 (1ZAB..., 1ZCD...)** | En la cabecera: faltan por llegar esas guías | Búscalas. El pedimento no está completo |

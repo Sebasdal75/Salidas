@@ -80,9 +80,11 @@ function colorColumnaA(valor, estado) {
     let v = String(valor).trim().toUpperCase();
     if (v === "") return COLOR_A_NEUTRO;
 
-    let e = String(estado).trim();
-    // Duplicada en cualquiera de sus formas (entre hojas o dentro de la hoja).
-    if (e.indexOf("DUPLICADO") !== -1 || e.indexOf("Duplicado") !== -1) return COLOR_A_DUPLICADO;
+    // Duplicada en cualquiera de sus formas: entre hojas, entre pedimentos, o la
+    // primera de la pareja marcada con "⚠️ DUPLICADO (repetida en...)". Se busca
+    // la raíz sin distinguir mayúsculas para que ningún texto se escape.
+    let e = String(estado).toUpperCase();
+    if (e.indexOf("DUPLICAD") !== -1) return COLOR_A_DUPLICADO;
 
     if (v.startsWith("IW")) return COLOR_A_UBICACION;
     if (/^\d{7}$/.test(v)) return COLOR_A_PEDIMENTO;
@@ -1326,6 +1328,38 @@ function perfLineas(p, totalMs) {
 // cada uno costaba de 3 a 5 llamadas: ahí se iban los segundos por escaneo.
 const HUECO_MAX_BLOQUE = 200;
 
+// Texto del duplicado dentro de la MISMA hoja.
+//
+// Antes salía siempre "🔄 Duplicado local", sin decir dónde estaba la otra: el
+// mensaje que sí nombraba el pedimento existía en el código pero era
+// inalcanzable, porque la comprobación de "ya la vi" se hacía primero y tapaba
+// a la de "ya está asignada a un pedimento". El operador necesita saber a qué
+// pedimento ir, así que ahora siempre se dice.
+function textoDuplicadoLocal(previa, pedActual, etiqueta) {
+    let et = etiqueta || "Ped";   // los inventarios agrupan por ubicación, no por pedimento
+    let fila = previa.idx + 1;
+    let tienePed = previa.ped && previa.ped !== "SIN_CABECERA" && !esMarcadorEstructural(previa.ped);
+
+    if (!tienePed) return "⛔ DUPLICADO (ya escaneada en la fila " + fila + ")";
+    if (previa.ped === pedActual) return "🔄 DUPLICADO (repetida en el mismo " + et + ": " + previa.ped + ", fila " + fila + ")";
+    return "⛔ DUPLICADO (ya en " + et + ": " + previa.ped + ", fila " + fila + ")";
+}
+
+// Y el aviso que se pone en la PRIMERA de las dos, para que se pinten ambas y
+// se vea la pareja de un vistazo.
+function textoPrimeraDuplicada(info) {
+    if (info.veces === 1) return "⚠️ DUPLICADO (repetida en la fila " + info.fila + ")";
+    return "⚠️ DUPLICADO (repetida " + info.veces + " veces, la 1ª en la fila " + info.fila + ")";
+}
+
+// Registra que `idx` (primera aparición) tiene una repetición en `filaRepetida`.
+function anotarRepeticion(repeticiones, idx, filaRepetida) {
+    let info = repeticiones.get(idx);
+    if (!info) { info = { veces: 0, fila: filaRepetida }; repeticiones.set(idx, info); }
+    info.veces++;
+    return info;
+}
+
 // Construye los colores de la columna A a partir del valor y del estado final
 // ya calculado. Devuelve null si el coloreado por script está desactivado.
 function coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila) {
@@ -1677,7 +1711,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   }
   if (bAAct) bloquesFisicos.push(bAAct);
 
-  let guiasVistasGeneral = new Set(); let guiasYaAsignadasGlobal = new Map();
+  // Una sola estructura: guía -> { ped, idx } de su PRIMERA aparición. Antes
+  // había dos (un Set y un Map) que se llenaban a la vez, y el Set tapaba
+  // siempre al Map: por eso el mensaje con el pedimento nunca salía.
+  let primeraAparicion = new Map();
+  let repeticiones = new Map();   // idx de la primera -> { veces, fila }
   let pedimentosCompletos = new Set(); let guiasFaltantesMap = new Map();
 
   for (let ped in mapaPreformas) {
@@ -1706,10 +1744,14 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           let origen = guiasEnMS.get(g);
           let pedReal = mapaInversoPreforma.get(g);
 
-          if (guiasVistasGeneral.has(g)) { resultadosB[filaG][0] = "🔄 Duplicado local"; coloresB[filaG][0] = "#acacac"; }
-          else if (guiasYaAsignadasGlobal.has(g) && !esRezago) { resultadosB[filaG][0] = "⛔ Duplicado local (Ya en Ped: " + guiasYaAsignadasGlobal.get(g) + ")"; coloresB[filaG][0] = "#ff9800"; }
+          let previa = primeraAparicion.get(g);
+          if (previa) {
+              resultadosB[filaG][0] = textoDuplicadoLocal(previa, ped);
+              coloresB[filaG][0] = "#ff9800";
+              anotarRepeticion(repeticiones, previa.idx, filaG + 1);
+          }
           else {
-              guiasVistasGeneral.add(g); guiasYaAsignadasGlobal.set(g, ped); escaneadasUnicas.add(g);
+              primeraAparicion.set(g, { ped: ped, idx: filaG }); escaneadasUnicas.add(g);
               if (origen) origenesReales.add(origen);
 
               if (esRezago) {
@@ -1782,6 +1824,16 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               resultadosB[fUltima][0] = resultadosB[fUltima][0].replace(/ \(Escaneado en .*?\)/g, "") + "   ►   " + txtResumen;
           }
       }
+  });
+
+  // Se pintan las DOS guías de la pareja, no solo la repetida. Va después de
+  // los resúmenes de bloque para no pisarlos: si esta fila era la última del
+  // bloque y arrastra el "► Bultos: ...", esa cola se conserva.
+  repeticiones.forEach((info, idx) => {
+      let previo = String(resultadosB[idx][0]);
+      let corte = previo.indexOf("   ►   ");
+      resultadosB[idx][0] = textoPrimeraDuplicada(info) + (corte !== -1 ? previo.substring(corte) : "");
+      coloresB[idx][0] = "#ff9800";
   });
 
   filasDuplicadasFisico.forEach(fila => {
@@ -1916,7 +1968,8 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
   }
   if (bAAct) bloquesFisicos.push(bAAct);
 
-  let guiasYaAsignadasGlobal = new Map();
+  let primeraAparicion = new Map();   // guía -> { ped, idx } de la 1ª vez
+  let repeticiones = new Map();       // idx de la 1ª -> { veces, fila }
   let totalMovidas = 0;
   let totalPedimentosTipo = 0;
 
@@ -1934,14 +1987,17 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
           if (esEstadoSalida(statusActual)) {
               movidas++; totalMovidas++;
               guiasUnicas.add(g);
-          } else if (guiasUnicas.has(g)) {
-              resultadosB[filaG][0] = "🔄 Duplicado local"; coloresB[filaG][0] = "#acacac";
-          } else if (guiasYaAsignadasGlobal.has(g)) {
-              resultadosB[filaG][0] = "⛔ Duplicado local (Ya en Ped: " + guiasYaAsignadasGlobal.get(g) + ")"; coloresB[filaG][0] = "#ff9800";
           } else {
-              guiasYaAsignadasGlobal.set(g, bloque.pedimento);
-              guiasUnicas.add(g);
-              resultadosB[filaG][0] = "✅ Guía"; coloresB[filaG][0] = "#71b3e6";
+              let previa = primeraAparicion.get(g);
+              if (previa) {
+                  resultadosB[filaG][0] = textoDuplicadoLocal(previa, bloque.pedimento);
+                  coloresB[filaG][0] = "#ff9800";
+                  anotarRepeticion(repeticiones, previa.idx, filaG + 1);
+              } else {
+                  primeraAparicion.set(g, { ped: bloque.pedimento, idx: filaG });
+                  guiasUnicas.add(g);
+                  resultadosB[filaG][0] = "✅ Guía"; coloresB[filaG][0] = "#71b3e6";
+              }
           }
       });
 
@@ -1969,6 +2025,15 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
               resultadosB[filaUltimaGuia][0] = textoLimpio + "   ►   " + msg;
           }
       }
+  });
+
+  // También aquí se pinta la primera de la pareja, conservando la cola del
+  // resumen si esa fila era la última del bloque.
+  repeticiones.forEach((info, idx) => {
+      let previo = String(resultadosB[idx][0]);
+      let corte = previo.indexOf("   ►   ");
+      resultadosB[idx][0] = textoPrimeraDuplicada(info) + (corte !== -1 ? previo.substring(corte) : "");
+      coloresB[idx][0] = "#ff9800";
   });
 
   filasDuplicadasFisico.forEach(fila => {
@@ -2074,7 +2139,10 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
   }
 
   let filaUbicacionActual = -1; let ultimaFilaGuia = -1;
-  let guiasFisicas = new Set(); let totalUbicaciones = 0; let totalBultosInventario = 0;
+  // Map en vez de Set: hace falta recordar en qué fila quedó la primera para
+  // poder señalarla y pintar las dos guías de la pareja.
+  let guiasFisicas = new Map(); let totalUbicaciones = 0; let totalBultosInventario = 0;
+  let repeticiones = new Map();
 
   function cerrarUbicacion() {
       if (filaUbicacionActual === -1 || resultadosB[filaUbicacionActual][0] !== '') return;
@@ -2100,16 +2168,27 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo) {
     } else if (!esGuiaUPSValida(valor)) {
       resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b";
     } else if (filaUbicacionActual !== -1) {
-      if (guiasFisicas.has(valor)) {
-          resultadosB[i][0] = "🔄 Duplicado local"; coloresB[i][0] = "#acacac";
+      let previa = guiasFisicas.get(valor);
+      if (previa !== undefined) {
+          let ubi = String(datosMasivos[filaUbicacionActual][0]).trim().toUpperCase();
+          resultadosB[i][0] = textoDuplicadoLocal({ ped: ubi, idx: previa }, ubi, "Ubic");
+          coloresB[i][0] = "#ff9800";
+          anotarRepeticion(repeticiones, previa, i + 1);
       } else {
-          guiasFisicas.add(valor);
+          guiasFisicas.set(valor, i);
           resultadosB[i][0] = "✅ Ok"; coloresB[i][0] = "#07c369";
           ultimaFilaGuia = i;
       }
     }
   }
   cerrarUbicacion();
+
+  repeticiones.forEach((info, idx) => {
+      let previo = String(resultadosB[idx][0]);
+      let corte = previo.indexOf("   ►   ");
+      resultadosB[idx][0] = textoPrimeraDuplicada(info) + (corte !== -1 ? previo.substring(corte) : "");
+      coloresB[idx][0] = "#ff9800";
+  });
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
                            coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila), repintarTodo);
