@@ -54,7 +54,7 @@ console.log("\n=== 1d. El tipo de M-S lo da la pestaña, no las guías ===");
 ok("M-S T1 -> M-S T1", tipoMS("M-S T1") === "M-S T1");
 ok("M-S GLOBALES -> M-S GLOBALES", tipoMS("M-S GLOBALES") === "M-S GLOBALES");
 ok("M-S A1 -> M-S A1", tipoMS("M-S A1") === "M-S A1");
-ok("M-S CUENTAS ESPECIALES -> nombre completo (M-S común)", tipoMS("M-S CUENTAS ESPECIALES") === "M-S CUENTAS ESPECIALES");
+ok("M-S CUENTAS ESPECIALES -> abreviatura M-S CTAS ESP", tipoMS("M-S CUENTAS ESPECIALES") === "M-S CTAS ESP");
 ok("M-S SEGUIMIENTOS -> M-S SEGUIMIENTOS", tipoMS("M-S SEGUIMIENTOS") === "M-S SEGUIMIENTOS");
 ok("SIMPLES -> M-S T1", tipoMS("SIMPLES") === "M-S T1");
 ok("MULTIPLES -> M-S GLOBALES", tipoMS("MULTIPLES") === "M-S GLOBALES");
@@ -179,7 +179,7 @@ ok("Destino T1 ve M-S A1 y CTAS ESP también", rT1.has("6000002") && rT1.has("60
 // Origen (texto "Escaneado en") correcto
 let rg = obtenerRegistroMSDesdeCache(cacheMS(), "GLOBAL PENDIENTE");
 ok("origen de 1ZT1AAA = M-S T1", rg.guiasOrigen.get("1ZT1AAA") === "M-S T1");
-ok("origen de 1ZCEXXX = M-S CUENTAS ESPECIALES (M-S común)", rg.guiasOrigen.get("1ZCEXXX") === "M-S CUENTAS ESPECIALES");
+ok("origen de 1ZCEXXX = M-S CTAS ESP (solo etiqueta)", rg.guiasOrigen.get("1ZCEXXX") === "M-S CTAS ESP");
 // Una M-S no se jala a sí misma
 let rSelf = obtenerRegistroMSDesdeCache(cacheMS(), "M-S T1");
 ok("M-S T1 como destino no se jala a sí misma", !rSelf.registroMS.has("6000001"));

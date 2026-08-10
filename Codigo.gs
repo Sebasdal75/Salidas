@@ -71,6 +71,9 @@ function esHojaMS(nombreHoja) {
 // de un global, y con guías 1Z el prefijo del embarcador tampoco lo dice.
 function tipoMS(nombreHoja) {
     let n = claveHoja(nombreHoja);
+    // Solo abreviatura para que la celda no se alargue. NO lleva ninguna regla
+    // de comportamiento asociada: esta hoja es una M-S como cualquier otra.
+    if (n.indexOf("CUENTAS ESPECIALES") !== -1) return "M-S CTAS ESP";
     if (n.indexOf("A1") !== -1) return "M-S A1";
     if (n.indexOf("SEGUIMIENTOS") !== -1) return "M-S SEGUIMIENTOS";
     if (n.startsWith("M-S GLOBALES") || n.startsWith("MULTIPLES")) return "M-S GLOBALES";
