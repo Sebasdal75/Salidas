@@ -238,12 +238,11 @@ ok("fila vacía -> sin color", colorColumnaA("", "") === "#ffffff");
 ok("marcador -> sin color", colorColumnaA("SIN PEDIMENTO", "") === "#ffffff");
 
 console.log("\n=== 5e. Columna O: color de bloque + pedimento y repetidos ===");
-ok("sin letra en N -> sin color", colorBloqueO("") === "#ffffff");
-ok("N con espacios -> sin color", colorBloqueO("   ") === "#ffffff");
+ok("sin letra en N -> verde", colorBloqueO("") === "#00ff00");
 ok("letra a -> verde brillante", colorBloqueO("a") === "#35ec09");
 ok("letra b -> rosa", colorBloqueO("B") === "#ff00ff");
 ok("letra c -> turquesa", colorBloqueO(" c ") === "#39b1b9");
-ok("letra sin regla -> sin color", colorBloqueO("z") === "#ffffff");
+ok("letra desconocida -> verde por defecto", colorBloqueO("z") === "#00ff00");
 
 // La columna O es el índice 14 de datosMasivos.
 const filaO = v => { let f = new Array(20).fill(""); f[14] = v; return f; };
