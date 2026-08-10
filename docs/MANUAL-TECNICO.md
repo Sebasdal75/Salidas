@@ -216,6 +216,9 @@ El más complejo. Cubre Globales, REZAGO y AGA. Rango: `1..lr × 19` columnas.
 - **Fusiona el registro de las M-S** en la preforma esperada
   (`obtenerRegistroMSDesdeCache` → `registroMS`): la lista esperada de un
   pedimento = su columna O **+** lo registrado en M-S para ese pedimento.
+  **Cualquier M-S alimenta a cualquier destino** (Global, A1, T1, AGA…): la
+  carga se separa a mano por tipo, así que no hay filtro origen→destino. Lo
+  único que se descarta es que una M-S se jale a sí misma.
 - Cuadra: `✅ Ok` / `❌ Va en: X` / `⚠️ Sobra` / `❌ Faltan N (...)` / `✅ COMPLETO`.
 - Informa la M-S real por la que pasó (`origenesReales`, del caché) en vez de
   adivinarla.

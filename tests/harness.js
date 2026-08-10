@@ -151,6 +151,39 @@ const filaNueva = [["1Z888", "", "", "", "", "", "", "", "", "", "", ""]];
 ok("A nueva sin hora: se sella ahora",
    horaPreservada(filaNueva, 0, 11, "1Z888", "12:00:00") === "12:00:00");
 
+console.log("\n=== 5b. Registro M-S: todo destino jala de todas las M-S ===");
+// Caché con dos pedimentos, cada uno registrado en una M-S distinta.
+function cacheMS() {
+  const headers = ["M-S T1_FISICO", "M-S A1_FISICO", "M-S CUENTAS ESPECIALES_FISICO"];
+  const data = [headers,
+    ["6000001", "", ""],
+    ["1ZT1AAA", "", ""],
+    ["", "6000002", ""],
+    ["", "1ZA1BBB", ""],
+    ["", "", "6000003"],
+    ["", "", "1ZCEXXX"]];
+  return { headers, data, map: new Map() };
+}
+function reg(destino) {
+  let r = obtenerRegistroMSDesdeCache(cacheMS(), destino);
+  return r.registroMS;
+}
+let rGlobal = reg("GLOBAL PENDIENTE");
+ok("Global ve el pedimento de M-S T1", rGlobal.has("6000001") && rGlobal.get("6000001").has("1ZT1AAA"));
+ok("Global ve el pedimento de M-S A1", rGlobal.has("6000002") && rGlobal.get("6000002").has("1ZA1BBB"));
+ok("Global ve el pedimento de M-S CTAS ESP", rGlobal.has("6000003"));
+let rA1 = reg("A1");
+ok("Destino A1 ve M-S T1 y M-S A1", rA1.has("6000001") && rA1.has("6000002"));
+let rT1 = reg("T1");
+ok("Destino T1 ve M-S A1 y CTAS ESP también", rT1.has("6000002") && rT1.has("6000003"));
+// Origen (texto "Escaneado en") correcto
+let rg = obtenerRegistroMSDesdeCache(cacheMS(), "GLOBAL PENDIENTE");
+ok("origen de 1ZT1AAA = M-S T1", rg.guiasOrigen.get("1ZT1AAA") === "M-S T1");
+ok("origen de 1ZCEXXX = M-S CTAS ESP", rg.guiasOrigen.get("1ZCEXXX") === "M-S CTAS ESP");
+// Una M-S no se jala a sí misma
+let rSelf = obtenerRegistroMSDesdeCache(cacheMS(), "M-S T1");
+ok("M-S T1 como destino no se jala a sí misma", !rSelf.registroMS.has("6000001"));
+
 console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
 ["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>
   ok("acepta guía corta " + g, esGuiaUPSValida(g) === true));

@@ -999,30 +999,18 @@ function obtenerRegistroMSDesdeCache(cacheInfo, nombreHojaActual) {
     if (!cacheInfo || !cacheInfo.headers) return { guiasOrigen: guiasOrigen, registroMS: registroMS };
 
     let claveActual = claveHoja(nombreHojaActual);
-    let esA1 = claveActual.indexOf("A1") !== -1;
-    let esCtasEsp = claveActual.indexOf("CUENTAS ESPECIALES") !== -1;
 
     for (let c = 0; c < cacheInfo.headers.length; c++) {
         let header = String(cacheInfo.headers[c]);
         if (!header.endsWith("_FISICO")) continue;
 
         let nombreHoja = claveHoja(header.replace("_FISICO", ""));
-        if (!esHojaMS(nombreHoja)) continue;
+        if (!esHojaMS(nombreHoja) || nombreHoja === claveActual) continue;
 
-        let origen = "";
-        if (nombreHoja.startsWith("M-S T1") || nombreHoja.startsWith("SIMPLES")) origen = "M-S T1";
-        else if (nombreHoja.startsWith("M-S GLOBALES") || nombreHoja.startsWith("MULTIPLES")) origen = "M-S GLOBALES";
-        else if (nombreHoja.startsWith("M-S A1")) origen = "M-S A1";
-        else if (nombreHoja.startsWith("M-S SEGUIMIENTOS")) origen = "M-S SEGUIMIENTOS";
-        else if (nombreHoja.startsWith("M-S CUENTAS ESPECIALES")) origen = "M-S CTAS ESP";
-
-        if (origen === "" || nombreHoja === claveActual) continue;
-
-        if (esCtasEsp) {
-            if (origen !== "M-S CTAS ESP") continue;
-        } else if (!esA1) {
-            if (origen === "M-S A1" || origen === "M-S CTAS ESP") continue;
-        }
+        // El registro previo de CUALQUIER M-S alimenta a CUALQUIER destino:
+        // la carga se separa a mano por tipo, así que no hace falta filtrar por
+        // nombre. `origen` solo sirve para el texto "(Escaneado en …)".
+        let origen = tipoMS(nombreHoja);
 
         let pedActual = "";
         for (let r = 1; r < cacheInfo.data.length; r++) {
