@@ -226,6 +226,17 @@ ok("cada bloque queda bajo su pedimento",
 // El bloque movido abarca 12 columnas: nunca llega a M (13) ni N (14).
 ok("solo se mueven 12 columnas (M y N intactas)", salida[0].length === 12);
 
+console.log("\n=== 5d. Colores de la columna A (sustituyen al formato condicional) ===");
+ok("pedimento -> azul", colorColumnaA("6100166", "Bultos: 30 | ✅ COMPLETO") === "#178ccc");
+ok("guía válida -> verde", colorColumnaA("1Z999AA10123456784", "✅ Ok") === "#00ff00");
+ok("guía corta -> verde", colorColumnaA("1234567890", "✅ Guía") === "#00ff00");
+ok("duplicada entre hojas -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (En: M-S T1 Fila 4)") === "#df5f6b");
+ok("duplicada local -> rojo", colorColumnaA("1Z999AA10123456784", "🔄 Duplicado local") === "#df5f6b");
+ok("guía inválida -> rojo", colorColumnaA("ABC", "❌ Guía Inválida") === "#df5f6b");
+ok("ubicación IW -> azul claro", colorColumnaA("IW-A-01", "Bultos: 5") === "#a4c2f4");
+ok("fila vacía -> sin color", colorColumnaA("", "") === "#ffffff");
+ok("marcador -> sin color", colorColumnaA("SIN PEDIMENTO", "") === "#ffffff");
+
 console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
 ["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>
   ok("acepta guía corta " + g, esGuiaUPSValida(g) === true));

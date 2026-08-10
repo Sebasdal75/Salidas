@@ -25,6 +25,40 @@ const HOJA_MACHO = "MACHO";
 
 const PROP_TRIGGER = 'TRIGGER_EDICION_INSTALADO';
 
+// =========================================================================
+// COLORES DE LA COLUMNA A
+//
+// Los pinta el script para poder retirar el formato condicional, que Google
+// reevalúa en cada cambio y frena tanto al script como al navegador.
+// Mientras el formato condicional siga puesto, él manda y esto no se ve:
+// se puede pegar el código y quitar las reglas después, sin prisa.
+//
+// Poner COLOREAR_COLUMNA_A en false devuelve el control al formato condicional.
+// =========================================================================
+const COLOREAR_COLUMNA_A = true;
+
+const COLOR_A_PEDIMENTO = "#178ccc";  // pedimento (7 dígitos) → azul
+const COLOR_A_GUIA      = "#00ff00";  // guía válida → verde (el mismo de la columna O)
+const COLOR_A_DUPLICADO = "#df5f6b";  // duplicada → rojo
+const COLOR_A_UBICACION = "#a4c2f4";  // ubicación IW en inventarios → azul claro
+const COLOR_A_NEUTRO    = "#ffffff";  // fila vacía o sin clasificar
+
+// Decide el color de una celda de la columna A a partir del valor y su estado.
+function colorColumnaA(valor, estado) {
+    let v = String(valor).trim().toUpperCase();
+    if (v === "") return COLOR_A_NEUTRO;
+
+    let e = String(estado).trim();
+    // Duplicada en cualquiera de sus formas (entre hojas o dentro de la hoja).
+    if (e.indexOf("DUPLICADO") !== -1 || e.indexOf("Duplicado") !== -1) return COLOR_A_DUPLICADO;
+
+    if (v.startsWith("IW")) return COLOR_A_UBICACION;
+    if (/^\d{7}$/.test(v)) return COLOR_A_PEDIMENTO;
+    if (esMarcadorEstructural(v)) return COLOR_A_NEUTRO;
+    if (esGuiaUPSValida(v)) return COLOR_A_GUIA;
+    return COLOR_A_DUPLICADO;   // guía inválida: también en rojo
+}
+
 // Variables globales de memoria (sobreviven entre escaneos dentro de una
 // misma ejecución del motor V8).
 let globalCacheData = null;
@@ -1134,7 +1168,27 @@ function sincronizarInventariosAfectados(source, cacheInfo, guiasAfectadas, hoja
 // =========================================================================
 // ESCRITURA DIFERENCIAL POR BLOQUES
 // =========================================================================
-function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, idxHoraOriginal, resultadosStatus, resultadosHoras, datosMasivos, coloresNuevos, fontLinesA, fontColorsA) {
+// Filas vacías que se toleran dentro de un mismo bloque de escritura.
+//
+// Cada llamada a la API cuesta decenas de milisegundos independientemente de
+// cuántas celdas lleve, así que escribir 200 filas de más en UNA llamada sale
+// mucho más barato que partir en dos y pagar otra ida y vuelta. Con el valor
+// anterior (2) una hoja con cambios dispersos generaba decenas de bloques y
+// cada uno costaba de 3 a 5 llamadas: ahí se iban los segundos por escaneo.
+const HUECO_MAX_BLOQUE = 200;
+
+// Construye los colores de la columna A a partir del valor y del estado final
+// ya calculado. Devuelve null si el coloreado por script está desactivado.
+function coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila) {
+    if (!COLOREAR_COLUMNA_A) return null;
+    let out = [];
+    for (let i = 0; i < ultimaFila; i++) {
+        out.push([colorColumnaA(datosMasivos[i][0], resultadosB[i][0])]);
+    }
+    return out;
+}
+
+function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, idxHoraOriginal, resultadosStatus, resultadosHoras, datosMasivos, coloresNuevos, fontLinesA, fontColorsA, coloresA) {
     let n = resultadosStatus.length;
     if (n === 0) return;
 
@@ -1157,7 +1211,7 @@ function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, i
 
         if (cambioStatus || cambioHora) {
             if (min === -1) { min = i; max = i; }
-            else if (i - max > 2) { bloques.push({min: min, max: max}); min = i; max = i; }
+            else if (i - max > HUECO_MAX_BLOQUE) { bloques.push({min: min, max: max}); min = i; max = i; }
             else { max = i; }
         }
     }
@@ -1169,6 +1223,7 @@ function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, i
         hoja.getRange(b.min + 1, colHora, numRows, 1).setValues(resultadosHoras.slice(b.min, b.max + 1));
 
         if (coloresNuevos) hoja.getRange(b.min + 1, colStatus, numRows, 1).setBackgrounds(coloresNuevos.slice(b.min, b.max + 1));
+        if (coloresA)   hoja.getRange(b.min + 1, 1, numRows, 1).setBackgrounds(coloresA.slice(b.min, b.max + 1));
         if (fontLinesA) hoja.getRange(b.min + 1, 1, numRows, 1).setFontLines(fontLinesA.slice(b.min, b.max + 1));
         if (fontColorsA) hoja.getRange(b.min + 1, 1, numRows, 1).setFontColors(fontColorsA.slice(b.min, b.max + 1));
     });
@@ -1558,8 +1613,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       totalPedimentos = pedimentosCompletos.size;
   }
 
-  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null);
-  aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null);
+  let coloresA = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila);
+  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA);
+  aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null);
 
   // Columna O: solo se toca si la edición afectó a la preforma. Un escaneo en
   // la columna A no puede cambiar estos colores, así que en el caso normal nos
@@ -1718,7 +1774,8 @@ function actualizarMS(hoja, source, cacheInfo) {
       }
   });
 
-  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA);
+  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila));
 
   let fila3Resumen = tipoStr + ": " + totalPedimentosTipo;
 
@@ -1849,7 +1906,8 @@ function actualizarInventario(hoja, cacheInfo) {
   }
   cerrarUbicacion();
 
-  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null);
+  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila));
 
   // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
   let c1c3Nuevo = [ ["Total bultos: " + totalBultosInventario], ["Ubicaciones (IW): " + totalUbicaciones], [""] ];
