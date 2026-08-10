@@ -2096,7 +2096,10 @@ function agruparPorPedimento() {
     }
 
     let cacheInfo = getCacheData(ss);
-    const colsToMove = 14;
+    // Solo el bloque físico (A..L). NO se toca la columna M (lista FEMAD,
+    // que es una lista fija y no pertenece a ninguna fila) ni la N (letra de
+    // color, que pertenece al bloque de preforma en la columna O).
+    const colsToMove = 12;
     asegurarColumnas(hoja, 15);
     let esRezago = nombreHoja.indexOf("REZAGO") !== -1;
 
@@ -2139,18 +2142,17 @@ function agruparPorPedimento() {
     for (let i = 0; i < datosFisicos.length; i++) {
       let fila = datosFisicos[i];
       let valA = String(fila[0]).trim().toUpperCase();
-      let valB = String(fila[1]).trim();
       if (valA === "") continue;
 
-      let estaMovida = esEstadoSalida(valB);
-
+      // Agrupar REORDENA, nunca borra. Antes las guías ya salidas se
+      // descartaban aquí y desaparecían de la hoja sin quedar registradas en el
+      // historial: era la causa de que "se borraran guías" solas. Para
+      // eliminarlas está «🧹 Limpiar guías movidas», que sí deja rastro.
       if (/^\d{7}$/.test(valA)) {
           pedFisicoActual = valA;
-          if (estaMovida) continue;
           if (!agrupacion.has(pedFisicoActual)) agrupacion.set(pedFisicoActual, { cabecera: fila, guias: [] });
           else agrupacion.get(pedFisicoActual).cabecera = fila;
       } else {
-          if (estaMovida) continue;
           let pedDestino = mapaPreforma.get(valA) || pedFisicoActual;
           if (!agrupacion.has(pedDestino)) {
               let dummy = [pedDestino].concat(Array(colsToMove - 1).fill(""));

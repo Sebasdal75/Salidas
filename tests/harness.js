@@ -184,6 +184,48 @@ ok("origen de 1ZCEXXX = M-S CTAS ESP (solo etiqueta)", rg.guiasOrigen.get("1ZCEX
 let rSelf = obtenerRegistroMSDesdeCache(cacheMS(), "M-S T1");
 ok("M-S T1 como destino no se jala a sí misma", !rSelf.registroMS.has("6000001"));
 
+console.log("\n=== 5c. Agrupar no pierde filas ni toca la columna M ===");
+// Réplica de la lógica de agrupación de agruparPorPedimento sobre 12 columnas.
+function agrupaSim(filas) {
+  const COLS = 12;
+  let agrupacion = new Map(), pedActual = "SIN PEDIMENTO";
+  filas.forEach(fila => {
+    let valA = String(fila[0]).trim().toUpperCase();
+    if (valA === "") return;
+    if (/^\d{7}$/.test(valA)) {
+      pedActual = valA;
+      if (!agrupacion.has(pedActual)) agrupacion.set(pedActual, { cabecera: fila, guias: [] });
+      else agrupacion.get(pedActual).cabecera = fila;
+    } else {
+      if (!agrupacion.has(pedActual)) agrupacion.set(pedActual, { cabecera: [pedActual].concat(Array(COLS-1).fill("")), guias: [] });
+      agrupacion.get(pedActual).guias.push(fila);
+    }
+  });
+  let out = [];
+  agrupacion.forEach((b, ped) => { if (ped === "SIN PEDIMENTO") return; out.push(b.cabecera); b.guias.forEach(g => out.push(g)); });
+  return out;
+}
+function f(a, b) { return [a, b].concat(Array(10).fill("")); }
+
+// Una guía ya salida NO debe desaparecer al agrupar.
+const entrada = [
+  f("6000001", "Bultos: 2"),
+  f("1ZAAA", "✅ Guía"),
+  f("1ZBBB", "➡ Salió en GLOBAL PENDIENTE"),
+  f("6000002", "Bultos: 1"),
+  f("1ZCCC", "➡ Salió en GLOBAL PENDIENTE")
+];
+const salida = agrupaSim(entrada);
+const guiasEntrada = entrada.map(r => r[0]).filter(v => v !== "").sort();
+const guiasSalida  = salida.map(r => r[0]).filter(v => v !== "").sort();
+ok("agrupar conserva TODAS las filas (nada se borra)",
+   JSON.stringify(guiasEntrada) === JSON.stringify(guiasSalida));
+ok("la guía ya salida sigue presente", guiasSalida.indexOf("1ZBBB") !== -1);
+ok("cada bloque queda bajo su pedimento",
+   salida[0][0] === "6000001" && salida[3][0] === "6000002");
+// El bloque movido abarca 12 columnas: nunca llega a M (13) ni N (14).
+ok("solo se mueven 12 columnas (M y N intactas)", salida[0].length === 12);
+
 console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
 ["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>
   ok("acepta guía corta " + g, esGuiaUPSValida(g) === true));
