@@ -37,11 +37,16 @@ const PROP_TRIGGER = 'TRIGGER_EDICION_INSTALADO';
 // =========================================================================
 const COLOREAR_COLUMNA_A = true;
 
+// En la columna A sólo se pintan dos cosas: el pedimento y las guías
+// duplicadas. Una guía normal se queda sin color (el verde vive en la
+// columna O, que sigue con su propio esquema por bloques).
 const COLOR_A_PEDIMENTO = "#178ccc";  // pedimento (7 dígitos) → azul
-const COLOR_A_GUIA      = "#00ff00";  // guía válida → verde (el mismo de la columna O)
 const COLOR_A_DUPLICADO = "#df5f6b";  // duplicada → rojo
 const COLOR_A_UBICACION = "#a4c2f4";  // ubicación IW en inventarios → azul claro
-const COLOR_A_NEUTRO    = "#ffffff";  // fila vacía o sin clasificar
+const COLOR_A_NEUTRO    = "#ffffff";  // todo lo demás: guías normales, vacías, marcadores
+
+// Poner en false si tampoco se quiere el azul claro de las ubicaciones IW.
+const COLOREAR_UBICACIONES_IW = true;
 
 // Decide el color de una celda de la columna A a partir del valor y su estado.
 function colorColumnaA(valor, estado) {
@@ -52,11 +57,11 @@ function colorColumnaA(valor, estado) {
     // Duplicada en cualquiera de sus formas (entre hojas o dentro de la hoja).
     if (e.indexOf("DUPLICADO") !== -1 || e.indexOf("Duplicado") !== -1) return COLOR_A_DUPLICADO;
 
-    if (v.startsWith("IW")) return COLOR_A_UBICACION;
+    if (COLOREAR_UBICACIONES_IW && v.startsWith("IW")) return COLOR_A_UBICACION;
     if (/^\d{7}$/.test(v)) return COLOR_A_PEDIMENTO;
-    if (esMarcadorEstructural(v)) return COLOR_A_NEUTRO;
-    if (esGuiaUPSValida(v)) return COLOR_A_GUIA;
-    return COLOR_A_DUPLICADO;   // guía inválida: también en rojo
+
+    // Guías válidas, inválidas y marcadores: sin color en la columna A.
+    return COLOR_A_NEUTRO;
 }
 
 // Variables globales de memoria (sobreviven entre escaneos dentro de una

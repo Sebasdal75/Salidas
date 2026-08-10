@@ -246,3 +246,53 @@ para el bug P0-1: el borrado sigue purgando el caché y recalculando.
 
 Tres asserts nuevos en el harness fijan el comportamiento: B cambia y la hora
 queda fija, A borrada y la hora se limpia, A nueva y la hora se sella.
+
+---
+
+## Colores desde el código (para retirar el formato condicional)
+
+El formato condicional se reevalúa en cada cambio y frena tanto al script como
+al navegador. Ahora los colores los pinta el código, en el mismo `setValues`
+que ya se hacía, sin llamadas extra a la API.
+
+### Columna A
+
+Sólo se pintan **dos cosas**, más el azul claro de las ubicaciones de
+inventario:
+
+| Contenido de A | Color | Constante |
+|---|---|---|
+| Pedimento (7 dígitos) | Azul `#178ccc` | `COLOR_A_PEDIMENTO` |
+| Guía **duplicada** (⛔ o 🔄 en B) | Rojo `#df5f6b` | `COLOR_A_DUPLICADO` |
+| Ubicación `IW…` en inventarios | Azul claro `#a4c2f4` | `COLOR_A_UBICACION` |
+| Guía normal, guía inválida, marcador, fila vacía | Sin color `#ffffff` | `COLOR_A_NEUTRO` |
+
+Una guía normal **no lleva verde**: el verde vive en la columna O. La guía
+inválida tampoco se pinta — su aviso ya está en la columna B (`❌ Guía
+Inválida`), que sí conserva su color.
+
+Interruptores al inicio de `Codigo.gs`:
+
+- `COLOREAR_COLUMNA_A = false` → devuelve el control al formato condicional.
+- `COLOREAR_UBICACIONES_IW = false` → quita también el azul claro de las `IW`.
+
+### Columna O
+
+**Sin cambios.** Sigue con su esquema por bloques según la letra de la columna
+N: verde `#00ff00` por defecto, `a` → `#35ec09`, `b` → `#ff00ff`,
+`c` → `#39b1b9`. Y sólo se reescribe si la preforma se tocó en ese escaneo
+(`tocoPreforma`), para no gastar llamadas de más.
+
+### Cómo hacer el cambio en la hoja
+
+Mientras el formato condicional siga puesto, **él manda** y los colores del
+código no se ven. El orden seguro es:
+
+1. Pegar el código nuevo.
+2. Quitar las reglas de formato condicional de la columna A (menú
+   *Formato → Formato condicional*). Las de la O se pueden dejar o quitar, da
+   igual: el código las repinta.
+3. Correr **🔄 Forzar Actualización** una vez por pestaña. Ese es el único modo
+   que repinta la hoja **entera** (`repintarTodo`); el escaneo normal sólo
+   escribe las filas que cambiaron, así que sin este paso las filas viejas se
+   quedarían sin color.
