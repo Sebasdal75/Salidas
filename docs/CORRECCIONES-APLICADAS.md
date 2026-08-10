@@ -706,3 +706,63 @@ resolver.
 
 Interruptor: `DETECTAR_PEDIMENTO_REPETIDO_ENTRE_PESTANAS = false` si resulta que
 un pedimento sí puede repartirse legítimamente entre dos pestañas del mismo tipo.
+
+---
+
+## Guías que sí estaban en M-S salían como «Ajena»
+
+Síntoma en producción: guías idénticas a las de una M-S salían
+`⚠️ Sobra (Ajena)` / `⚠️ Sin registrar en M-S` en las hojas destino, **y
+«Forzar Actualización» las arreglaba**.
+
+Ese último detalle es el que resuelve el caso. `forzarActualizacionHojaActiva`
+hace dos cosas que el escaneo normal no hacía, y una de ellas es
+`invalidarCacheRAM()`.
+
+El caché vive en variables globales de V8 (`globalCacheData`, `globalCacheMap`),
+y esas **pueden sobrevivir de una ejecución a la siguiente** cuando Google
+reutiliza la instancia del script. `getCacheData()` las devolvía tal cual sin
+comprobar nada:
+
+```js
+if (globalCacheData && globalCacheMap) return { data: globalCacheData, ... };
+```
+
+Así que un operador escaneando seguido en la misma pestaña se quedaba con una
+foto vieja **del resto del archivo**. Las guías que otro acababa de meter en una
+M-S no estaban en su copia: para él, no existían.
+
+Ahora `procesarEdicion` descarta el caché en RAM al empezar. Dentro de una misma
+ejecución se sigue reutilizando —que es donde de verdad importaba, al recalcular
+varias pestañas sin releerlo cada vez— pero nunca se hereda de la edición
+anterior. La carga entra en el desglose del cronómetro como `cargar caché`, para
+poder ver lo que cuesta.
+
+**Coste:** una relectura del caché por escaneo. En la última medición eran
+~390 ms con 1,120 guías indexadas. Es el precio de que el dato sea correcto; si
+pesa demasiado, el paso siguiente sería un contador de versión en el propio
+CACHE_SISTEMA para releer solo cuando alguien lo haya tocado.
+
+---
+
+## MAYÚSCULAS y solo A-Z y 0-9 en todo lo que se teclea
+
+Antes la limpieza solo se aplicaba a las columnas A y O, y solo quitaba
+caracteres raros: un valor tecleado en minúsculas se quedaba en minúsculas en la
+celda (aunque el sistema lo comparara en mayúsculas por dentro).
+
+Ahora se normaliza todo lo que se captura: **MAYÚSCULAS y fuera todo lo que no
+sea A-Z o 0-9**, en las cinco columnas de captura (1 A, 4 D, 14 N, 15 O, 17 Q).
+
+Las columnas de hora (**L** y **S**) no están entre las de captura y ni siquiera
+pasan por el editor, así que los `:` de la hora están a salvo por construcción,
+no por una excepción que se pueda olvidar.
+
+Dos detalles que hacían falta para que funcionara:
+
+- La comparación se hace contra el valor **crudo**, no contra el ya normalizado.
+  Comparando contra el normalizado, un cambio que solo fuera de minúscula a
+  mayúscula no se detectaba y la celda se quedaba como se tecleó.
+- `aplicarBatchUpdates` solo sabía escribir en `[1, 2, 12, 15, 16, 19]`. Las
+  columnas 4, 14 y 17 se habrían descartado **en silencio**. La lista pasa a ser
+  `COLS_BATCH` e incluye las cinco de captura.

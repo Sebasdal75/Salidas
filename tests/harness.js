@@ -276,6 +276,29 @@ ok("con resumen: antepone sin borrarlo", rP[1][0] === "AVISO | ► Resumen: 5 bu
 escribirAvisoPreforma(rP, cP, 2, "AVISO", "#ff9800");
 ok("no pisa un ⛔", rP[2][0] === "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)" && cP[2][0] === "#fff");
 
+console.log("\n=== 5p. Normalización de lo que se teclea ===");
+// La regla que aplica el editor: MAYÚSCULAS y solo A-Z y 0-9.
+const limpiar = v => String(v).trim().toUpperCase().replace(/[^A-Z0-9]/g, "");
+ok("minúsculas a mayúsculas", limpiar("1z999aa10123456784") === "1Z999AA10123456784");
+ok("quita guiones", limpiar("1Z-999-AA1") === "1Z999AA1");
+ok("quita espacios internos", limpiar("1Z999 AA1") === "1Z999AA1");
+ok("quita espacios de los extremos", limpiar("  1Z999AA1  ") === "1Z999AA1");
+ok("quita puntos y comas", limpiar("1Z999.AA1,") === "1Z999AA1");
+ok("quita acentos y símbolos", limpiar("1Z#99*9Á") === "1Z999");
+ok("un pedimento no se altera", limpiar("6035443") === "6035443");
+ok("T1 se conserva", limpiar("t1") === "T1");
+ok("COSTALES en minúsculas sube", limpiar("costales") === "COSTALES");
+ok("la letra de bloque sube", limpiar("b") === "B");
+ok("celda vacía sigue vacía", limpiar("") === "");
+// Las columnas de hora (12 y 19) no están entre las de captura, así que los
+// ":" de la hora nunca pasan por esta limpieza.
+ok("la hora no está entre las columnas de captura",
+   [1, 4, 14, 15, 17].indexOf(12) === -1 && [1, 4, 14, 15, 17].indexOf(19) === -1);
+// El lote sí sabe escribir en todas las de captura: si faltara alguna, la
+// normalización se perdería en silencio.
+[1, 4, 14, 15, 17].forEach(c =>
+   ok("el lote escribe en la columna " + c, columnasDelLote().indexOf(c) !== -1));
+
 console.log("\n=== 5o. Pedimento repetido en OTRA pestaña ===");
 const PED = "6035443";
 const cachePed = { map: new Map([[PED, [

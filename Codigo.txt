@@ -344,8 +344,19 @@ function procesarEdicion(e) {
     let huboCambiosRelevantes = false;
     let esModoInventario = esHojaInventario(nombreHoja);
 
-    // LECTURA DE CACHÉ SÚPER RÁPIDA (RAM)
-    let cacheInfo = getCacheData(e.source);
+    // El caché en RAM se descarta al empezar cada edición.
+    //
+    // Las variables globales de V8 pueden sobrevivir de una ejecución a la
+    // siguiente cuando Google reutiliza la instancia. Eso hacía que un operador
+    // que escanea seguido en la misma pestaña se quedara con una foto vieja del
+    // resto del archivo: las guías que otro acababa de meter en una M-S no
+    // estaban en su copia, y salían como «⚠️ Sobra (Ajena)» / «Sin registrar en
+    // M-S». Era justo lo que arreglaba «Forzar Actualización», que sí invalida.
+    //
+    // Dentro de UNA ejecución el caché se sigue reutilizando, que es donde de
+    // verdad importaba (recalcular varias pestañas sin releerlo cada vez).
+    invalidarCacheRAM();
+    let cacheInfo = perf("cargar caché", 0, () => getCacheData(e.source));
 
     let batchUpdates = [];
     let filasHistorial = [];
@@ -414,9 +425,17 @@ function procesarEdicion(e) {
             }
             huboCambiosRelevantes = true;
 
-            if (colActual === 1 || colActual === 15) {
+            // Normalización de lo que se teclea o escanea: MAYÚSCULAS y fuera
+            // todo lo que no sea A-Z o 0-9. Se aplica a las cinco columnas de
+            // captura; las de hora (L y S) ni siquiera pasan por aquí, así que
+            // los ":" de la hora están a salvo.
+            //
+            // Se compara contra el valor CRUDO, no contra el ya normalizado: si
+            // no, un cambio que solo fuera de minúscula a mayúscula no se
+            // detectaría y la celda se quedaría como se tecleó.
+            if (typeof valRaw === 'string') {
                 let clean = valorIngresado.replace(/[^A-Z0-9]/g, '');
-                if (valorIngresado !== clean) {
+                if (String(valRaw) !== clean) {
                     batchUpdates.push({row: filaActual, col: colActual, val: clean});
                     valorIngresado = clean;
                     valoresEditados[r][c] = clean;
@@ -546,9 +565,18 @@ function marcarPendiente(hoja, filaInicial, numRows, colInicial, numCols) {
     }
 }
 
+// Columnas que este lote sabe escribir. Además de las de estado y hora, están
+// las cinco de captura (1, 4, 14, 15, 17), porque la normalización a mayúsculas
+// devuelve el valor limpio a su propia celda. Una columna que falte aquí se
+// descarta en silencio.
+const COLS_BATCH = [1, 2, 4, 12, 14, 15, 16, 17, 19];
+
+// Accesor para poder comprobarlo desde el banco de pruebas.
+function columnasDelLote() { return COLS_BATCH; }
+
 function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
     if (!batchUpdates || batchUpdates.length === 0) return;
-    [1, 2, 12, 15, 16, 19].forEach(col => {
+    COLS_BATCH.forEach(col => {
         let updates = batchUpdates.filter(u => u.col === col);
         if (updates.length === 0) return;
         if (hoja.getMaxColumns() < col) return;
