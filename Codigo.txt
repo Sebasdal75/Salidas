@@ -2356,6 +2356,7 @@ function onOpen() {
     .addItem('🔄 Forzar Actualización de esta pestaña', 'forzarActualizacionHojaActiva')
     .addItem('♻️ Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
     .addSeparator()
+    .addItem('🔍 ¿Por qué esta guía sale así?', 'diagnosticarGuia')
     .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema')
     .addItem('⏱️ Medir velocidad de escaneo', 'medirRendimiento')
     .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
@@ -2552,6 +2553,134 @@ function medirRendimiento() {
   }
 
   ui.alert("⏱️ Velocidad de escaneo", L.join("\n"), ui.ButtonSet.OK);
+}
+
+// =========================================================================
+// DIAGNÓSTICO DE UNA GUÍA CONCRETA
+// =========================================================================
+// Responde "¿por qué esta guía dice lo que dice?" con datos, no con teorías.
+// Se para uno en la celda de la guía y el informe enseña todo lo que el
+// sistema sabe de ella: dónde la tiene el caché, qué M-S la registran, a qué
+// pedimento la asignan y qué espera el bloque en el que cayó.
+function diagnosticarGuia() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+  const hoja = ss.getActiveSheet();
+  const nombreHoja = claveHoja(hoja.getName());
+
+  let celda = hoja.getActiveCell();
+  let guia = String(celda.getValue()).trim().toUpperCase();
+
+  if (guia === "") {
+    let resp = ui.prompt("🔍 Diagnóstico de guía",
+        "Colócate en la celda de la guía, o escríbela aquí:", ui.ButtonSet.OK_CANCEL);
+    if (resp.getSelectedButton() !== ui.Button.OK) return;
+    guia = String(resp.getResponseText()).trim().toUpperCase();
+    if (guia === "") return;
+  }
+
+  invalidarCacheRAM();
+  let cacheInfo = getCacheData(ss);
+  let L = [];
+
+  L.push("Guía: " + guia);
+  L.push("Pestaña actual: " + nombreHoja + "   ·   celda " + celda.getA1Notation());
+  L.push("¿Formato de guía válido?: " + (esGuiaUPSValida(guia) ? "SÍ" : "NO"));
+  L.push("");
+
+  if (!cacheInfo) {
+    L.push("❌ No hay caché. Usa «Reconstruir caché completo».");
+    ui.alert("🔍 Diagnóstico de guía", L.join("\n"), ui.ButtonSet.OK);
+    return;
+  }
+
+  // ── Dónde la tiene el caché ──────────────────────────────────────────────
+  L.push("── DÓNDE ESTÁ, SEGÚN EL CACHÉ ──");
+  let apariciones = cacheInfo.map.get(guia) || [];
+  if (apariciones.length === 0) {
+    L.push("   En ninguna parte. El caché NO conoce esta guía.");
+    L.push("   Si tú la ves escrita en una pestaña, ese caché está desfasado:");
+    L.push("   corre «♻️ Reconstruir caché completo».");
+  } else {
+    apariciones.forEach(a => {
+      let tipo = a.isMS ? "M-S" : (a.isInventario ? "INVENTARIO" : "destino");
+      L.push("   · " + a.hoja + "  fila " + a.fila + "   (" + tipo + ")");
+    });
+  }
+  L.push("");
+
+  // ── Qué dice el registro de M-S ──────────────────────────────────────────
+  let datosMS = obtenerRegistroMSDesdeCache(cacheInfo, nombreHoja);
+  let origen = datosMS.guiasOrigen.get(guia);
+
+  L.push("── REGISTRO EN M-S ──");
+  if (origen) {
+    L.push("   ✅ Registrada. Origen que se mostraría: " + origen);
+  } else {
+    L.push("   ❌ NO registrada en ninguna M-S.");
+    L.push("   Por eso sale «⚠️ Sin registrar en M-S».");
+  }
+
+  let pedEnMS = "";
+  datosMS.registroMS.forEach((set, ped) => { if (set.has(guia)) pedEnMS = ped; });
+  if (pedEnMS !== "") L.push("   Pedimento que le asigna la M-S: " + pedEnMS);
+  else if (origen) {
+    L.push("   ⚠️ Está en una M-S pero SIN pedimento encima: por eso no entra");
+    L.push("      en la lista esperada de ningún pedimento.");
+  }
+  L.push("");
+
+  // ── Qué espera el bloque en el que cayó ──────────────────────────────────
+  if (esHojaPrincipal(nombreHoja) && !esHojaInventario(nombreHoja)) {
+      let lr = Math.max(hoja.getLastRow(), 1);
+      let colA = hoja.getRange(1, 1, lr, 1).getValues();
+      let filaGuia = celda.getRow();
+      let pedBloque = "";
+      for (let i = Math.min(filaGuia, lr) - 1; i >= 0; i--) {
+          let v = String(colA[i][0]).trim().toUpperCase();
+          if (/^\d{7}$/.test(v)) { pedBloque = v; break; }
+          if (esMarcadorEstructural(v)) break;
+      }
+
+      L.push("── EL BLOQUE DONDE ESTÁ ESCANEADA ──");
+      if (pedBloque === "") {
+          L.push("   No hay pedimento encima de esta fila.");
+      } else {
+          L.push("   Pedimento del bloque: " + pedBloque);
+          let esperadasMS = datosMS.registroMS.get(pedBloque);
+          L.push("   La M-S le da a ese pedimento: " +
+                 (esperadasMS ? esperadasMS.size + " guías" : "ninguna (no está en M-S)"));
+          if (esperadasMS && esperadasMS.has(guia)) {
+              L.push("   ✅ Esta guía SÍ está en esa lista → debería salir «✅ Ok».");
+          } else if (pedEnMS !== "" && pedEnMS !== pedBloque) {
+              L.push("   ❌ La M-S la tiene en el pedimento " + pedEnMS + ", no en este.");
+              L.push("      Debería salir «❌ Va en: " + pedEnMS + "».");
+          } else if (esperadasMS && esperadasMS.size > 0) {
+              L.push("   ⚠️ No está en la lista de ese pedimento y no aparece en");
+              L.push("      ningún otro → «⚠️ Sobra (Ajena)».");
+          }
+      }
+      L.push("");
+  }
+
+  // ── Veredicto ────────────────────────────────────────────────────────────
+  L.push("── QUÉ HACER ──");
+  if (apariciones.length === 0) {
+    L.push("El caché no la conoce. Reconstruye el caché y vuelve a mirar.");
+  } else if (!origen) {
+    L.push("El caché la tiene, pero en ninguna pestaña M-S. Comprueba que la");
+    L.push("pestaña donde la escribiste sea de verdad una M-S: su nombre tiene");
+    L.push("que empezar por «M-S». Si la acabas de teclear ahí, reconstruye el");
+    L.push("caché para que quede indexada.");
+  } else if (pedEnMS === "") {
+    L.push("Está en una M-S pero sin pedimento de 7 dígitos encima de ella.");
+    L.push("Ponle su pedimento arriba en la M-S y el destino ya la reconocerá.");
+  } else {
+    L.push("Todo cuadra. Si aun así el mensaje no es el esperado, usa");
+    L.push("«🔄 Forzar Actualización» en esta pestaña.");
+  }
+
+  ui.alert("🔍 Diagnóstico de guía", L.join("\n"), ui.ButtonSet.OK);
 }
 
 // =========================================================================
