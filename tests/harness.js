@@ -292,12 +292,16 @@ ok("la letra de bloque sube", limpiar("b") === "B");
 ok("celda vacía sigue vacía", limpiar("") === "");
 // Las columnas de hora (12 y 19) no están entre las de captura, así que los
 // ":" de la hora nunca pasan por esta limpieza.
+// Columnas de captura tras retirar los costales: la Q (17) salió, era lo único
+// que la usaba.
+const COLS_CAPTURA = [1, 4, 14, 15];
 ok("la hora no está entre las columnas de captura",
-   [1, 4, 14, 15, 17].indexOf(12) === -1 && [1, 4, 14, 15, 17].indexOf(19) === -1);
+   COLS_CAPTURA.indexOf(12) === -1 && COLS_CAPTURA.indexOf(19) === -1);
 // El lote sí sabe escribir en todas las de captura: si faltara alguna, la
 // normalización se perdería en silencio.
-[1, 4, 14, 15, 17].forEach(c =>
+COLS_CAPTURA.forEach(c =>
    ok("el lote escribe en la columna " + c, columnasDelLote().indexOf(c) !== -1));
+ok("la columna Q ya no está en el lote", columnasDelLote().indexOf(17) === -1);
 
 console.log("\n=== 5o. Pedimento repetido en OTRA pestaña ===");
 const PED = "6035443";
@@ -416,6 +420,8 @@ console.log("\n=== 5l. La red de seguridad no se queda en bucle ===");
 // contaran como pendientes, la hoja se recalcularía cada minuto para siempre.
 ok("pedimento sin estado NO es pendiente", filaSinValidar("6100166", "") === false);
 ok("SIN PEDIMENTO sin estado NO es pendiente", filaSinValidar("SIN PEDIMENTO", "") === false);
+// COSTALES y FIN siguen siendo marcadores neutros aunque su proceso ya no exista:
+// así el texto que quedara de antes no se vuelve "Guía Inválida" de golpe.
 ok("COSTALES sin estado NO es pendiente", filaSinValidar("COSTALES", "") === false);
 ok("FIN sin estado NO es pendiente", filaSinValidar("FIN", "") === false);
 // Y lo que sí tiene que seguir detectando:

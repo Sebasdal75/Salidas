@@ -766,3 +766,28 @@ Dos detalles que hacían falta para que funcionara:
 - `aplicarBatchUpdates` solo sabía escribir en `[1, 2, 12, 15, 16, 19]`. Las
   columnas 4, 14 y 17 se habrían descartado **en silencio**. La lista pasa a ser
   `COLS_BATCH` e incluye las cinco de captura.
+
+---
+
+## Retirado el proceso de costales
+
+Ya no se usa. Fuera `procesarCostales()` entera (~60 líneas), su disparador en
+la columna D, la bandera `hayCostales` y la re-fotografía completa que hacía
+falta después, porque escribía directo en la columna A.
+
+**La columna Q sale de las columnas de captura**: era lo único que la usaba.
+Los totales de preforma de `Q1:Q2` los sigue escribiendo el recálculo, que no
+depende de que nadie edite esa columna.
+
+**La columna D se queda.** Además de los costales lleva la marca `T1` del bloque
+(`bloque.forzado`), que hace que el resumen del pedimento salga como `✅ T1`. Si
+tampoco se usa, quitarla es sacar el `4` de `colsValidas` y de `COLS_BATCH`.
+
+Dos cosas se conservan a propósito:
+
+- **`COSTALES` y `FIN` siguen reconocidos como marcadores de bloque.** Si queda
+  texto suelto de antes en alguna hoja, sigue siendo neutro en vez de
+  convertirse de golpe en `❌ Guía Inválida`.
+- La excepción que tenía el chequeo de duplicados para `COSTALES` se generaliza
+  a `esMarcadorEstructural()`, que es lo que quería decir desde el principio:
+  un marcador de bloque no es una guía y nunca puede ser un duplicado.

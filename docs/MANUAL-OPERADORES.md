@@ -149,10 +149,10 @@ contra la O y te dice qué falta y qué sobra.
 **Columna N:** poniendo `a`, `b` o `c` junto al pedimento, su bloque en la
 preforma se pinta de otro color. Sirve para distinguir grupos de un vistazo.
 
-**Costales:** en la columna Q se marca `COSTALES` donde empieza el costal y `FIN`
-donde termina. Escribiendo `COSTALES` en la **columna D** el sistema copia ese
-bloque a la columna A ya ordenado. Si debajo hay datos, avisa
-`⚠️ SIN ESPACIO` y **no borra nada** — haz espacio primero.
+**Columna D:** escribiendo `T1` junto al pedimento, su resumen sale como `✅ T1`.
+
+> El proceso de **costales** se retiró: ya no se usaba. La columna Q queda libre
+> (los totales de preforma de Q1:Q2 se siguen escribiendo solos).
 
 ---
 

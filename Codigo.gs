@@ -180,6 +180,9 @@ function esHojaPrincipal(nombreHoja) {
 function esMarcadorEstructural(v) {
     let s = String(v).trim().toUpperCase();
     if (s === "") return false;
+    // "COSTALES" y "FIN" se quedan reconocidos aunque su proceso ya no exista:
+    // si queda texto suelto de antes en alguna hoja, sigue siendo neutro en vez
+    // de convertirse de golpe en "❌ Guía Inválida".
     return s === "COSTALES" || s === "FIN" || s === "SIN_CABECERA" || s.indexOf("SIN PEDIMENTO") !== -1;
 }
 
@@ -312,7 +315,11 @@ function procesarEdicion(e) {
 
   // Descartes baratos ANTES de pedir el lock: así los escaneos no compiten
   // con ediciones irrelevantes.
-  const colsValidas = [1, 4, 14, 15, 17];
+  // La columna Q (17) salió de aquí al retirar los costales: era lo único que
+  // la usaba. Los totales de Q1:Q2 los sigue escribiendo el recálculo, que no
+  // depende de que alguien edite esa columna.
+  // La D (4) se queda: además de los costales lleva la marca "T1" del bloque.
+  const colsValidas = [1, 4, 14, 15];
   let tocaValida = false;
   for (let c = 0; c < numCols; c++) {
       if (colsValidas.indexOf(colInicial + c) !== -1) tocaValida = true;
@@ -360,8 +367,7 @@ function procesarEdicion(e) {
 
     let batchUpdates = [];
     let filasHistorial = [];
-    let hayCostales = false;
-
+  
     const tocaColA = (colInicial <= 1 && colInicial + numCols - 1 >= 1);
     const tocaColO = (colInicial <= 15 && colInicial + numCols - 1 >= 15);
 
@@ -455,7 +461,8 @@ function procesarEdicion(e) {
             }
 
             // Duplicados: búsqueda O(1) en el índice en RAM.
-            if (colActual === 1 && valorIngresado !== "COSTALES") {
+            // Los marcadores de bloque no son guías: nunca son duplicados.
+            if (colActual === 1 && !esMarcadorEstructural(valorIngresado)) {
                 let duplicadoInfo = verificarDuplicadoConCache(cacheInfo, nombreHoja, valorIngresado, filaActual);
 
                 if (duplicadoInfo.encontrado) {
@@ -468,9 +475,6 @@ function procesarEdicion(e) {
                 }
             }
 
-            if (colActual === 4 && valorIngresado === "COSTALES") {
-                if (procesarCostales(hoja, filaActual)) hayCostales = true;
-            }
         }
     }
 
@@ -479,16 +483,6 @@ function procesarEdicion(e) {
     registrarEnHistorialLote(e.source, filasHistorial);
 
     if (!huboCambiosRelevantes) return;
-
-    // procesarCostales escribe directo en la columna A, así que el bloque
-    // editado ya no describe la hoja: hay que re-fotografiarla entera.
-    if (hayCostales) {
-        actualizarFotografiaMental(hoja, e.source);
-        invalidarCacheRAM();
-        cacheInfo = getCacheData(e.source);
-        recalcularHoja(hoja, e.source, cacheInfo, null);
-        return;
-    }
 
     // El caché se actualiza ANTES de recalcular: así los recálculos ven la
     // realidad y pueden reevaluar duplicados desde cero.
@@ -569,7 +563,7 @@ function marcarPendiente(hoja, filaInicial, numRows, colInicial, numCols) {
 // las cinco de captura (1, 4, 14, 15, 17), porque la normalización a mayúsculas
 // devuelve el valor limpio a su propia celda. Una columna que falte aquí se
 // descarta en silencio.
-const COLS_BATCH = [1, 2, 4, 12, 14, 15, 16, 17, 19];
+const COLS_BATCH = [1, 2, 4, 12, 14, 15, 16, 19];
 
 // Accesor para poder comprobarlo desde el banco de pruebas.
 function columnasDelLote() { return COLS_BATCH; }
@@ -1631,69 +1625,6 @@ function horaPreservada(datosMasivos, i, idxHora, valorFila, horaActual) {
     if (String(valorFila).trim() === "") return '';
     let previa = datosMasivos[i][idxHora];
     return String(previa).trim() !== "" ? previa : horaActual;
-}
-
-// =========================================================================
-// COSTALES
-// =========================================================================
-function procesarCostales(hoja, filaDestino) {
-  const ultimaFila = Math.max(hoja.getLastRow(), 1);
-  asegurarColumnas(hoja, 17);
-  const datosOaQ = hoja.getRange(1, 15, ultimaFila, 3).getValues();
-
-  let inicioCostal = -1; let finCostal = -1;
-  for (let i = 0; i < ultimaFila; i++) {
-      if (String(datosOaQ[i][2]).trim().toUpperCase() === "COSTALES") { inicioCostal = i; break; }
-  }
-  if (inicioCostal === -1) {
-      hoja.getRange(filaDestino, 4).setValue("⚠️ NO HAY COSTAL EN PREFORMA");
-      return false;
-  }
-
-  for (let i = inicioCostal; i < ultimaFila; i++) {
-    let valO = String(datosOaQ[i][0]).trim();
-    let marca = String(datosOaQ[i][2]).trim().toUpperCase();
-    if (marca === "FIN") { finCostal = i; break; }
-    else if (valO === "") { finCostal = i - 1; break; }
-  }
-  if (finCostal === -1) finCostal = ultimaFila - 1;
-
-  let pedimentosOrdenados = [];
-  let guiasTemp = [];
-  for (let i = inicioCostal; i <= finCostal; i++) {
-    let valO = String(datosOaQ[i][0]).trim().toUpperCase();
-    if (valO === "") continue;
-    if (/^\d{7}$/.test(valO)) {
-        pedimentosOrdenados.push({ pedimento: valO, guias: guiasTemp.slice() });
-        guiasTemp = [];
-    } else {
-        guiasTemp.push(valO);
-    }
-  }
-  if (guiasTemp.length > 0) pedimentosOrdenados.push({ pedimento: "⚠️ SIN PEDIMENTO", guias: guiasTemp.slice() });
-
-  let datosAPegar = []; let tiposAPegar = [];
-  pedimentosOrdenados.forEach(bloque => {
-    datosAPegar.push([bloque.pedimento]); tiposAPegar.push(["COSTALES"]);
-    bloque.guias.forEach(g => { datosAPegar.push([g]); tiposAPegar.push([""]); });
-  });
-  if (datosAPegar.length === 0) return false;
-
-  asegurarFilas(hoja, filaDestino + datosAPegar.length);
-
-  // Antes se escribía a ciegas y se pisaba lo que hubiera debajo. Ahora se
-  // comprueba y se avisa en vez de destruir escaneos.
-  let destino = hoja.getRange(filaDestino, 1, datosAPegar.length, 1).getValues();
-  let ocupadas = destino.filter(r => String(r[0]).trim() !== "").length;
-  if (ocupadas > 0) {
-      hoja.getRange(filaDestino, 4).setValue("⚠️ SIN ESPACIO: hay " + ocupadas + " filas con datos debajo");
-      return false;
-  }
-
-  hoja.getRange(filaDestino, 1, datosAPegar.length, 1).setValues(datosAPegar);
-  hoja.getRange(filaDestino, 4, tiposAPegar.length, 1).setValues(tiposAPegar);
-  hoja.getRange(inicioCostal + 1, 17).setValue("✅ COSTAL PROCESADO");
-  return true;
 }
 
 // =========================================================================
