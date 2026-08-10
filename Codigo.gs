@@ -391,7 +391,8 @@ function procesarEdicion(e) {
         cacheInfo = getCacheData(e.source);
     }
 
-    recalcularHoja(hoja, e.source, cacheInfo, guiasAfectadas);
+    let tocoPreforma = tocaColO || (colInicial <= 14 && colInicial + numCols - 1 >= 14);
+    recalcularHoja(hoja, e.source, cacheInfo, guiasAfectadas, tocoPreforma);
 
     if (esModoInventario) {
         sincronizarInventariosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
@@ -472,11 +473,15 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
     });
 }
 
-function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas) {
+// `tocoPreforma`: si es false, no se recalculan los colores de la columna O.
+// Un escaneo normal (columna A) no puede cambiarlos, y comprobarlos cuesta una
+// lectura de columna completa. Los menús pasan true para repintado total.
+function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma) {
+    if (tocoPreforma === undefined) tocoPreforma = true;
     let n = claveHoja(hoja.getName());
     if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo);
     else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo);
-    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas);
+    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma);
 }
 
 // =========================================================================
@@ -1125,8 +1130,12 @@ function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, i
     let n = resultadosStatus.length;
     if (n === 0) return;
 
-    let coloresActuales = (coloresNuevos) ? hoja.getRange(1, colStatus, n, 1).getBackgrounds() : null;
-
+    // Deliberadamente NO se leen los fondos actuales para detectar cambios de
+    // color: eso costaba una lectura de columna completa por llamada (dos por
+    // recálculo de una Global) y es lo que más pesa en el camino del escaneo.
+    // El color se escribe junto con el estado, así que solo puede quedar
+    // desfasado si el texto no cambió pero el color sí — caso raro que se
+    // corrige en la siguiente edición de esa fila o con «Forzar Actualización».
     let bloques = []; let min = -1, max = -1;
     for (let i = 0; i < n; i++) {
         let originalStatus = datosMasivos[i] ? String(datosMasivos[i][idxStatusOriginal]) : "";
@@ -1137,11 +1146,8 @@ function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, i
         // Se detecta tanto poner hora como QUITARLA (antes solo lo primero, así
         // que quedaban horas huérfanas en filas ya vacías).
         let cambioHora = (originalHora === "" && nuevaHora !== "") || (originalHora !== "" && nuevaHora === "");
-        let cambioColor = coloresActuales
-            ? String(coloresActuales[i][0]).toLowerCase() !== String(coloresNuevos[i][0]).toLowerCase()
-            : false;
 
-        if (cambioStatus || cambioHora || cambioColor) {
+        if (cambioStatus || cambioHora) {
             if (min === -1) { min = i; max = i; }
             else if (i - max > 2) { bloques.push({min: min, max: max}); min = i; max = i; }
             else { max = i; }
@@ -1235,7 +1241,8 @@ function procesarCostales(hoja, filaDestino) {
 // =========================================================================
 // CEREBRO PRINCIPAL: GLOBALES, T1, REZAGO, PREFORMA Y AGA
 // =========================================================================
-function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
+function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma) {
+  if (tocoPreforma === undefined) tocoPreforma = true;
   const ultimaFila = Math.max(hoja.getLastRow(), 1);
   if (ultimaFila < 1) return;
 
@@ -1546,13 +1553,17 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas) {
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null);
   aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null);
 
-  // Columna O: escritura condicional. Antes se repintaba entera en cada escaneo.
-  let bgOActual = hoja.getRange(1, 15, ultimaFila, 1).getBackgrounds();
-  let bgODistinto = false;
-  for (let i = 0; i < ultimaFila; i++) {
-      if (String(bgOActual[i][0]).toLowerCase() !== String(coloresColumnaO[i][0]).toLowerCase()) { bgODistinto = true; break; }
+  // Columna O: solo se toca si la edición afectó a la preforma. Un escaneo en
+  // la columna A no puede cambiar estos colores, así que en el caso normal nos
+  // ahorramos una lectura y una escritura de columna completa.
+  if (tocoPreforma) {
+      let bgOActual = hoja.getRange(1, 15, ultimaFila, 1).getBackgrounds();
+      let bgODistinto = false;
+      for (let i = 0; i < ultimaFila; i++) {
+          if (String(bgOActual[i][0]).toLowerCase() !== String(coloresColumnaO[i][0]).toLowerCase()) { bgODistinto = true; break; }
+      }
+      if (bgODistinto) hoja.getRange(1, 15, ultimaFila, 1).setBackgrounds(coloresColumnaO);
   }
-  if (bgODistinto) hoja.getRange(1, 15, ultimaFila, 1).setBackgrounds(coloresColumnaO);
 
   let textoPedimentosTop = esRezago ? "Pedimentos (Completos): " : "Total pedimentos: ";
   let c1c3Actual = hoja.getRange("C1:C3").getValues();
@@ -1847,6 +1858,7 @@ function onOpen() {
     .addItem('♻️ Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
     .addSeparator()
     .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema')
+    .addItem('⏱️ Medir velocidad de escaneo', 'medirRendimiento')
     .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
     .addSeparator()
     .addItem('⚙️ Instalar trigger avanzado (recomendado)', 'instalarTriggerAvanzado')
@@ -1888,6 +1900,86 @@ function protegerHojasSistema() {
     ss.toast('🔒 Protegidas (solo aviso): ' + protegidas.join(', ') +
              '. El script sigue escribiendo con normalidad.', 'Listo', 8);
   });
+}
+
+// =========================================================================
+// MEDICIÓN DE RENDIMIENTO
+//
+// Todos los escaneos del archivo se serializan con el mismo lock de documento,
+// así que el techo de throughput NO depende de cuántos operadores haya: es
+// 1 / (tiempo por escaneo), repartido entre todos. Esta función mide ese tiempo
+// sobre la pestaña activa y traduce el número a escaneos por minuto.
+// =========================================================================
+function medirRendimiento() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+  const hoja = ss.getActiveSheet();
+  const nombre = claveHoja(hoja.getName());
+
+  if (esHojaSistema(nombre)) {
+    ui.alert("⏱️ Medición", "Esta pestaña es del sistema. Colócate en una hoja de escaneo.", ui.ButtonSet.OK);
+    return;
+  }
+
+  let L = [];
+  let lr = hoja.getLastRow();
+  let anchoLeido = esHojaPrincipal(nombre) ? 19 : 12;
+
+  L.push("Pestaña: " + nombre);
+  L.push("Filas con datos: " + lr + "  ·  celdas leídas por recálculo: " + (lr * anchoLeido).toLocaleString());
+  L.push("");
+
+  // 1. Carga del caché en frío (lo que paga el primer escaneo tras una pausa).
+  invalidarCacheRAM();
+  let t0 = Date.now();
+  let cacheInfo = getCacheData(ss);
+  let tCache = Date.now() - t0;
+  L.push("── DESGLOSE ──");
+  L.push("Cargar caché (solo 1ª vez): " + tCache + " ms" +
+         (cacheInfo ? "  ·  " + cacheInfo.map.size + " guías indexadas" : "  ·  SIN CACHÉ"));
+
+  // 2. Recálculo completo de la hoja: es el grueso de cada escaneo.
+  t0 = Date.now();
+  recalcularHoja(hoja, ss, cacheInfo, null, false);
+  let tRecalc = Date.now() - t0;
+  L.push("Recalcular esta hoja:        " + tRecalc + " ms");
+
+  // 3. Barrido de salidas M-S, si aplica.
+  let tSync = 0;
+  if (esHojaPrincipal(nombre) && nombre.indexOf("REZAGO") === -1) {
+    t0 = Date.now();
+    sincronizarSalidasMS(ss, cacheInfo, new Set());
+    tSync = Date.now() - t0;
+    L.push("Sincronizar salidas M-S:     " + tSync + " ms");
+  }
+
+  // El caché ya está caliente entre escaneos seguidos, así que el coste
+  // representativo de un escaneo es el recálculo más la sincronización.
+  let porEscaneo = tRecalc + tSync;
+  let porMinuto = porEscaneo > 0 ? Math.floor(60000 / porEscaneo) : 0;
+
+  L.push("");
+  L.push("── CAPACIDAD ──");
+  L.push("Tiempo por escaneo: ~" + (porEscaneo / 1000).toFixed(1) + " s");
+  L.push("Techo del archivo:  ~" + porMinuto + " escaneos por minuto");
+  L.push("Repartido entre 7 operadores: ~" + Math.floor(porMinuto / 7) + " escaneos/min cada uno");
+  L.push("");
+
+  if (porEscaneo < 700) {
+    L.push("✅ Holgado. Aguanta 7 operadores sin problema.");
+  } else if (porEscaneo < 1500) {
+    L.push("🟡 Aceptable con pocos operadores. Con 7 en paralelo se notará espera.");
+    L.push("   Reduce filas con datos o pide el recálculo incremental.");
+  } else {
+    L.push("🔴 Lento. Con varios operadores se van a formar colas y saldrá");
+    L.push("   «⏳ Pendiente (reintenta)». Hace falta recálculo incremental.");
+  }
+
+  L.push("");
+  L.push("Nota: todos los operadores comparten el mismo turno (lock del");
+  L.push("documento), así que este techo es del archivo entero, no por persona.");
+
+  ui.alert("⏱️ Velocidad de escaneo", L.join("\n"), ui.ButtonSet.OK);
 }
 
 // =========================================================================
