@@ -112,7 +112,7 @@
 
   /* ---------- La hoja ---------- */
   .hoja {
-    width: 8.5in; min-height: 11in;
+    width: 100%; max-width: 8.5in; min-height: 11in;
     margin: 0 auto 1.2rem;
     padding: .45in .5in;
     background: var(--paper);
@@ -144,7 +144,9 @@
     color: var(--accent);
   }
 
-  .cols { display: grid; grid-template-columns: 1.05fr 1fr; gap: .3in; align-items: start; }
+  /* Dos columnas si caben, una si no. Sin media queries: en impresión no son
+     fiables, y la página puede acabar en vertical o en horizontal. */
+  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(3.1in, 1fr)); gap: .3in; align-items: start; }
 
   /* ---------- Pasos ---------- */
   .pasos { display: flex; flex-direction: column; gap: .09in; margin: 0; padding: 0; list-style: none; counter-reset: p; }
@@ -159,10 +161,12 @@
     background: var(--ink); color: var(--paper);
     border-radius: 50%;
   }
+  /* Sin nowrap: en una columna estrecha desbordaba la caja y el texto acababa
+     pisando lo de al lado. Que parta, aunque sea feo. */
   .pasos code, .pasos .txt {
     font: 600 8.6pt var(--mono);
     background: var(--paper-alt); padding: .05em .3em; border-radius: 2px;
-    white-space: nowrap;
+    overflow-wrap: break-word;
   }
 
   /* ---------- Diccionario de mensajes ---------- */
@@ -172,7 +176,7 @@
   .msg .cuerpo { padding: .055in .09in; min-width: 0; }
   .msg .t {
     font: 700 8.2pt var(--mono);
-    display: block; overflow-wrap: anywhere;
+    display: block; overflow-wrap: break-word;
   }
   .msg .d { display: block; font-size: 7.8pt; line-height: 1.35; color: var(--muted); margin-top: .02in; }
 
@@ -185,7 +189,6 @@
 
   /* ---------- Banda final ---------- */
   .raro {
-    margin-top: auto;
     border: 2px solid var(--ink);
     background: var(--paper-alt);
     padding: .13in .16in;
@@ -214,12 +217,15 @@
   }
 
   @media (max-width: 8.9in) {
-    .hoja { width: auto; max-width: 8.5in; min-height: 0; }
-    .cols { grid-template-columns: 1fr; gap: .2in; }
+    .hoja { min-height: 0; }
   }
 
   /* ---------- Impresión ---------- */
-  @page { size: letter portrait; margin: 0; }
+  /* Sin `size`: la página va dentro de un marco y manda la configuración del
+     navegador, así que imponerla no funciona y diseñar para ella tampoco. El
+     margen NO es cero: toda impresora tiene un borde donde no puede imprimir,
+     y confiar solo en el padding interior recorta el contenido. */
+  @page { margin: 1cm; }
   @media print {
     /* Sin esto el navegador imprime los fondos en blanco y la tarjeta pierde
        justo lo que la hace útil: poder reconocer el color. */
@@ -229,16 +235,20 @@
     }
     body { background: #FFFFFF; }
     .barra { display: none; }
+    /* Ni ancho ni alto fijos. El `min-height: 10.6in` de antes era lo que
+       partía cada hoja en dos páginas cuando el papel salía en horizontal:
+       10.6 pulgadas no caben en una página de 8.5 de alto. */
     .hoja {
-      width: auto; min-height: 10.6in; max-width: none;
+      width: auto; max-width: none; min-height: 0;
       margin: 0; border: none; box-shadow: none;
-      padding: .42in .45in;
+      padding: 0;
       background: #FFFFFF;
       break-after: page; page-break-after: always;
     }
     .hoja:last-of-type { break-after: auto; page-break-after: auto; }
-    .cols { grid-template-columns: 1.05fr 1fr; }
     .msg, .msgs { break-inside: avoid; page-break-inside: avoid; }
+    .paleta, .pasos li { break-inside: avoid; page-break-inside: avoid; }
+    .cabecera { break-after: avoid; page-break-after: avoid; }
     .raro { break-inside: avoid; page-break-inside: avoid; }
   }
 
@@ -248,7 +258,7 @@
 </style>
 
 <div class="barra">
-  <p><b>Tres hojas, una por puesto.</b> Al imprimir salen en tres páginas: columna A, columna O y M-S. Puedes imprimir solo la que necesites eligiendo el número de página.</p>
+  <p><b>Tres hojas, una por puesto.</b> Al imprimir salen en tres páginas: columna A, columna O y M-S. Puedes imprimir solo la que necesites eligiendo el número de página. Se acomodan solas tanto en vertical como en horizontal.</p>
   <button type="button" id="btn">Imprimir</button>
   <span>o <kbd>Ctrl</kbd> + <kbd>P</kbd></span>
   <p class="aviso-print" id="avisoPrint">Esta vista no deja abrir el diálogo de impresión. Usa <kbd>Ctrl</kbd> + <kbd>P</kbd> (<kbd>⌘</kbd> + <kbd>P</kbd> en Mac), o abre la página en una pestaña aparte.</p>
