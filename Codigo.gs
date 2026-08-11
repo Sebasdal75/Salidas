@@ -1965,6 +1965,18 @@ function notaConAlerta(n) {
     return "⚠️ " + n + (n === 1 ? " con alerta" : " con alerta");
 }
 
+// ¿Este duplicado impide dar el bloque por cerrado?
+//
+// El duplicado dentro del MISMO pedimento se pinta gris a propósito: es la
+// misma guía leída dos veces, el conteo de bultos ya la cuenta una sola vez y
+// no hay nada que arreglar. Ese no bloquea.
+//
+// El ⛔ sí: significa que la guía está en otro pedimento o en otra pestaña, y
+// mientras eso no se resuelva el bloque no está bien.
+function duplicadoBloqueaCierre(textoDup) {
+    return nivelAlerta(textoDup) >= NIVEL_ALTO;
+}
+
 // Pedimento del bloque de preforma al que pertenece una fila de guía.
 function pedimentoDeFilaPreforma(bloquesPreforma, fila) {
     for (let b = 0; b < bloquesPreforma.length; b++) {
@@ -2356,6 +2368,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               let dupLocal = duplicadoLocal(previa, ped);
               resultadosB[filaG][0] = dupLocal.texto;
               coloresB[filaG][0] = dupLocal.color;
+              // El duplicado se descubre AQUÍ, y conAlerta se contó antes, al
+              // armar los bloques. Sin esta línea el resumen no se enteraba: el
+              // pedimento salía "✅ COMPLETO" con el ⛔ dos filas más abajo.
+              if (duplicadoBloqueaCierre(dupLocal.texto)) bloque.conAlerta++;
               // En la columna A se pintan las dos siempre, aunque el aviso de
               // la B sea el discreto y la primera conserve su "✅ Ok".
               filasParejaDuplicada.add(filaG); filasParejaDuplicada.add(previa.idx);
@@ -2420,6 +2436,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                   if (!registradoEnMS && requiereAlertaMS) {
                       estadoStr = txtFalta.trim();
                       coloresB[bloque.filaPedimento][0] = "#ffc107";
+                  } else if (nota !== "") {
+                      // Con alertas sin resolver no se firma nada: la nota que
+                      // se añade abajo dice cuántas hay.
+                      estadoStr = "";
+                      coloresB[bloque.filaPedimento][0] = "#ffc107";
                   } else {
                       // Se informa la M-S real por la que pasó, tomada del
                       // caché, en vez de deducirla del formato de las guías.
@@ -2435,8 +2456,17 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               if (faltan === 0 && sobran === 0) {
                   // Sin "Esperando guías": el número de bultos ya va delante y
                   // dice lo mismo sin sugerir que no hay nada escaneado.
-                  estadoStr = escaneadasUnicas.size === 0 ? nota : "✅ COMPLETO";
-                  coloresB[bloque.filaPedimento][0] = escaneadasUnicas.size === 0 ? "#e2e3e5" : "#07c369";
+                  // "✅ COMPLETO" solo si de verdad no queda nada pendiente.
+                  // Con un ⛔ sin resolver dos filas más abajo, el verde era la
+                  // peor combinación posible: invitaba a cerrar el pedimento y
+                  // la alerta se quedaba ahí sin que nadie la volviera a mirar.
+                  if (escaneadasUnicas.size === 0 || nota !== "") {
+                      estadoStr = "";
+                      coloresB[bloque.filaPedimento][0] = nota !== "" ? "#ffc107" : "#e2e3e5";
+                  } else {
+                      estadoStr = "✅ COMPLETO";
+                      coloresB[bloque.filaPedimento][0] = "#07c369";
+                  }
               } else {
                   let det = [];
                   if (faltan > 0) det.push("❌ Faltan " + faltan + " (" + faltantesArr.join(", ") + ")");
@@ -2652,6 +2682,10 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
                   let dupLocal = duplicadoLocal(previa, bloque.pedimento);
                   resultadosB[filaG][0] = dupLocal.texto;
                   coloresB[filaG][0] = dupLocal.color;
+                  // Igual que en las Globales: el duplicado aparece después de
+                  // haber contado conAlerta, y sin esto el bloque se declaraba
+                  // "✅ TODO SALIÓ" con el ⛔ sin resolver justo debajo.
+                  if (duplicadoBloqueaCierre(dupLocal.texto)) bloque.conAlerta++;
                   filasParejaDuplicada.add(filaG); filasParejaDuplicada.add(previa.idx);
                   if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa.idx, filaG + 1);
               } else {
@@ -2673,9 +2707,16 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
           if (guiasUnicas.size === 0) {
               msg = base;
               coloresB[bloque.filaPedimento][0] = nota !== "" ? "#ffc107" : "#e2e3e5";
-          } else if (faltantes === 0) {
+          } else if (faltantes === 0 && nota === "") {
               msg = base + " | ✅ TODO SALIÓ";
               coloresB[bloque.filaPedimento][0] = "#07c369";
+          } else if (faltantes === 0) {
+              // Salieron todas, pero el bloque tiene alertas sin resolver. No
+              // se dice "TODO SALIÓ": el verde invita a cerrar el pedimento y
+              // la alerta se queda ahí sin que nadie vuelva a mirarla. La nota
+              // que se añade abajo explica cuántas son.
+              msg = base;
+              coloresB[bloque.filaPedimento][0] = "#ffc107";
           } else {
               msg = base + " | ⚠️ Faltan " + faltantes + " por mover";
               coloresB[bloque.filaPedimento][0] = "#ffc107";

@@ -993,5 +993,33 @@ let editado = escenario(false, new Set([0]));
 ok("la fila recién editada no conserva la alerta vieja",
    editado.n === 0 && editado.res[0][0] === "✅ Guía");
 
+console.log("\n=== 5x. Un bloque con alertas no puede declararse completo ===");
+// El caso: guía duplicada sin resolver y el pedimento marcado "✅ COMPLETO".
+// Pasaba porque conAlerta se cuenta al armar los bloques, ANTES de detectar
+// los duplicados, así que un duplicado nuevo nunca llegaba al resumen.
+ok("un ⛔ bloquea el cierre",
+   duplicadoBloqueaCierre("⛔ DUPLICADO (ya en Ped: 6100166, fila 3)") === true);
+ok("un 🛑 bloquea el cierre", duplicadoBloqueaCierre("🛑 PEDIMENTO REPETIDO") === true);
+
+// El duplicado dentro del mismo pedimento se pinta gris a propósito: es la
+// misma guía leída dos veces, el conteo ya la cuenta una sola vez y no hay
+// nada que arreglar. Ese NO bloquea, tal como se pidió.
+ok("el duplicado local gris NO bloquea", duplicadoBloqueaCierre("🔄 Duplicado local") === false);
+ok("un ⚠️ tampoco bloquea", duplicadoBloqueaCierre("⚠️ Sobra (Ajena)") === false);
+
+// Y la coherencia con duplicadoLocal, que es quien produce esos textos.
+const dupMismoPed = duplicadoLocal({ ped: "6100166", idx: 3 }, "6100166");
+const dupOtroPed  = duplicadoLocal({ ped: "6100166", idx: 3 }, "6100999");
+ok("mismo pedimento -> gris, no bloquea",
+   dupMismoPed.color === "#acacac" && duplicadoBloqueaCierre(dupMismoPed.texto) === false);
+ok("otro pedimento -> ⛔, sí bloquea",
+   duplicadoBloqueaCierre(dupOtroPed.texto) === true);
+ok("y el mensaje nombra el pedimento y la fila",
+   dupOtroPed.texto.indexOf("6100166") !== -1 && dupOtroPed.texto.indexOf("fila 4") !== -1);
+
+// notaConAlerta es lo que acaba explicando el descuadre en el resumen.
+ok("una alerta produce nota", notaConAlerta(1) === "⚠️ 1 con alerta");
+ok("sin alertas no hay nota", notaConAlerta(0) === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
