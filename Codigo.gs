@@ -508,7 +508,9 @@ function procesarEdicion(e) {
     // Dentro de UNA ejecución el caché se sigue reutilizando, que es donde de
     // verdad importaba (recalcular varias pestañas sin releerlo cada vez).
     invalidarCacheRAM();
-    let cacheInfo = perf("cargar caché", 0, () => getCacheData(e.source));
+    // Sin envolver: getCacheData ya se mide por dentro, y un perf aquí fuera
+    // sumaría dos veces lo mismo y descuadraría el renglón de "resto".
+    let cacheInfo = getCacheData(e.source);
 
     let batchUpdates = [];
     let filasHistorial = [];
@@ -758,36 +760,74 @@ function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, r
 function getCacheData(source) {
     if (globalCacheData && globalCacheMap) return { data: globalCacheData, headers: globalCacheHeaders, map: globalCacheMap };
 
-    let cacheSheet = source.getSheetByName("CACHE_SISTEMA");
+    let cacheSheet = perf("caché: abrir hoja", 0, () => source.getSheetByName("CACHE_SISTEMA"));
     if (!cacheSheet) return null;
 
-    let lr = cacheSheet.getLastRow();
-    let lc = cacheSheet.getLastColumn();
+    let lr = perf("caché: getLastRow", 0, () => cacheSheet.getLastRow());
+    let lc = perf("caché: getLastColumn", 0, () => cacheSheet.getLastColumn());
     if (lr < 1 || lc < 1) return null;
 
-    let fullData = cacheSheet.getRange(1, 1, lr, lc).getValues();
+    let fullData = perf("caché: leer valores", lr * lc, () => cacheSheet.getRange(1, 1, lr, lc).getValues());
     globalCacheHeaders = fullData[0];
     globalCacheData = fullData;
 
-    globalCacheMap = new Map();
-    for (let c = 0; c < globalCacheHeaders.length; c++) {
-        let header = String(globalCacheHeaders[c]);
-        if (!header.endsWith("_FISICO")) continue;
-
-        let hojaHeader = claveHoja(header.replace("_FISICO", ""));
-        let isMSHeader = esHojaMS(hojaHeader);
-        let isInventarioHeader = esHojaInventario(hojaHeader);
-
-        for (let r = 1; r < globalCacheData.length; r++) {
-            let v = String(globalCacheData[r][c]).trim().toUpperCase();
-            if (v === "" || esMarcadorEstructural(v)) continue;
-            let arr = globalCacheMap.get(v) || [];
-            arr.push({ hoja: hojaHeader, fila: r, isMS: isMSHeader, isInventario: isInventarioHeader });
-            globalCacheMap.set(v, arr);
-        }
-    }
+    globalCacheMap = perf("(memoria) indexar el caché", 0, () =>
+        construirIndiceCache(globalCacheData, globalCacheHeaders));
 
     return { data: globalCacheData, headers: globalCacheHeaders, map: globalCacheMap };
+}
+
+// Índice guía -> [{hoja, fila, isMS, isInventario}] a partir de la foto del caché.
+//
+// Se separa de getCacheData por dos razones: para poder medir aparte lo que es
+// hablar con Google de lo que es puro cálculo, y para que el banco de pruebas
+// pueda cubrirlo. Este índice es lo que hace que la detección de duplicados
+// sirva de algo; si se corrompe, el sistema miente sin avisar.
+//
+// INVARIANTE: el índice de la fila en `data` ES la fila de la hoja. La fila 0
+// son los encabezados, y `actualizarFotografiaMental` vuelca la fila 1 de la
+// hoja en la fila 2 del caché, que es `data[1]`.
+function construirIndiceCache(data, headers) {
+    let mapa = new Map();
+    if (!data || !headers) return mapa;
+
+    // Los datos de cada columna se calculan UNA vez, no una por celda. Antes
+    // `claveHoja`, `esHojaMS` y `esHojaInventario` se repetían en cada columna
+    // del recorrido exterior; ahora quedan fuera del bucle caliente.
+    let columnas = [];
+    for (let c = 0; c < headers.length; c++) {
+        let header = String(headers[c]);
+        if (!header.endsWith("_FISICO")) continue;
+        let hoja = claveHoja(header.replace("_FISICO", ""));
+        columnas.push({ c: c, hoja: hoja, isMS: esHojaMS(hoja), isInventario: esHojaInventario(hoja) });
+    }
+    if (columnas.length === 0) return mapa;
+
+    // Recorrido por filas: toca cada array de fila una sola vez, en vez de
+    // recorrer las 3.000 filas enteras una vez por columna.
+    for (let r = 1; r < data.length; r++) {
+        let fila = data[r];
+        if (!fila) continue;
+
+        for (let k = 0; k < columnas.length; k++) {
+            let col = columnas[k];
+            let bruto = fila[col.c];
+
+            // La celda vacía se descarta ANTES de convertirla a texto. En un
+            // caché de 3.000 filas la enorme mayoría están en blanco (relleno
+            // de asegurarFilas) y hasta ahora cada una pagaba tres operaciones
+            // de cadena para acabar descartada igual.
+            if (bruto === "" || bruto === null || bruto === undefined) continue;
+
+            let v = String(bruto).trim().toUpperCase();
+            if (v === "" || esMarcadorEstructural(v)) continue;
+
+            let arr = mapa.get(v);
+            if (arr) arr.push({ hoja: col.hoja, fila: r, isMS: col.isMS, isInventario: col.isInventario });
+            else mapa.set(v, [{ hoja: col.hoja, fila: r, isMS: col.isMS, isInventario: col.isInventario }]);
+        }
+    }
+    return mapa;
 }
 
 // Índice: clave de hoja -> columna de su _FISICO dentro del caché.
@@ -1164,7 +1204,7 @@ function actualizarFotografiaMental(hoja, source) {
         cacheSheet.hideSheet();
     }
 
-    let lr = Math.max(hoja.getLastRow(), 1);
+    let lr = perf("foto: getLastRow", 0, () => Math.max(hoja.getLastRow(), 1));
     asegurarFilas(cacheSheet, lr + 1);
 
     let maxCols = Math.max(cacheSheet.getLastColumn(), 1);
@@ -2277,10 +2317,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 // CEREBRO PRINCIPAL: BODEGAS (M-S)
 // =========================================================================
 function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
-  const ultimaFila = Math.max(hoja.getLastRow(), 1);
+  const ultimaFila = perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
   if (ultimaFila < 1) return;
 
-  asegurarColumnas(hoja, 12);
+  perf("asegurarColumnas", 0, () => asegurarColumnas(hoja, 12));
   const datosMasivos = perf("leer la hoja A:L", ultimaFila * 12, () =>
       hoja.getRange(1, 1, ultimaFila, 12).getValues());
   const horaActual = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
@@ -2466,7 +2506,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
 //   · misma guía repetida dentro de la misma ubicación (duplicado local)
 // =========================================================================
 function actualizarInventario(hoja, cacheInfo, repintarTodo) {
-  const ultimaFila = Math.max(hoja.getLastRow(), 1);
+  const ultimaFila = perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
   asegurarColumnas(hoja, 12);
 
   const datosMasivos = perf("leer la hoja A:L", ultimaFila * 12, () =>
@@ -2717,9 +2757,11 @@ function medirRendimiento() {
 
   // 1. Carga del caché en frío (lo que paga el primer escaneo tras una pausa).
   invalidarCacheRAM();
+  perfIniciar();
   t0 = Date.now();
   let cacheInfo = getCacheData(ss);
   let tCache = Date.now() - t0;
+  let perfCache = perfFin();
   L.push("── DESGLOSE ──");
   L.push("Cargar caché (en CADA escaneo): " + tCache + " ms" +
          (cacheInfo ? "  ·  " + cacheInfo.map.size + " guías indexadas" : "  ·  SIN CACHÉ"));
@@ -2765,6 +2807,10 @@ function medirRendimiento() {
   // Dónde se va el tiempo, llamada por llamada. Es lo que decide qué se
   // optimiza después: sin esto solo se puede especular.
   L.push("");
+  L.push("── DÓNDE SE VA LA CARGA DEL CACHÉ ──");
+  perfLineas(perfCache, tCache).forEach(x => L.push(x));
+
+  L.push("");
   L.push("── DÓNDE SE VA EL ESCANEO ──");
   perfLineas(perfEscaneo, tEscaneo).forEach(x => L.push(x));
   if (perfSyncTodo) {
@@ -2778,6 +2824,22 @@ function medirRendimiento() {
   // solo se cargaba la primera vez, y eso ya no es cierto.
   let porEscaneo = tCache + tEscaneo;
   let porMinuto = porEscaneo > 0 ? Math.floor(60000 / porEscaneo) : 0;
+
+  // La medición llama a recalcularHoja, nunca a procesarEdicion, así que todo
+  // esto queda FUERA de los números de arriba aunque el operador sí lo pague.
+  // Se cronometra en seco, sin escribir nada: la herramienta tiene que seguir
+  // siendo inocua.
+  perfIniciar();
+  let t0Ed = Date.now();
+  perf("edición: buscar la hoja por nombre", 0, () => buscarHojaPorClave(ss, nombre));
+  perf("edición: getMaxColumns", 0, () => hoja.getMaxColumns());
+  if (lr > 0) perf("edición: lectura de apoyo", 15, () => hoja.getRange(1, 2, 1, 15).getValues());
+  let tEdicion = Date.now() - t0Ed;
+  let perfEdicion = perfFin();
+
+  L.push("");
+  L.push("── LO QUE PAGA LA EDICIÓN (y no se ve arriba) ──");
+  perfLineas(perfEdicion, tEdicion).forEach(x => L.push(x));
 
   L.push("");
   L.push("── CAPACIDAD ──");
