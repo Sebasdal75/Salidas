@@ -877,3 +877,82 @@ La decisión se extrae a `columnasHuerfanas(headers, existentes)`, pura y con
 tests: columnas de pestañas que ya no existen, y columnas `_PREFORMA` de bodegas
 (que nunca se usan). Devuelve los índices de derecha a izquierda, que es el
 único orden en el que se pueden borrar sin que se muevan.
+
+---
+
+## «Limpiar guías movidas» descolocaba los colores
+
+Subía los **valores** para tapar los huecos, pero dejaba los colores donde
+estaban. Resultado: el color de la fila 5 se quedaba en la fila 5 aunque ahora
+esa fila tuviera lo que antes estaba en la 8. No es que no borrara el color: es
+que los colores ya no correspondían a sus filas.
+
+Ahora sube todo junto: valores, fondos, color de fuente, tachado **y validación
+de datos**. Las filas que quedan libres al final se vacían y se dejan en formato
+neutro, pero **conservan validación**: se les copia la de la última fila que
+sobrevivió, para que sigan validando como el resto de la columna en vez de
+quedarse sin regla.
+
+> Nota sobre el **formato condicional**: si sus rangos siguen partiéndose
+> (`A1:A283, A285:A3000` y una regla suelta para `A284`), eso lo hace Google al
+> reorganizar la hoja, y ningún script puede evitarlo del todo. La solución de
+> fondo es la que ya está hecha: los colores los pinta el código, así que se
+> pueden borrar todas las reglas de formato condicional y el problema desaparece.
+
+---
+
+## Nueva columna del caché: dónde se coloca
+
+`columnaDeHeader()` calculaba el sitio libre como «número de encabezados no
+vacíos + 1». Con un hueco en medio —un encabezado vacío entre dos usados— eso
+apuntaba a una columna **ya ocupada** y la habría pisado. Ahora busca el primer
+encabezado realmente vacío, y si no hay ninguno se va al final.
+
+Respuesta a la duda de fondo: **da igual cuántas columnas queden**. El caché
+crece solo, y si se queda sin espacio inserta columnas nuevas.
+
+---
+
+## El usuario en el historial: qué se puede y qué no
+
+Comprobado en el código original (commit `d8ba51f`): **no capturaba al usuario en
+ningún sitio**. Sus encabezados eran
+`FECHA Y HORA · PESTAÑA · FILA · COLUMNA · GUÍA · ESTADO ANTERIOR · MOTIVO`, sin
+columna de usuario. La columna existía en la hoja de producción, pero nada la
+llenaba.
+
+Dicho eso, **sí se puede**, y el motivo de que ahora salga `(no identificado)`
+es concreto:
+
+| Trigger | `getActiveUser()` | Respaldo `getEffectiveUser()` | Resultado |
+|---|---|---|---|
+| **Simple** | `""` (cuentas @gmail distintas) | El editor real | ✅ Se identifica |
+| **Instalable** | `""` | Quien instaló el trigger | ❌ Se deja vacío a propósito |
+
+Con el instalable el respaldo diría siempre el mismo nombre en todos los
+borrados de todos los operadores, y un nombre equivocado en una auditoría es
+peor que ninguno.
+
+Se añade al menú **🙋 Trigger simple + usuario en el historial**, que es la
+combinación buena: escaneo con trigger simple (identifica al operador) **y** el
+repaso automático cada 5 minutos, que es un trigger por tiempo aparte y no
+depende del de edición. Lo único que se cede es el límite por escaneo, de 6
+minutos a 30 segundos — con los tiempos actuales (~1 s) sobra.
+
+---
+
+## Limpieza automática del historial
+
+Tres opciones nuevas en el menú:
+
+- **🧾 Vaciar historial de borrados ahora** — con confirmación y contando cuántos
+  registros se van, porque borrar una auditoría no debe pasar por descuido.
+- **🕙 Vaciarlo solo cada día** — trigger diario a la hora de
+  `HORA_LIMPIEZA_HISTORIAL` (por defecto las 22:00; Google respeta la hora, no
+  el minuto exacto).
+- **🚫 Dejar de vaciarlo solo**.
+
+Solo se borra **contenido** (`clearContent`), nunca filas ni formato: los
+encabezados, los anchos y cualquier validación quedan intactos. Y si hiciera
+falta recuperar algo, sigue estando en *Archivo → Historial de versiones* de
+Google.

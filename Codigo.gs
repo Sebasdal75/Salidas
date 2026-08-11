@@ -288,6 +288,107 @@ function instalarTriggerAvanzado() {
     ss.toast('✅ Trigger avanzado activo (6 min de límite y usuario en el historial) + repaso automático cada 5 min.', 'Listo', 8);
 }
 
+// =========================================================================
+// LIMPIEZA AUTOMÁTICA DEL HISTORIAL
+// =========================================================================
+// Hora a la que se vacía HISTORIAL_BORRADOS, en formato 24 h. El trigger corre
+// dentro de esa hora, no en el minuto exacto: Google no garantiza el minuto.
+const HORA_LIMPIEZA_HISTORIAL = 22;
+
+// Vacía el historial dejando la fila de encabezados. Solo borra CONTENIDO
+// (clearContent), nunca la fila ni el formato, así que los encabezados, los
+// anchos y cualquier validación siguen intactos.
+function limpiarHistorialDiario() {
+  const ss = obtenerArchivo();
+  const hoja = ss.getSheetByName("HISTORIAL_BORRADOS");
+  if (!hoja) return 0;
+
+  let lr = hoja.getLastRow();
+  if (lr < 2) return 0;   // solo encabezados
+
+  let lc = Math.max(hoja.getLastColumn(), 1);
+  hoja.getRange(2, 1, lr - 1, lc).clearContent();
+  return lr - 1;
+}
+
+// La misma limpieza, pero pedida a mano desde el menú y con confirmación: es
+// una borrada de un registro de auditoría, no algo que deba pasar por descuido.
+function limpiarHistorialAhora() {
+  const ui = SpreadsheetApp.getUi();
+  const ss = obtenerArchivo();
+  const hoja = ss.getSheetByName("HISTORIAL_BORRADOS");
+
+  if (!hoja || hoja.getLastRow() < 2) {
+    ui.alert("🧾 Historial", "El historial ya está vacío.", ui.ButtonSet.OK);
+    return;
+  }
+
+  let n = hoja.getLastRow() - 1;
+  let resp = ui.alert("🧾 Vaciar historial",
+      "Se van a borrar " + n + " registros de HISTORIAL_BORRADOS.\n\n" +
+      "Esto no se puede deshacer desde el menú (sí desde el historial de\n" +
+      "versiones de Google: Archivo → Historial de versiones).\n\n¿Continuar?",
+      ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  let borrados = limpiarHistorialDiario();
+  ss.toast("✅ Historial vaciado (" + borrados + " registros).", "Listo", 5);
+}
+
+function instalarLimpiezaHistorial() {
+  const ss = obtenerArchivo();
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'limpiarHistorialDiario') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('limpiarHistorialDiario')
+           .timeBased().atHour(HORA_LIMPIEZA_HISTORIAL).everyDays(1).create();
+
+  ss.toast('✅ El historial se vaciará solo cada día alrededor de las ' +
+           HORA_LIMPIEZA_HISTORIAL + ':00. Para cambiar la hora, edita ' +
+           'HORA_LIMPIEZA_HISTORIAL al inicio del código y vuelve a instalarlo.',
+           'Limpieza automática activa', 8);
+}
+
+function quitarLimpiezaHistorial() {
+  const ss = obtenerArchivo();
+  let n = 0;
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'limpiarHistorialDiario') { ScriptApp.deleteTrigger(t); n++; }
+  });
+  ss.toast(n > 0 ? '✅ Limpieza automática desactivada.' : 'ℹ️ No estaba activa.', 'Historial', 5);
+}
+
+// Trigger SIMPLE para el escaneo + red de seguridad por tiempo.
+//
+// Es la única combinación en la que el historial puede decir QUIÉN borró algo:
+// un trigger simple corre bajo la identidad de quien editó, así que
+// Session.getEffectiveUser() devuelve a esa persona. El instalable corre bajo
+// quien lo instaló, y ahí el nombre sería siempre el mismo — peor que ninguno.
+//
+// Lo que se pierde frente al avanzado: el límite baja de 6 minutos a 30
+// segundos por escaneo. Con los tiempos actuales (~1 s) sobra de largo; solo
+// sería un problema en hojas enormes.
+//
+// El repaso automático cada 5 minutos SÍ se conserva: es un trigger por tiempo
+// aparte y no depende del de edición.
+function instalarTriggerConUsuario() {
+  const ss = obtenerArchivo();
+
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'alEditar') ScriptApp.deleteTrigger(t);
+  });
+  PropertiesService.getScriptProperties().deleteProperty(PROP_TRIGGER);
+  globalTriggerInstalable = false;
+
+  ScriptApp.getProjectTriggers().forEach(t => {
+    if (t.getHandlerFunction() === 'actualizadorAutomaticoGlobal') ScriptApp.deleteTrigger(t);
+  });
+  ScriptApp.newTrigger('actualizadorAutomaticoGlobal').timeBased().everyMinutes(5).create();
+
+  ss.toast('✅ Escaneo con trigger simple: el historial ya registra quién borra. ' +
+           'Límite de 30 s por escaneo + repaso automático cada 5 min.', 'Listo', 8);
+}
+
 function desinstalarTriggerAvanzado() {
     const ss = obtenerArchivo();
     ScriptApp.getProjectTriggers().forEach(t => {
@@ -993,7 +1094,14 @@ function columnaDeHeader(cacheSheet, headers, titulo) {
     let idx = headers.indexOf(titulo);
     if (idx !== -1) return idx + 1;
 
-    let col = headers.filter(String).length + 1;
+    // El sitio libre es el primer encabezado vacío, o el final. Contando los no
+    // vacíos, un hueco en medio hacía que la columna nueva cayera encima de otra
+    // que sí estaba en uso.
+    let hueco = -1;
+    for (let i = 0; i < headers.length; i++) {
+        if (String(headers[i]).trim() === "") { hueco = i; break; }
+    }
+    let col = (hueco !== -1 ? hueco : headers.length) + 1;
     if (col > cacheSheet.getMaxColumns()) {
         cacheSheet.insertColumnsAfter(cacheSheet.getMaxColumns(), 2);
     }
@@ -2465,7 +2573,12 @@ function onOpen() {
     .addItem('⏱️ Medir velocidad de escaneo', 'medirRendimiento')
     .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
     .addSeparator()
-    .addItem('⚙️ Instalar trigger avanzado (recomendado)', 'instalarTriggerAvanzado')
+    .addItem('🧾 Vaciar historial de borrados ahora', 'limpiarHistorialAhora')
+    .addItem('🕙 Vaciarlo solo cada día', 'instalarLimpiezaHistorial')
+    .addItem('🚫 Dejar de vaciarlo solo', 'quitarLimpiezaHistorial')
+    .addSeparator()
+    .addItem('⚙️ Instalar trigger avanzado (6 min, sin usuario)', 'instalarTriggerAvanzado')
+    .addItem('🙋 Trigger simple + usuario en el historial', 'instalarTriggerConUsuario')
     .addItem('↩️ Volver al trigger simple', 'desinstalarTriggerAvanzado')
     .addToUi();
 }
@@ -3183,6 +3296,15 @@ function limpiarGuiasMovidasSeleccion() {
     let rangoData = hoja.getRange(filaInicio, 1, totalFilasAProcesar, 12);
     let valores = rangoData.getValues();
 
+    // Los valores suben, así que TODO lo que va pegado a la fila tiene que subir
+    // con ellos. Antes solo se movían los valores: los colores se quedaban en su
+    // sitio y acababan describiendo una fila que ya no era esa (por eso "no me
+    // borra el color"), y las validaciones se quedaban descolocadas igual.
+    let fondos    = rangoData.getBackgrounds();
+    let colorsFte = rangoData.getFontColors();
+    let lineasFte = rangoData.getFontLines();
+    let validaciones = rangoData.getDataValidations();
+
     let paraEliminar = new Set();
     let filasHistorial = [];
     let nombreHoja = claveHoja(hoja.getName());
@@ -3222,18 +3344,37 @@ function limpiarGuiasMovidasSeleccion() {
     registrarEnHistorialLote(ss, filasHistorial);
 
     let eliminadas = paraEliminar.size;
-    let nuevosValores = [];
+    let nuevosValores = [], nuevosFondos = [], nuevosColores = [], nuevasLineas = [], nuevasValidaciones = [];
     for (let i = 0; i < valores.length; i++) {
-        if (!paraEliminar.has(i)) nuevosValores.push(valores[i]);
+        if (paraEliminar.has(i)) continue;
+        nuevosValores.push(valores[i]);
+        nuevosFondos.push(fondos[i]);
+        nuevosColores.push(colorsFte[i]);
+        nuevasLineas.push(lineasFte[i]);
+        nuevasValidaciones.push(validaciones[i]);
     }
+
+    // Las filas que quedan al final se vacían y se dejan en formato neutro. La
+    // validación de datos SÍ se conserva: se copia la de la última fila que
+    // sobrevivió, para que las celdas recién liberadas sigan validando igual que
+    // el resto de la columna en lugar de quedarse sin regla.
     // Cada fila vacía debe ser un array propio, no la misma referencia repetida.
-    for (let k = 0; k < eliminadas; k++) nuevosValores.push(Array(12).fill(""));
+    let validacionModelo = nuevasValidaciones.length > 0
+        ? nuevasValidaciones[nuevasValidaciones.length - 1]
+        : validaciones[validaciones.length - 1];
+    for (let k = 0; k < eliminadas; k++) {
+        nuevosValores.push(Array(12).fill(""));
+        nuevosFondos.push(Array(12).fill("#FFFFFF"));
+        nuevosColores.push(Array(12).fill("#000000"));
+        nuevasLineas.push(Array(12).fill("none"));
+        nuevasValidaciones.push(validacionModelo.slice());
+    }
 
     rangoData.setValues(nuevosValores);
-
-    let startEmpty = filaInicio + nuevosValores.length - eliminadas;
-    hoja.getRange(startEmpty, 1, eliminadas, 12)
-        .setBackground("#FFFFFF").setFontColor("#000000").setFontLine("none");
+    rangoData.setBackgrounds(nuevosFondos);
+    rangoData.setFontColors(nuevosColores);
+    rangoData.setFontLines(nuevasLineas);
+    rangoData.setDataValidations(nuevasValidaciones);
 
     actualizarFotografiaMental(hoja, ss);
     invalidarCacheRAM();
@@ -3242,7 +3383,7 @@ function limpiarGuiasMovidasSeleccion() {
     recalcularHoja(hoja, ss, cacheInfo, null);
     if (esHojaInventario(nombreHoja)) sincronizarInventariosAfectados(ss, cacheInfo, null, nombreHoja);
 
-    ss.toast('✅ Guías limpiadas (' + eliminadas + ' filas). Las validaciones subieron correctamente.', 'Limpieza Completa', 5);
+    ss.toast('✅ Guías limpiadas (' + eliminadas + ' filas). Colores y validaciones subieron con ellas.', 'Limpieza Completa', 5);
   });
 }
 
