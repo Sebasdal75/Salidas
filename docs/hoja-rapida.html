@@ -1,14 +1,23 @@
-<title>Hoja rápida — Escaneos UPS</title>
+<title>Hojas rápidas — Escaneos UPS</title>
 <style>
+  /* ------------------------------------------------------------------
+     Tarjeta de estación. Se lee a un metro, bajo luz de nave, por alguien
+     con la pistola en la mano. Los colores de estado NO son decisión de
+     diseño: son exactamente los que pinta el script, porque la tarjeta
+     sirve para reconocerlos en pantalla.
+     ------------------------------------------------------------------ */
   :root {
-    --ground:      #F4F5F3;
-    --paper:       #FFFFFF;
-    --paper-alt:   #ECEEEB;
-    --ink:         #171A19;
-    --muted:       #5A625F;
-    --line:        #CDD3D0;
-    --accent:      #1F5F63;
+    --ground:    #F2F4F3;
+    --paper:     #FFFFFF;
+    --paper-alt: #E9EDEB;
+    --ink:       #141817;
+    --muted:     #586360;
+    --line:      #C9D1CE;
+    --line-soft: #E2E7E5;
+    --accent:    #1F5F63;
+    --accent-in: #FFFFFF;
 
+    /* Estados, tal cual salen del código */
     --ok:      #07c369;
     --guia:    #71b3e6;
     --cabeza:  #178ccc;
@@ -20,6 +29,14 @@
     --movido:  #e0e0e0;
     --repe:    #dc3545;
     --espera:  #e2e3e5;
+    --amarillo:#FFF3CD;
+
+    /* Columnas de captura */
+    --a-guia:  #00ff00;
+    --a-ubic:  #a4c2f4;
+    --o-a:     #35ec09;
+    --o-b:     #ff00ff;
+    --o-c:     #39b1b9;
 
     --sans: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
     --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace;
@@ -27,23 +44,27 @@
 
   @media (prefers-color-scheme: dark) {
     :root:not([data-theme="light"]) {
-      --ground:    #121514;
-      --paper:     #1B1F1E;
-      --paper-alt: #232827;
-      --ink:       #E8EBE9;
-      --muted:     #9AA39F;
-      --line:      #333A38;
-      --accent:    #63B7BC;
+      --ground:    #101413;
+      --paper:     #191E1D;
+      --paper-alt: #212726;
+      --ink:       #E9EDEB;
+      --muted:     #98A29F;
+      --line:      #313937;
+      --line-soft: #262D2C;
+      --accent:    #6FBFC4;
+      --accent-in: #0C1110;
     }
   }
   :root[data-theme="dark"] {
-    --ground:    #121514;
-    --paper:     #1B1F1E;
-    --paper-alt: #232827;
-    --ink:       #E8EBE9;
-    --muted:     #9AA39F;
-    --line:      #333A38;
-    --accent:    #63B7BC;
+    --ground:    #101413;
+    --paper:     #191E1D;
+    --paper-alt: #212726;
+    --ink:       #E9EDEB;
+    --muted:     #98A29F;
+    --line:      #313937;
+    --line-soft: #262D2C;
+    --accent:    #6FBFC4;
+    --accent-in: #0C1110;
   }
 
   * { box-sizing: border-box; }
@@ -56,325 +77,397 @@
     -webkit-text-size-adjust: 100%;
   }
 
-  .screenbar {
+  /* ---------- Barra de pantalla (no se imprime) ---------- */
+  .barra {
     max-width: 8.5in;
-    margin: 0 auto;
-    padding: 1.25rem 1rem .5rem;
-    display: flex;
-    flex-wrap: wrap;
-    gap: .75rem;
-    align-items: center;
-    justify-content: space-between;
-    color: var(--muted);
-    font-size: .85rem;
-  }
-  .screenbar button {
-    font: inherit;
-    font-weight: 600;
-    color: var(--paper);
-    background: var(--accent);
-    border: none;
-    border-radius: 5px;
-    padding: .45rem 1rem;
-    cursor: pointer;
-  }
-  .screenbar button:hover { filter: brightness(1.08); }
-  .screenbar button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
-
-  .sheet {
+    margin: 1rem auto .5rem;
+    padding: .7rem .9rem;
+    display: flex; flex-wrap: wrap; align-items: center; gap: .75rem;
     background: var(--paper);
-    color: var(--ink);
-    width: 8.5in;
-    min-height: 11in;
-    margin: 0 auto 3rem;
-    padding: .5in .55in;
-    box-shadow: 0 2px 4px rgba(0,0,0,.08), 0 24px 48px -24px rgba(0,0,0,.3);
-    font-size: 9.6pt;
-    line-height: 1.4;
+    border: 1px solid var(--line);
+    border-radius: 3px;
+    font-size: .82rem; color: var(--muted);
+  }
+  .barra p { margin: 0; flex: 1 1 16rem; }
+  .barra b { color: var(--ink); }
+  .barra button {
+    font: inherit; font-weight: 650;
+    padding: .45rem .95rem;
+    background: var(--accent); color: var(--accent-in);
+    border: none; border-radius: 3px; cursor: pointer;
+  }
+  .barra button:hover { filter: brightness(1.08); }
+  .barra button:focus-visible { outline: 2px solid var(--ink); outline-offset: 2px; }
+  .barra kbd {
+    font: 600 .78em var(--mono);
+    background: var(--paper-alt); color: var(--ink);
+    border: 1px solid var(--line); border-radius: 3px;
+    padding: .1em .4em;
+  }
+  .aviso-print {
+    flex: 1 1 100%; margin: 0; font-size: .78rem;
+    color: var(--muted); display: none;
+  }
+  .aviso-print.visible { display: block; }
+
+  /* ---------- La hoja ---------- */
+  .hoja {
+    width: 8.5in; min-height: 11in;
+    margin: 0 auto 1.2rem;
+    padding: .45in .5in;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    box-shadow: 0 1px 3px rgba(0,0,0,.07);
+    display: flex; flex-direction: column; gap: .26in;
   }
 
-  /* ---------- Cabecera ---------- */
-  .head {
-    display: flex; align-items: flex-end; justify-content: space-between;
-    gap: 1rem; border-bottom: 2.5px solid var(--ink);
-    padding-bottom: .3rem; margin-bottom: .55rem;
+  .cabecera {
+    display: flex; align-items: baseline; justify-content: space-between;
+    gap: 1rem; padding-bottom: .1in;
+    border-bottom: 3px solid var(--ink);
   }
-  .head h1 { font-size: 17pt; margin: 0; letter-spacing: -.02em; line-height: 1; }
-  .head .sub {
-    font-family: var(--mono); font-size: 7.2pt; letter-spacing: .12em;
-    text-transform: uppercase; color: var(--muted); text-align: right; line-height: 1.5;
+  .cabecera h1 {
+    margin: 0; font-size: 22pt; font-weight: 800;
+    letter-spacing: -.02em; text-wrap: balance;
   }
-
-  /* ---------- Regla grande ---------- */
-  .regla {
-    display: grid; grid-template-columns: 1fr 1fr; gap: .3rem;
-    margin-bottom: .6rem;
+  .cabecera .quien {
+    font-size: 9pt; font-weight: 700; text-align: right;
+    text-transform: uppercase; letter-spacing: .07em;
+    color: var(--accent);
   }
-  .regla div {
-    border: 1.5px solid var(--line); border-radius: 5px;
-    padding: .4rem .55rem; display: flex; align-items: center; gap: .5rem;
-  }
-  .regla .chips { display: flex; gap: .18rem; flex-shrink: 0; }
-  .regla .c { width: .82rem; height: .82rem; border-radius: 2.5px; border: .5px solid rgba(0,0,0,.2); }
-  .regla b { font-size: 10.5pt; display: block; line-height: 1.15; }
-  .regla span { font-size: 8pt; color: var(--muted); }
-
-  /* ---------- Columnas ---------- */
-  .cols { display: grid; grid-template-columns: 1fr 1fr; gap: .55rem; }
+  .cabecera .quien span { display: block; font-weight: 500; text-transform: none; letter-spacing: 0; color: var(--muted); }
 
   h2 {
-    font-size: 8pt; text-transform: uppercase; letter-spacing: .1em;
-    color: var(--paper); background: var(--accent);
-    margin: 0 0 .3rem; padding: .18rem .45rem; border-radius: 3px;
+    margin: 0 0 .09in;
+    font-size: 8.5pt; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .1em;
+    color: var(--accent);
   }
-  .block { margin-bottom: .55rem; break-inside: avoid; }
 
-  /* ---------- Filas de mensaje ---------- */
-  .row {
-    display: grid; grid-template-columns: 4px 1fr; gap: .45rem;
-    padding: .28rem 0; border-bottom: .75px solid var(--line);
+  .cols { display: grid; grid-template-columns: 1.05fr 1fr; gap: .3in; align-items: start; }
+
+  /* ---------- Pasos ---------- */
+  .pasos { display: flex; flex-direction: column; gap: .09in; margin: 0; padding: 0; list-style: none; counter-reset: p; }
+  .pasos li {
+    display: grid; grid-template-columns: 1.25em 1fr; gap: .5em;
+    font-size: 9.5pt; line-height: 1.4;
   }
-  .row:last-child { border-bottom: none; }
-  .row .bar { border-radius: 2px; }
-  .row .m { font-family: var(--mono); font-size: 8pt; font-weight: 700; line-height: 1.3; }
-  .row .d { font-size: 8pt; color: var(--muted); line-height: 1.35; }
-  .row .d b { color: var(--ink); }
+  .pasos li::before {
+    counter-increment: p; content: counter(p);
+    font: 700 8pt/1.25em var(--mono);
+    text-align: center; height: 1.25em;
+    background: var(--ink); color: var(--paper);
+    border-radius: 50%;
+  }
+  .pasos code, .pasos .txt {
+    font: 600 8.6pt var(--mono);
+    background: var(--paper-alt); padding: .05em .3em; border-radius: 2px;
+    white-space: nowrap;
+  }
 
-  /* ---------- Leyenda de color ---------- */
-  .leyenda { display: grid; grid-template-columns: 1fr 1fr; gap: .12rem .55rem; }
-  .leyenda div { display: flex; align-items: center; gap: .35rem; font-size: 8pt; }
-  .leyenda .c { width: .8rem; height: .8rem; border-radius: 2.5px; border: .5px solid rgba(0,0,0,.2); flex-shrink: 0; }
+  /* ---------- Diccionario de mensajes ---------- */
+  .msgs { display: flex; flex-direction: column; gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
+  .msg { display: grid; grid-template-columns: .16in 1fr; background: var(--paper); }
+  .msg .chip { }
+  .msg .cuerpo { padding: .055in .09in; min-width: 0; }
+  .msg .t {
+    font: 700 8.2pt var(--mono);
+    display: block; overflow-wrap: anywhere;
+  }
+  .msg .d { display: block; font-size: 7.8pt; line-height: 1.35; color: var(--muted); margin-top: .02in; }
 
-  /* ---------- Listas ---------- */
-  ul { margin: 0; padding-left: .9rem; }
-  li { font-size: 8pt; margin-bottom: .14rem; line-height: 1.35; }
-  .no li::marker { color: var(--malo); }
-  code {
-    font-family: var(--mono); font-size: 7.6pt;
-    background: var(--paper-alt); padding: 0 .2em; border-radius: 2px;
+  /* ---------- Colores de la columna que se escanea ---------- */
+  .paleta { display: grid; grid-template-columns: repeat(2, 1fr); gap: .06in .18in; }
+  .sw { display: grid; grid-template-columns: .2in 1fr; gap: .07in; align-items: center; font-size: 8.4pt; }
+  .sw i { display: block; height: .13in; border: 1px solid rgba(0,0,0,.28); }
+  .sw b { font-weight: 700; }
+  .sw span { color: var(--muted); }
+
+  /* ---------- Banda final ---------- */
+  .raro {
+    margin-top: auto;
+    border: 2px solid var(--ink);
+    background: var(--paper-alt);
+    padding: .13in .16in;
+  }
+  .raro h3 {
+    margin: 0 0 .06in; font-size: 9pt; font-weight: 800;
+    text-transform: uppercase; letter-spacing: .07em;
+  }
+  .raro p { margin: 0 0 .05in; font-size: 8.6pt; line-height: 1.42; }
+  .raro p:last-child { margin-bottom: 0; }
+  .raro .fuerte {
+    font-weight: 800;
+    border-left: 4px solid var(--repe);
+    padding-left: .1in;
+  }
+  .raro code {
+    font: 600 8.2pt var(--mono);
+    background: var(--paper); padding: .04em .28em; border-radius: 2px;
+    border: 1px solid var(--line);
   }
 
   .pie {
-    margin-top: .5rem; padding-top: .3rem;
-    border-top: 1.5px solid var(--ink);
-    font-size: 7.5pt; color: var(--muted);
+    border-top: 1px solid var(--line);
+    padding-top: .07in; font-size: 7.2pt; color: var(--muted);
     display: flex; justify-content: space-between; gap: 1rem;
+  }
+
+  @media (max-width: 8.9in) {
+    .hoja { width: auto; max-width: 8.5in; min-height: 0; }
+    .cols { grid-template-columns: 1fr; gap: .2in; }
   }
 
   /* ---------- Impresión ---------- */
   @page { size: letter portrait; margin: 0; }
   @media print {
-    body { background: #FFFFFF; }
-    .screenbar { display: none; }
-    .sheet {
-      width: auto; min-height: 0; margin: 0;
-      box-shadow: none; padding: .42in .45in;
-      background: #FFFFFF; color: #000000;
+    /* Sin esto el navegador imprime los fondos en blanco y la tarjeta pierde
+       justo lo que la hace útil: poder reconocer el color. */
+    *, *::before, *::after {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
     }
-    h2 { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-    .row .bar, .leyenda .c, .regla .c { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+    body { background: #FFFFFF; }
+    .barra { display: none; }
+    .hoja {
+      width: auto; min-height: 10.6in; max-width: none;
+      margin: 0; border: none; box-shadow: none;
+      padding: .42in .45in;
+      background: #FFFFFF;
+      break-after: page; page-break-after: always;
+    }
+    .hoja:last-of-type { break-after: auto; page-break-after: auto; }
+    .cols { grid-template-columns: 1.05fr 1fr; }
+    .msg, .msgs { break-inside: avoid; page-break-inside: avoid; }
+    .raro { break-inside: avoid; page-break-inside: avoid; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { animation: none !important; transition: none !important; }
   }
 </style>
 
-<div class="screenbar">
-  <span>Diseñada para imprimirse en una hoja carta y pegarse junto a la estación de escaneo.</span>
-  <button onclick="window.print()">Imprimir</button>
+<div class="barra">
+  <p><b>Tres hojas, una por puesto.</b> Al imprimir salen en tres páginas: columna A, columna O y M-S. Puedes imprimir solo la que necesites eligiendo el número de página.</p>
+  <button type="button" id="btn">Imprimir</button>
+  <span>o <kbd>Ctrl</kbd> + <kbd>P</kbd></span>
+  <p class="aviso-print" id="avisoPrint">Esta vista no deja abrir el diálogo de impresión. Usa <kbd>Ctrl</kbd> + <kbd>P</kbd> (<kbd>⌘</kbd> + <kbd>P</kbd> en Mac), o abre la página en una pestaña aparte.</p>
 </div>
 
-<div class="sheet">
+<!-- ================================================================= -->
+<!-- 1 · COLUMNA A                                                      -->
+<!-- ================================================================= -->
+<div class="hoja">
 
-  <div class="head">
-    <h1>Escaneos UPS · Hoja rápida</h1>
-    <div class="sub">Escribes en la columna A<br>El sistema contesta en la B</div>
-  </div>
-
-  <div class="regla">
-    <div>
-      <div class="chips">
-        <span class="c" style="background:#07c369"></span>
-        <span class="c" style="background:#71b3e6"></span>
-        <span class="c" style="background:#178ccc"></span>
-      </div>
-      <div><b>Verde y azul → sigues</b><span>La guía cuadra</span></div>
-    </div>
-    <div>
-      <div class="chips">
-        <span class="c" style="background:#ff9800"></span>
-        <span class="c" style="background:#df5f6b"></span>
-        <span class="c" style="background:#ffc107"></span>
-      </div>
-      <div><b>Naranja y rojo → te detienes</b><span>Revisa antes de seguir</span></div>
-    </div>
+  <div class="cabecera">
+    <h1>Columna A · Escaneo físico</h1>
+    <div class="quien">GLOBAL · A1 · REZAGO<span>Tú escaneas en A. El sistema contesta en B.</span></div>
   </div>
 
   <div class="cols">
-
-    <!-- ================= Columna izquierda ================= -->
     <div>
+      <h2>Cómo se escanea</h2>
+      <ol class="pasos">
+        <li>Escanea el <b>pedimento</b>, 7 dígitos: <code>6100166</code>. Eso abre el bloque.</li>
+        <li>Escanea debajo <b>todas sus guías</b>, una por fila.</li>
+        <li>Pasa al siguiente pedimento. No dejes filas en blanco en medio.</li>
+        <li>La fila del pedimento te lleva la cuenta: <span class="txt">Bultos: 12 | ✅ COMPLETO</span></li>
+      </ol>
 
-      <div class="block">
-        <h2>Detente y resuelve</h2>
-        <div class="row">
-          <div class="bar" style="background:#ff9800"></div>
-          <div>
-            <div class="m">⛔ DUPLICADO (En: M-S T1 Fila 45)</div>
-            <div class="d">Ya está escaneada en otra pestaña. <b>Ve a esa fila, decide cuál vale y borra la otra.</b></div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#f5c6cb"></div>
-          <div>
-            <div class="m">❌ Va en: 6098352</div>
-            <div class="d">Guía buena, pedimento equivocado. <b>Muévela al bloque correcto.</b></div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#df5f6b"></div>
-          <div>
-            <div class="m">❌ Guía Inválida</div>
-            <div class="d">Mala lectura de la pistola. <b>Vuelve a escanear; si insiste, tecléala.</b></div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#e2e3e5"></div>
-          <div>
-            <div class="m">⏳ Pendiente (reintenta)</div>
-            <div class="d">No alcanzó a validar. <b>Reescribe la guía</b>, o espera 5 min.</div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#acacac"></div>
-          <div>
-            <div class="m">🔄 Duplicado local</div>
-            <div class="d">La escaneaste dos veces aquí. <b>Borra la repetida.</b></div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#dc3545"></div>
-          <div>
-            <div class="m">🛑 PEDIMENTO REPETIDO</div>
-            <div class="d">El pedimento está dos veces. <b>Junta los bloques en uno.</b></div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#ffc107"></div>
-          <div>
-            <div class="m">🛑 ERROR: Faltan 2 números</div>
-            <div class="d">Pedimento incompleto. <b>Complétalo a 7 dígitos.</b></div>
-          </div>
-        </div>
+      <h2 style="margin-top:.2in">Color de la columna A</h2>
+      <div class="paleta">
+        <div class="sw"><i style="background:#178ccc"></i><span><b>Pedimento</b></span></div>
+        <div class="sw"><i style="background:#00ff00"></i><span><b>Guía</b> normal</span></div>
+        <div class="sw"><i style="background:#df5f6b"></i><span><b>Duplicada</b> — las dos</span></div>
+        <div class="sw"><i style="background:#a4c2f4"></i><span>Ubicación <b>IW</b></span></div>
       </div>
 
-      <div class="block">
-        <h2>Descuadres</h2>
-        <div class="row">
-          <div class="bar" style="background:#FFF3CD"></div>
-          <div>
-            <div class="m">❌ Faltan 3 (1ZAB…, 1ZCD…)</div>
-            <div class="d">Te lista las que faltan. <b>Búscalas.</b></div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#df5f6b"></div>
-          <div>
-            <div class="m">⚠️ Sobra (Ajena)</div>
-            <div class="d">No está en ninguna preforma. <b>Verifica el paquete.</b></div>
-          </div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#ffc107"></div>
-          <div>
-            <div class="m">⚠️ Sin registrar en M-S</div>
-            <div class="d">Llegó sin registrarse antes en M-S. Puede faltar un paso.</div>
-          </div>
-        </div>
-      </div>
-
-      <div class="block">
-        <h2>Cómo se escanea</h2>
-        <ul>
-          <li>Escanea el <b>pedimento</b> (7 dígitos). Eso abre el bloque.</li>
-          <li>Escanea debajo sus <b>guías</b>.</li>
-          <li>Repite con el siguiente pedimento.</li>
-          <li>La hora se guarda sola en la columna L.</li>
-        </ul>
-      </div>
-
+      <h2 style="margin-top:.2in">Regla de un vistazo</h2>
+      <p style="margin:0;font-size:9.2pt;line-height:1.45">
+        <b>Verde y azul, sigues.</b><br>
+        <b>Naranja, ámbar o rojo, te detienes y lees la columna B.</b>
+      </p>
     </div>
 
-    <!-- ================= Columna derecha ================= -->
     <div>
-
-      <div class="block">
-        <h2>Todo bien, sigue</h2>
-        <div class="row">
-          <div class="bar" style="background:#07c369"></div>
-          <div><div class="m">✅ Ok</div><div class="d">Estaba en la preforma. Cuadra.</div></div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#71b3e6"></div>
-          <div><div class="m">✅ Guía</div><div class="d">Correcta, pero ese pedimento no trae preforma.</div></div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#07c369"></div>
-          <div><div class="m">Bultos: 30 | ✅ COMPLETO</div><div class="d">Llegaron todas. Se puede cerrar.</div></div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#07c369"></div>
-          <div><div class="m">✅ TODO SALIÓ</div><div class="d">En M-S: todas ya salieron.</div></div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#e0e0e0"></div>
-          <div><div class="m">➡ Salió en GLOBAL PENDIENTE</div><div class="d">Ya salió. Sale tachada y en gris.</div></div>
-        </div>
-        <div class="row">
-          <div class="bar" style="background:#e2e3e5"></div>
-          <div><div class="m">⏳ Esperando guías...</div><div class="d">Pedimento sin guías todavía. Sigue.</div></div>
-        </div>
+      <h2>Qué contesta la columna B</h2>
+      <div class="msgs">
+        <div class="msg"><div class="chip" style="background:#07c369"></div><div class="cuerpo"><span class="t">✅ Ok</span><span class="d">Estaba en la lista esperada. Sigue.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#71b3e6"></div><div class="cuerpo"><span class="t">✅ Guía</span><span class="d">Bien, pero ese pedimento no trae preforma.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#f5c6cb"></div><div class="cuerpo"><span class="t">❌ Va en: 6100166</span><span class="d">Esa guía pertenece a otro pedimento. Muévela.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#df5f6b"></div><div class="cuerpo"><span class="t">⚠️ Sobra (Ajena)</span><span class="d">No está en ninguna preforma. Aparta el bulto.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">⚠️ Sin registrar en M-S</span><span class="d">Nunca pasó por una M-S. Avisa.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ DUPLICADO (En: … Fila 40)</span><span class="d">Ya está en otra pestaña, en esa fila.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ DUPLICADO (ya en Ped: …)</span><span class="d">En otro pedimento de esta misma hoja. Se pintan las dos.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#acacac"></div><div class="cuerpo"><span class="t">🔄 Duplicado local</span><span class="d">La disparaste dos veces en el mismo pedimento. Borra la de abajo.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#df5f6b"></div><div class="cuerpo"><span class="t">❌ Guía Inválida</span><span class="d">Mala lectura. Vuelve a escanear; si insiste, tecléala.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">🛑 ERROR: Faltan 2 números</span><span class="d">El pedimento va incompleto. Complétalo a 7.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">🛑 PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya existe. Si dice «En: …», está en otra pestaña.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#e0e0e0"></div><div class="cuerpo"><span class="t">➡ Salió en A1 77-14-ZP</span><span class="d">Ya se embarcó ahí. Informativo.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">⏳ Pendiente (reintenta)</span><span class="d">Había otro escaneando. Se resuelve solo; si no, vuelve a escribirla.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#FFF3CD"></div><div class="cuerpo"><span class="t">Bultos: 8 | ❌ Faltan 2 (…)</span><span class="d">Resumen del pedimento. Te dice cuáles faltan.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#FFF3CD"></div><div class="cuerpo"><span class="t">Bultos: 0 | ⚠️ 1 con alerta</span><span class="d">Sí hay guías debajo, pero llevan alerta y no cuentan.</span></div></div>
       </div>
-
-      <div class="block">
-        <h2>Los colores</h2>
-        <div class="leyenda">
-          <div><span class="c" style="background:#07c369"></span> Correcto, cuadra</div>
-          <div><span class="c" style="background:#71b3e6"></span> Guía sin preforma</div>
-          <div><span class="c" style="background:#178ccc"></span> Cabecera / ubicación</div>
-          <div><span class="c" style="background:#ff9800"></span> Duplicado — resuélvelo</div>
-          <div><span class="c" style="background:#ffc107"></span> Aviso o error de captura</div>
-          <div><span class="c" style="background:#FFF3CD"></span> Faltan o sobran</div>
-          <div><span class="c" style="background:#df5f6b"></span> Inválida o ajena</div>
-          <div><span class="c" style="background:#f5c6cb"></span> Va en otro pedimento</div>
-          <div><span class="c" style="background:#acacac"></span> Repetida aquí mismo</div>
-          <div><span class="c" style="background:#e0e0e0"></span> Ya movida</div>
-        </div>
-      </div>
-
-      <div class="block">
-        <h2>Si algo se ve raro</h2>
-        <ul>
-          <li>Menú <code>📦 Opciones Avanzadas</code> → <b>🔄 Forzar Actualización</b>. Resuelve casi todo.</li>
-          <li>Si los duplicados fallan → <b>♻️ Reconstruir caché completo</b>.</li>
-          <li>Si va lento, cierra pestañas del navegador.</li>
-        </ul>
-      </div>
-
-      <div class="block">
-        <h2>Nunca</h2>
-        <ul class="no">
-          <li>Escribir en la <b>columna B</b>. Se sobrescribe sola.</li>
-          <li>Tocar <code>CACHE_SISTEMA</code> ni <code>HISTORIAL_BORRADOS</code>.</li>
-          <li>Borrar la <b>columna M</b> (Guardia Nacional).</li>
-          <li>Pegar con formato. Usa <code>Ctrl+Shift+V</code>.</li>
-          <li>Renombrar pestañas sin avisar.</li>
-        </ul>
-      </div>
-
     </div>
   </div>
 
-  <div class="pie">
-    <span>Una guía puede estar en bodega y luego en Global: eso es normal. Solo avisa si se repite en el mismo tipo de sitio.</span>
-    <span>Todo borrado queda registrado</span>
+  <div class="raro">
+    <h3>Si algo se ve raro</h3>
+    <p class="fuerte">Todo esto se hace en la computadora, nunca desde la pistola. Disparar el escáner para «probar» mete guías de verdad en la hoja y ensucia el conteo.</p>
+    <p>Menú <code>📦 Opciones Avanzadas</code> → <code>🔄 Forzar Actualización</code> en esa pestaña. Arregla casi todo.</p>
+    <p>¿Un mensaje que no cuadra? Ponte en la celda y usa <code>🔍 ¿Por qué esta guía sale así?</code>: te dice dónde más está esa guía y por qué salió eso.</p>
   </div>
 
+  <div class="pie"><span>Escaneos UPS · Columna A</span><span>Hoja 1 de 3</span></div>
 </div>
+
+<!-- ================================================================= -->
+<!-- 2 · COLUMNA O                                                      -->
+<!-- ================================================================= -->
+<div class="hoja">
+
+  <div class="cabecera">
+    <h1>Columna O · Preforma</h1>
+    <div class="quien">LA LISTA DE LO QUE DEBE VENIR<span>Tú capturas en O. El sistema contesta en P.</span></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h2>Cómo se captura</h2>
+      <ol class="pasos">
+        <li>Captura las <b>guías</b> del pedimento, una por fila.</li>
+        <li>Debajo de ellas, el <b>pedimento</b> de 7 dígitos que las cierra.</li>
+        <li>Repite con el siguiente grupo. El pedimento va <b>abajo</b>, no arriba: al revés que en la columna A.</li>
+        <li>En la <b>columna N</b>, junto al pedimento, puedes poner <code>a</code>, <code>b</code> o <code>c</code> para teñir ese bloque de otro color.</li>
+      </ol>
+
+      <h2 style="margin-top:.2in">Color de la columna O</h2>
+      <div class="paleta">
+        <div class="sw"><i style="background:#178ccc"></i><span><b>Pedimento</b></span></div>
+        <div class="sw"><i style="background:#df5f6b"></i><span><b>Repetida</b> — las dos</span></div>
+        <div class="sw"><i style="background:#00ff00"></i><span>N vacía</span></div>
+        <div class="sw"><i style="background:#35ec09"></i><span>N con <b>a</b></span></div>
+        <div class="sw"><i style="background:#ff00ff"></i><span>N con <b>b</b></span></div>
+        <div class="sw"><i style="background:#39b1b9"></i><span>N con <b>c</b></span></div>
+      </div>
+
+      <h2 style="margin-top:.2in">Para qué sirve</h2>
+      <p style="margin:0;font-size:9pt;line-height:1.45">
+        El sistema compara la <b>columna A</b> contra esta lista y por eso puede decir
+        <span class="txt">✅ COMPLETO</span>, qué falta y qué sobra. Sin preforma, un
+        pedimento solo puede contar bultos.
+      </p>
+    </div>
+
+    <div>
+      <h2>Qué contesta la columna P</h2>
+      <div class="msgs">
+        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">12 bultos</span><span class="d">Lo que el sistema espera de ese pedimento.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">► Resumen: 12 bultos</span><span class="d">Lo mismo, en la última guía del bloque.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">⚠️ PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya está en la preforma. Junta los dos bloques.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ GUÍA REPETIDA (ya en Ped: …)</span><span class="d">La capturaste en dos pedimentos. Se pintan las dos en rojo.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#acacac"></div><div class="cuerpo"><span class="t">🔄 Guía repetida local</span><span class="d">Dos veces en el mismo pedimento. Borra la de abajo.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">🛑 ERROR: Faltan 2 números</span><span class="d">El pedimento va incompleto. Complétalo a 7.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#07c369"></div><div class="cuerpo"><span class="t">✅ REZAGO COMPLETO</span><span class="d">Solo en hojas de rezago: llegaron todas.</span></div></div>
+      </div>
+
+      <h2 style="margin-top:.2in">Ojo con esto</h2>
+      <div class="msgs">
+        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">El pedimento va DEBAJO</span><span class="d">Si lo pones arriba, sus guías se cuelgan del pedimento anterior y todo el conteo sale mal.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">Sin filas en blanco</span><span class="d">Una fila vacía en medio parte el bloque en dos.</span></div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="raro">
+    <h3>Si algo se ve raro</h3>
+    <p class="fuerte">Todo esto se hace en la computadora, nunca desde la pistola. Disparar el escáner para «probar» mete guías de verdad en la hoja y ensucia el conteo.</p>
+    <p>Menú <code>📦 Opciones Avanzadas</code> → <code>🔄 Forzar Actualización</code> en esa pestaña.</p>
+    <p>¿Los números no cuadran? Revisa primero que cada pedimento esté <b>debajo</b> de sus guías y que no haya filas vacías en medio. Es la causa de nueve de cada diez descuadres.</p>
+  </div>
+
+  <div class="pie"><span>Escaneos UPS · Columna O</span><span>Hoja 2 de 3</span></div>
+</div>
+
+<!-- ================================================================= -->
+<!-- 3 · M-S                                                            -->
+<!-- ================================================================= -->
+<div class="hoja">
+
+  <div class="cabecera">
+    <h1>M-S · Registro previo</h1>
+    <div class="quien">T1 · GLOBALES · A1 · SEGUIMIENTOS · CTAS ESP<span>Tú escaneas en A. El sistema contesta en B.</span></div>
+  </div>
+
+  <div class="cols">
+    <div>
+      <h2>Qué es una M-S</h2>
+      <p style="margin:0 0 .16in;font-size:9.2pt;line-height:1.45">
+        El bulto <b>ya está aquí</b>, pero todavía no se sabe en qué unidad se va.
+        Se escanea en la M-S para dejarlo registrado, y después vuelve a escanearse
+        en la hoja de la unidad que le toque. <b>Escanear aquí y allá es lo normal:
+        no es un duplicado.</b>
+      </p>
+
+      <h2>Cómo se escanea</h2>
+      <ol class="pasos">
+        <li>Escanea el <b>pedimento</b>, 7 dígitos. Va <b>arriba</b>, igual que en la columna A.</li>
+        <li>Escanea debajo sus <b>guías</b>, una por fila.</li>
+        <li>Cuando el bulto salga en una unidad, esta hoja se marca sola: <span class="txt">➡ Salió en …</span></li>
+      </ol>
+
+      <h2 style="margin-top:.2in">Color de la columna A</h2>
+      <div class="paleta">
+        <div class="sw"><i style="background:#178ccc"></i><span><b>Pedimento</b></span></div>
+        <div class="sw"><i style="background:#00ff00"></i><span><b>Guía</b> normal</span></div>
+        <div class="sw"><i style="background:#df5f6b"></i><span><b>Duplicada</b> — las dos</span></div>
+      </div>
+      <p style="margin:.1in 0 0;font-size:8.6pt;line-height:1.4;color:var(--muted)">
+        Las guías que ya salieron se ven <b>tachadas y en gris</b>.
+      </p>
+    </div>
+
+    <div>
+      <h2>Qué contesta la columna B</h2>
+      <div class="msgs">
+        <div class="msg"><div class="chip" style="background:#71b3e6"></div><div class="cuerpo"><span class="t">✅ Guía</span><span class="d">Registrada. Sigue.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#e0e0e0"></div><div class="cuerpo"><span class="t">➡ Salió en A1 77-14-ZP</span><span class="d">Ya se embarcó. Lo pone el sistema solo.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ DUPLICADO (En: M-S T1 …)</span><span class="d">Está en OTRA M-S. Decide en cuál va.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#acacac"></div><div class="cuerpo"><span class="t">🔄 Duplicado local</span><span class="d">Dos veces en el mismo pedimento. Borra la de abajo.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#df5f6b"></div><div class="cuerpo"><span class="t">❌ Guía Inválida</span><span class="d">Mala lectura. Vuelve a escanear.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">🛑 PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya existe aquí o en otra M-S.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#07c369"></div><div class="cuerpo"><span class="t">Bultos: 13 (M-S T1) | ✅ TODO SALIÓ</span><span class="d">Resumen: todo ese pedimento ya se embarcó.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">Bultos: 13 (…) | ⚠️ Faltan 4 por mover</span><span class="d">Quedan bultos aquí sin embarcar.</span></div></div>
+        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">Bultos: 0</span><span class="d">Pedimento puesto, sin guías debajo todavía.</span></div></div>
+      </div>
+
+      <h2 style="margin-top:.2in">Lo que NO es un error</h2>
+      <p style="margin:0;font-size:8.8pt;line-height:1.45">
+        Que una guía esté <b>aquí y en una hoja de unidad</b> a la vez. Ese es el flujo:
+        primero se registra, después se embarca. El sistema no lo marca.
+      </p>
+    </div>
+  </div>
+
+  <div class="raro">
+    <h3>Si algo se ve raro</h3>
+    <p class="fuerte">Todo esto se hace en la computadora, nunca desde la pistola. Disparar el escáner para «probar» mete guías de verdad en la hoja y ensucia el conteo.</p>
+    <p>Menú <code>📦 Opciones Avanzadas</code> → <code>🔄 Forzar Actualización</code> en esa pestaña.</p>
+    <p>Una alerta importante <b>no desaparece sola</b>: se queda hasta que se arregla la fila. Si ves que se borró sin que nadie tocara nada, avísalo.</p>
+  </div>
+
+  <div class="pie"><span>Escaneos UPS · M-S</span><span>Hoja 3 de 3</span></div>
+</div>
+
+<script>
+  document.getElementById("btn").addEventListener("click", function () {
+    // En vistas incrustadas el diálogo de impresión puede estar bloqueado.
+    // Si no se puede abrir, se dice qué hacer en vez de no hacer nada.
+    try {
+      if (typeof window.print !== "function") throw new Error("sin print");
+      window.print();
+    } catch (err) {
+      document.getElementById("avisoPrint").classList.add("visible");
+    }
+  });
+</script>

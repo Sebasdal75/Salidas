@@ -246,6 +246,34 @@
     border-top: 1px solid var(--line);
     color: var(--muted); font-size: .85rem;
   }
+
+  /* ---------- Impresión ----------
+     No había reglas de impresión: por eso los colores salían en blanco (el
+     navegador no imprime fondos si no se le fuerza) y los bloques se partían
+     a mitad de página, que es lo que se veía como texto encimado. */
+  @page { size: letter portrait; margin: 1.5cm; }
+  @media print {
+    *, *::before, *::after {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+    }
+    body {
+      background: #FFFFFF; color: #000000;
+      font-size: 10pt; line-height: 1.45;
+    }
+    .wrap, main, article { max-width: none; margin: 0; padding: 0; }
+
+    /* Nada se parte a mitad de página. */
+    .msg, .card, .row, tr, li, blockquote, pre, figure {
+      break-inside: avoid; page-break-inside: avoid;
+    }
+    h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
+    h2 { break-before: page; page-break-before: always; margin-top: 0; }
+    h1 + h2, h2:first-of-type { break-before: auto; page-break-before: auto; }
+
+    table { width: 100%; border-collapse: collapse; }
+    a { color: inherit; text-decoration: none; }
+  }
 </style>
 
 <div class="wrap">
@@ -388,8 +416,26 @@
     <div class="msg">
       <div class="bar" style="background:var(--dup)"></div>
       <div class="body">
-        <div class="txt">⛔ Duplicado local (Ya en Ped: 6098352)</div>
+        <div class="txt">⛔ DUPLICADO (ya en Ped: 6098352, fila 41)</div>
         <div class="sig">La misma guía aparece en dos pedimentos distintos de esta hoja.</div>
+      <div class="msg">
+        <div class="c" style="background:#ff9800"></div>
+        <div class="txt">⚠️ DUPLICADO (repetida en la fila 88)</div>
+        <div class="qué">Este aviso sale en la <strong>primera</strong> de las dos. Las dos se pintan, para que veas la pareja completa.</div>
+        <div class="haz">Compara las dos filas y borra la que sobra.</div>
+      </div>
+      <div class="msg">
+        <div class="c" style="background:#dc3545"></div>
+        <div class="txt">🛑 PEDIMENTO REPETIDO (En: GLOBAL 3 Fila 120)</div>
+        <div class="qué">El mismo pedimento está en otra pestaña del mismo tipo. Entre una M-S y su destino no salta: eso es normal.</div>
+        <div class="haz">Ve a esa hoja y decide en cuál va.</div>
+      </div>
+      <div class="msg">
+        <div class="c" style="background:#FFF3CD"></div>
+        <div class="txt">Bultos: 0 | ⚠️ 1 con alerta</div>
+        <div class="qué">Sí hay guías debajo, pero llevan alerta (duplicada, inválida) y por eso no cuentan como bulto.</div>
+        <div class="haz">Resuelve la alerta de esa fila.</div>
+      </div>
         <div class="act"><b>Haz:</b> averigua a cuál pertenece y borra la otra.</div>
       </div>
     </div>
@@ -476,7 +522,7 @@
     <div class="msg">
       <div class="bar" style="background:var(--espera)"></div>
       <div class="body">
-        <div class="txt">⏳ Esperando guías...</div>
+        <div class="txt">Bultos: 0</div>
         <div class="sig">Pedimento escaneado, todavía sin guías debajo. Sigue escaneando.</div>
       </div>
     </div>
@@ -562,55 +608,78 @@
 </section>
 
 <section>
-  <h2>La preforma y los costales</h2>
-  <p>La preforma es la lista de lo que <strong>debería</strong> venir. Va en la <strong>columna O</strong>, con el mismo formato: pedimento y debajo sus guías. El sistema compara la columna A contra la O y te dice qué falta y qué sobra. Solo existe en las Globales.</p>
-  <p>En la <strong>columna N</strong>, poniendo <span class="lit">a</span>, <span class="lit">b</span> o <span class="lit">c</span> junto al pedimento, su bloque en la preforma se pinta de otro color. Sirve para distinguir grupos de un vistazo.</p>
-  <p><strong>Costales:</strong> en la columna Q se marca <span class="lit">COSTALES</span> donde empieza el costal y <span class="lit">FIN</span> donde termina. Escribiendo <span class="lit">COSTALES</span> en la <strong>columna D</strong>, el sistema copia ese bloque a la columna A ya ordenado. Si debajo hay datos avisa <span class="lit">⚠️ SIN ESPACIO</span> y no borra nada: haz espacio primero.</p>
-</section>
+  <h2>La preforma</h2>
 
-<section>
+  <p>La preforma es la lista de lo que <strong>debería</strong> venir. Va en la <strong>columna O</strong>: primero las guías, y <strong>debajo de ellas</strong> el pedimento de 7 dígitos que las cierra. Es al revés que en la columna A, donde el pedimento va arriba.</p>
+
+  <p>El sistema compara la columna A contra la O y por eso puede decirte qué falta y qué sobra. Un pedimento sin preforma solo puede contar bultos.</p>
+
+  <p><strong>Columna N:</strong> poniendo <span class="lit">a</span>, <span class="lit">b</span> o <span class="lit">c</span> junto al pedimento, su bloque en la preforma se pinta de otro color. Sirve para distinguir grupos de un vistazo.</p>
+
+  <p>El sistema solo vigila tres columnas: <strong>A</strong> (escaneo), <strong>N</strong> (letra de color) y <strong>O</strong> (preforma). Las columnas <strong>D</strong> y <strong>Q</strong> quedaron libres al retirarse los costales y la marca <span class="lit">T1</span>, que ya no se usaban.</p>
+
   <h2>El menú <span class="lit">📦 Opciones Avanzadas</span></h2>
   <p>Está arriba, a la derecha de <strong>Ayuda / Help</strong>. Cada opción con detalle: qué hace, cuándo usarla y qué esperar.</p>
   <div class="menu">
     <div class="item">
       <div class="nombre">📋 Agrupar Guías por Pedimento (Col A)</div>
       <span class="cuando">Cuando escaneaste en desorden</span>
-      <p>Toma toda la columna A y la reordena: junta cada guía debajo de su pedimento y sube los bloques arriba, sin huecos. Usa la preforma y las M-S para saber a qué pedimento va cada guía, así que reacomoda incluso las que escaneaste lejos de su sitio. <b>Es seguro correrla las veces que quieras.</b></p>
+      <p>Toma toda la columna A y la reordena: junta cada guía debajo de su pedimento y sube los bloques arriba, sin huecos. Usa la preforma y las M-S para saber a qué pedimento va cada guía. <b>Es seguro correrla las veces que quieras: nunca borra nada.</b></p>
     </div>
     <div class="item">
       <div class="nombre">🧹 Limpiar guías movidas (Rango seleccionado)</div>
       <span class="cuando">Al final del día, en una M-S</span>
-      <p>Selecciona primero las filas. Borra del rango las guías que ya salieron (<span class="lit">➡ Salió en …</span>, tachadas y en gris) y las cabeceras que quedan sin guías. <b>Solo toca lo que ya salió</b>; lo pendiente lo respeta. Cada borrado queda en el historial con tu usuario.</p>
+      <p>Selecciona primero las filas. Borra del rango las guías que ya salieron (<span class="lit">➡ Salió en …</span>) y las cabeceras que quedan sin guías. <b>Solo toca lo que ya salió.</b> Los colores y la validación de datos suben con las filas, así que la alerta de la pistola sigue funcionando.</p>
     </div>
     <div class="item">
       <div class="nombre">🔄 Forzar Actualización de esta pestaña</div>
       <span class="cuando">Tu primer recurso si algo se ve raro</span>
-      <p>Recalcula la pestaña actual de cero: estados, colores, contadores y duplicados. <b>No borra ni mueve nada</b>, solo repinta. Antes de asustarte por cualquier cosa, prueba esto.</p>
+      <p>Recalcula la pestaña de cero: estados, colores, contadores y duplicados. <b>No borra ni mueve nada</b>, solo repinta. Antes de asustarte por cualquier cosa, prueba esto.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🔍 ¿Por qué esta guía sale así?</div>
+      <span class="cuando">Cuando un mensaje no cuadra</span>
+      <p>Ponte en la celda de la guía (o del pedimento) y córrelo. Te dice <b>en qué pestañas y filas está</b>, si alguna M-S la registra, a qué pedimento la asigna y qué espera el bloque donde la escaneaste. Termina diciéndote el motivo y qué hacer. <b>No cambia nada.</b></p>
+    </div>
+    <div class="item">
+      <div class="nombre">🩺 Diagnóstico del sistema</div>
+      <span class="cuando">Para ver el estado general</span>
+      <p>Pestañas indexadas, guías, columnas sobrantes, filas sin validar, disparadores activos y hojas protegidas. <b>Solo informa.</b> Si tienes que reportar un problema, copia esto.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">⏱️ Medir velocidad de escaneo</div>
+      <span class="cuando">Si notas lentitud</span>
+      <p>Mide un escaneo real y desglosa <b>en qué se va cada milisegundo</b>, llamada por llamada. Al final estima cuántos escaneos por minuto aguanta el archivo entre todos los operadores.</p>
     </div>
     <div class="item">
       <div class="nombre">♻️ Reconstruir caché completo</div>
       <span class="cuando">Si los duplicados fallan</span>
-      <p>Rehace desde cero el índice de duplicados leyendo todas las hojas, y limpia columnas de pestañas viejas. Úsala cuando los duplicados dejan de detectarse, o cuando una guía marca <span class="lit">⛔ DUPLICADO</span> señalando una fila <b>que ya está vacía</b>. Corre unos segundos. Para el día a día basta con Forzar Actualización.</p>
+      <p>Rehace desde cero el índice de duplicados leyendo todas las hojas. Úsalo cuando una guía marca <span class="lit">⛔ DUPLICADO</span> señalando una fila <b>que ya está vacía</b>. Para el día a día basta con Forzar Actualización.</p>
     </div>
     <div class="item">
-      <div class="nombre">🩺 Diagnóstico del sistema</div>
-      <span class="cuando">Para ver qué pasa por dentro</span>
-      <p>Abre un cuadro con el estado en texto: pestañas indexadas, guías, columnas sobrantes, filas sin validar por hoja, disparadores activos y hojas protegidas. <b>No cambia nada, solo informa.</b> Si tienes que reportar un problema, copia esto.</p>
+      <div class="nombre">🌙 Cierre del día (historial + caché)</div>
+      <span class="cuando">Al terminar la jornada</span>
+      <p>Vacía el historial, poda del caché las pestañas renombradas o borradas, y lo reconstruye. Te enseña qué va a hacer y espera un sí. <b>No toca las hojas de escaneo</b>: eso lo vacías tú a mano.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🧾 Historial: vaciarlo ahora · solo cada día · dejar de vaciarlo</div>
+      <span class="cuando">Mantenimiento</span>
+      <p>Vaciar <span class="lit">HISTORIAL_BORRADOS</span> a mano (con confirmación), o dejarlo programado a una hora fija cada día. Solo borra contenido: los encabezados y el formato quedan.</p>
     </div>
     <div class="item">
       <div class="nombre">🔒 Proteger hojas del sistema</div>
       <span class="cuando">Una vez, al montar el archivo</span>
-      <p>Pone un aviso sobre <span class="lit">CACHE_SISTEMA</span> e <span class="lit">HISTORIAL_BORRADOS</span>: si alguien intenta editarlas a mano, Sheets pregunta "¿seguro?". <b>No bloquea al sistema ni a nadie</b>, solo evita el borrón accidental.</p>
+      <p>Pone un aviso sobre <span class="lit">CACHE_SISTEMA</span> e <span class="lit">HISTORIAL_BORRADOS</span>. <b>No bloquea al sistema ni a nadie</b>, solo evita el borrón accidental.</p>
     </div>
     <div class="item">
-      <div class="nombre">⚙️ Instalar trigger avanzado (recomendado)</div>
-      <span class="cuando">Una vez, al configurar</span>
-      <p>Cambia el motor a su modo bueno: sube el límite de cada operación de 30 s a 6 min, registra el usuario en el historial y enciende un repaso automático cada 5 min que recoge los escaneos que se quedaron sin validar. Después, revisa que no haya quedado un disparador duplicado (ícono del reloj ⏰ en el editor de Apps Script).</p>
+      <div class="nombre">⚙️ Instalar trigger avanzado (6 min, sin usuario)</div>
+      <span class="cuando">Elige uno de los dos</span>
+      <p>Sube el límite de cada operación de 30 s a 6 min y enciende el repaso automático cada 5 min. <b>Con este modo el historial NO puede decir quién borró:</b> Google no deja identificar al editor, y el respaldo diría siempre el nombre de quien instaló el trigger.</p>
     </div>
     <div class="item">
-      <div class="nombre">↩️ Volver al trigger simple</div>
-      <span class="cuando">Casi nunca</span>
-      <p>Deshace lo anterior. Solo si el trigger avanzado da problemas y quieres descartar que sea la causa.</p>
+      <div class="nombre">🙋 Trigger simple + usuario en el historial</div>
+      <span class="cuando">Elige uno de los dos</span>
+      <p>El escaneo corre con trigger simple, y así <b>el historial sí registra quién borró cada guía</b>. Conserva el repaso automático cada 5 min. A cambio, el límite baja a 30 s por escaneo — con los tiempos actuales (alrededor de 1 s) sobra de largo.</p>
     </div>
   </div>
 </section>
@@ -632,13 +701,14 @@
     <li>No borres ni edites <strong>CACHE_SISTEMA</strong> ni <strong>HISTORIAL_BORRADOS</strong>.</li>
     <li>No borres la <strong>columna M</strong>. Es la lista de la Guardia Nacional.</li>
     <li>No pegues guías con formato desde otro lado. Pega solo valores, con <span class="lit">Ctrl+Shift+V</span>.</li>
-    <li>No renombres las pestañas sin avisar. El sistema las reconoce por su nombre: las que empiezan por <span class="lit">M-S</span> son bodegas, las que dicen <span class="lit">INVENTARIO</span> son inventarios.</li>
+    <li>No renombres las pestañas sin avisar. El sistema las reconoce <strong>por su nombre</strong>: las que empiezan por <span class="lit">M-S</span> son bodegas, las que dicen <span class="lit">INVENTARIO</span> son inventarios. Si cambias un nombre, el caché se limpia solo en el primer escaneo, pero el tipo de hoja depende de cómo la llames.</li>
   </ul>
 </section>
 
 <section>
   <h2>Queda registrado</h2>
   <p>Cada vez que alguien <strong>borra</strong> una guía queda anotado en <span class="lit">HISTORIAL_BORRADOS</span>: fecha, hora, usuario, pestaña, fila, qué se borró y qué estado tenía.</p>
+  <p>La columna <strong>usuario</strong> solo se llena con el modo <span class="lit">🙋 Trigger simple</span>. Con el trigger avanzado sale <span class="lit">(no identificado)</span>: entre cuentas de Gmail distintas, Google no permite saber quién editó. Si necesitas averiguar quién tocó una celda concreta, clic derecho sobre ella → <strong>Mostrar historial de ediciones</strong>: eso lo lleva Google y sí da la persona.</p>
   <p>No es para vigilar a nadie: sirve para reconstruir qué pasó cuando un bulto no aparece.</p>
 </section>
 

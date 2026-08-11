@@ -291,76 +291,31 @@ function instalarTriggerAvanzado() {
 // =========================================================================
 // CIERRE DEL DÍA
 // =========================================================================
-// Un solo paso para lo que antes eran tres o cuatro sueltos: vaciar las hojas
-// de escaneo, vaciar el historial y dejar el caché reconstruido y podado.
+// Agrupa las tareas de mantenimiento del cierre en un solo paso.
 //
-// Solo se borra CONTENIDO (clearContent). Nunca filas, nunca formato, nunca
-// validaciones: la validación de la columna A es la que hace sonar la alerta en
-// la pistola Zebra, así que romperla dejaría a los operadores sin aviso.
-//
-// Columnas que se vacían y por qué las demás no:
-//   A  escaneo        · B  estado       · L  hora
-//   N  letra de color · O  preforma     · P  estado preforma · S  hora preforma
-//   C1:C3 y Q1:Q2, que son los totales.
-// La M NO se toca: es la lista FEMAD, que se mantiene entre días.
-const COLS_CIERRE_DESTINO = [1, 2, 12, 14, 15, 16, 19];
-const COLS_CIERRE_SIMPLE  = [1, 2, 12];
-
+// NO vacía las hojas de escaneo: eso se hace a mano, a propósito. Borrar el
+// trabajo del día es una decisión del operador y no algo que deba esconderse
+// dentro de un botón de mantenimiento.
 function cierreDelDia() {
   const ss = obtenerArchivo();
   const ui = SpreadsheetApp.getUi();
 
-  // ── 1. Inventario de lo que se va a borrar, para poder enseñarlo ──────────
-  let objetivo = [];
-  let totalFilas = 0;
-  ss.getSheets().forEach(h => {
-      let n = claveHoja(h.getName());
-      if (esHojaSistema(n) || esHojaInterna(n)) return;
-      if (!esHojaPrincipal(n) && !esHojaMS(n) && !esHojaInventario(n)) return;
-      let lr = h.getLastRow();
-      if (lr < 1) return;
-      objetivo.push({ hoja: h, clave: n, filas: lr });
-      totalFilas += lr;
-  });
-
   const hojaHist = ss.getSheetByName("HISTORIAL_BORRADOS");
   const filasHist = hojaHist ? Math.max(hojaHist.getLastRow() - 1, 0) : 0;
 
-  if (objetivo.length === 0 && filasHist === 0) {
-      ui.alert("🌙 Cierre del día", "No hay nada que limpiar.", ui.ButtonSet.OK);
-      return;
-  }
-
-  // ── 2. Confirmación con los números delante ──────────────────────────────
-  let detalle = objetivo.map(o => "   · " + o.clave + "  (" + o.filas + " filas)").join("\n");
   let resp = ui.alert("🌙 Cierre del día",
-      "Se va a vaciar:\n\n" + detalle +
-      "\n\n   · HISTORIAL_BORRADOS  (" + filasHist + " registros)" +
-      "\n\nEn total " + totalFilas + " filas de escaneo.\n\n" +
-      "NO se tocan: la columna M (lista FEMAD), las validaciones de datos\n" +
-      "ni el formato. Solo se borra el contenido.\n\n" +
-      "Si algo sale mal, se recupera en Archivo → Historial de versiones.\n\n" +
+      "Se va a hacer el mantenimiento del cierre:\n\n" +
+      "   · Vaciar HISTORIAL_BORRADOS  (" + filasHist + " registros)\n" +
+      "   · Podar del caché las pestañas renombradas o borradas\n" +
+      "   · Reconstruir el caché desde cero\n\n" +
+      "Las hojas de escaneo NO se tocan: eso lo vacías tú a mano.\n\n" +
       "¿Continuar?", ui.ButtonSet.YES_NO);
   if (resp !== ui.Button.YES) return;
 
-  // ── 3. Vaciar, hoja por hoja ─────────────────────────────────────────────
+  let podadas = 0;
   conLock(archivo => {
-      objetivo.forEach(o => {
-          let cols = esHojaPrincipal(o.clave) && !esHojaInventario(o.clave)
-              ? COLS_CIERRE_DESTINO : COLS_CIERRE_SIMPLE;
-          let maxCol = o.hoja.getMaxColumns();
-          cols.forEach(c => {
-              if (c > maxCol) return;
-              let rango = o.hoja.getRange(1, c, o.filas, 1);
-              rango.clearContent();
-              rango.setBackground("#FFFFFF").setFontColor("#000000").setFontLine("none");
-          });
-      });
-
       limpiarHistorialDiario();
-
-      // ── 4. Caché desde cero y sin columnas huérfanas ─────────────────────
-      podarCacheHuerfano(archivo);
+      podadas = podarCacheHuerfano(archivo);
       archivo.getSheets().forEach(h => {
           let n = claveHoja(h.getName());
           if (!esHojaSistema(n) && !esHojaInterna(n)) actualizarFotografiaMental(h, archivo);
@@ -371,10 +326,10 @@ function cierreDelDia() {
 
   ui.alert("🌙 Cierre del día",
       "Listo.\n\n" +
-      "   · " + objetivo.length + " pestañas vaciadas (" + totalFilas + " filas)\n" +
       "   · " + filasHist + " registros de historial borrados\n" +
-      "   · Caché reconstruido y podado\n\n" +
-      "Las validaciones y el formato siguen en su sitio.", ui.ButtonSet.OK);
+      "   · " + podadas + " columnas huérfanas podadas del caché\n" +
+      "   · Caché reconstruido\n\n" +
+      "Las hojas de escaneo siguen como estaban.", ui.ButtonSet.OK);
 }
 
 // =========================================================================
@@ -2662,7 +2617,7 @@ function onOpen() {
     .addItem('⏱️ Medir velocidad de escaneo', 'medirRendimiento')
     .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
     .addSeparator()
-    .addItem('🌙 Cierre del día (vaciar todo y reconstruir)', 'cierreDelDia')
+    .addItem('🌙 Cierre del día (historial + caché)', 'cierreDelDia')
     .addItem('🧾 Vaciar historial de borrados ahora', 'limpiarHistorialAhora')
     .addItem('🕙 Vaciarlo solo cada día', 'instalarLimpiezaHistorial')
     .addItem('🚫 Dejar de vaciarlo solo', 'quitarLimpiezaHistorial')
