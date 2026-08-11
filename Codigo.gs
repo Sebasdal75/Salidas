@@ -683,6 +683,36 @@ function esEstadoSalida(txt) {
     return t.startsWith(TXT_SALIO) || t.toUpperCase().startsWith("➡ MOVIDO A");
 }
 
+// La última guía de cada bloque lleva colgado el resumen del pedimento detrás
+// de esta marca: «✅ Guía   ►   Bultos: 3 (M-S T1) | ✅ TODO SALIÓ».
+//
+// Son DOS cosas en una celda, y hay que saber separarlas. Mezclarlas causó un
+// bucle infinito: el barrido de M-S comparaba la celda entera contra el estado
+// que esperaba, nunca coincidían por culpa de la cola, y la reescribía sin la
+// cola; después actualizarMS se la volvía a pegar. Cada pasada del disparador
+// escribía la hoja entera, sin que nada hubiera cambiado nunca.
+const SEP_RESUMEN = "   ►   ";
+
+// Accesor para poder comprobarlo desde el banco de pruebas: las constantes con
+// `const` no salen del eval con el que el banco carga este archivo, las
+// funciones sí.
+function separadorResumen() { return SEP_RESUMEN; }
+
+// El estado de la guía, sin el resumen del bloque. Es lo único que se compara.
+function cabezaEstado(txt) {
+    let t = String(txt);
+    let corte = t.indexOf(SEP_RESUMEN);
+    return (corte === -1 ? t : t.substring(0, corte)).trim();
+}
+
+// El resumen colgado, si lo hay, con su separador. Se conserva al reescribir
+// el estado para no borrar información que después habría que recalcular.
+function colaResumen(txt) {
+    let t = String(txt);
+    let corte = t.indexOf(SEP_RESUMEN);
+    return corte === -1 ? "" : t.substring(corte);
+}
+
 // Una fila está sin validar si tiene dato pero no estado, o si quedó marcada
 // como pendiente porque el lock estaba ocupado. Lo segundo importa: si solo se
 // mirara "estado vacío", las filas que marcamos como pendientes serían
@@ -1661,7 +1691,12 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
             let v = String(vals[r][0]).trim().toUpperCase();
             if (v === "" || esCabeceraBloque(v)) continue;
 
-            let statusActual = String(vals[r][1]).trim();
+            // Se compara SOLO la cabeza. La cola es el resumen del bloque, que
+            // pone actualizarMS y que aquí no se sabe recalcular: si entrara en
+            // la comparación, la celda no coincidiría nunca con lo esperado y
+            // se reescribiría en cada pasada, para siempre.
+            let statusActual = cabezaEstado(vals[r][1]);
+            let cola = colaResumen(vals[r][1]);
             let destino = escaneadosDestino.get(v);
 
             if (destino) {
@@ -1673,9 +1708,11 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
                 // operador veía la alerta desaparecer sola a los segundos.
                 if (!puedePisar(statusActual, textoEsperado)) continue;
 
-                if (statusActual !== textoEsperado) { vals[r][1] = textoEsperado; modificados = true; }
+                // Al reescribir se devuelve la cola tal cual estaba, para no
+                // dejar la celda a medias hasta que actualizarMS la rehaga.
+                if (statusActual !== textoEsperado) { vals[r][1] = textoEsperado + cola; modificados = true; }
             } else if (esEstadoSalida(statusActual)) {
-                vals[r][1] = ""; modificados = true;
+                vals[r][1] = cola; modificados = true;
             }
         }
 
@@ -2335,7 +2372,12 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 
           if (bloque.filasGuias.length > 0) {
               let fUltima = bloque.filasGuias[bloque.filasGuias.length - 1];
-              resultadosB[fUltima][0] = resultadosB[fUltima][0].replace(/ \(Escaneado en .*?\)/g, "") + "   ►   " + txtResumen;
+              // cabezaEstado() quita la cola anterior. Aquí también hacía falta:
+              // en las filas movidas o con error el estado se conserva tal cual
+              // venía de la hoja (fijo = estB), cola incluida, y se le colgaba
+              // otro resumen detrás en cada recálculo. La celda crecía sin fin.
+              resultadosB[fUltima][0] = cabezaEstado(resultadosB[fUltima][0])
+                  .replace(/ \(Escaneado en .*?\)/g, "") + SEP_RESUMEN + txtResumen;
           }
       }
   });
@@ -2344,9 +2386,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // los resúmenes de bloque para no pisarlos: si esta fila era la última del
   // bloque y arrastra el "► Bultos: ...", esa cola se conserva.
   repeticiones.forEach((info, idx) => {
-      let previo = String(resultadosB[idx][0]);
-      let corte = previo.indexOf("   ►   ");
-      resultadosB[idx][0] = textoPrimeraDuplicada(info) + (corte !== -1 ? previo.substring(corte) : "");
+      resultadosB[idx][0] = textoPrimeraDuplicada(info) + colaResumen(resultadosB[idx][0]);
       coloresB[idx][0] = "#ff9800";
   });
 
@@ -2559,8 +2599,14 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) 
 
           if (bloque.filasGuias.length > 0 && msg !== "") {
               let filaUltimaGuia = bloque.filasGuias[bloque.filasGuias.length - 1];
-              let textoLimpio = resultadosB[filaUltimaGuia][0].replace(/ \(Escaneado en .*?\)/g, "").replace(/ ⚠️ Sin escaneo de .*/g, "");
-              resultadosB[filaUltimaGuia][0] = textoLimpio + "   ►   " + msg;
+              // cabezaEstado() quita la cola ANTERIOR antes de pegar la nueva.
+              // Sin eso el resumen se acumulaba: la celda de una guía movida
+              // llega con su cola ya puesta desde la pasada anterior (fijo =
+              // estB la conserva), y se le colgaba otra detrás cada vez.
+              let textoLimpio = cabezaEstado(resultadosB[filaUltimaGuia][0])
+                  .replace(/ \(Escaneado en .*?\)/g, "")
+                  .replace(/ ⚠️ Sin escaneo de .*/g, "");
+              resultadosB[filaUltimaGuia][0] = textoLimpio + SEP_RESUMEN + msg;
           }
       }
   });
@@ -2568,9 +2614,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) 
   // También aquí se pinta la primera de la pareja, conservando la cola del
   // resumen si esa fila era la última del bloque.
   repeticiones.forEach((info, idx) => {
-      let previo = String(resultadosB[idx][0]);
-      let corte = previo.indexOf("   ►   ");
-      resultadosB[idx][0] = textoPrimeraDuplicada(info) + (corte !== -1 ? previo.substring(corte) : "");
+      resultadosB[idx][0] = textoPrimeraDuplicada(info) + colaResumen(resultadosB[idx][0]);
       coloresB[idx][0] = "#ff9800";
   });
 
@@ -2695,7 +2739,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida) 
       resultadosB[filaUbicacionActual][0] = msg;
       coloresB[filaUbicacionActual][0] = "#178ccc";
       if (ultimaFilaGuia !== -1 && ultimaFilaGuia > filaUbicacionActual) {
-          resultadosB[ultimaFilaGuia][0] = "✅ Ok   ►   " + msg;
+          resultadosB[ultimaFilaGuia][0] = "✅ Ok" + SEP_RESUMEN + msg;
       }
   }
 
@@ -2735,9 +2779,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida) 
   cerrarUbicacion();
 
   repeticiones.forEach((info, idx) => {
-      let previo = String(resultadosB[idx][0]);
-      let corte = previo.indexOf("   ►   ");
-      resultadosB[idx][0] = textoPrimeraDuplicada(info) + (corte !== -1 ? previo.substring(corte) : "");
+      resultadosB[idx][0] = textoPrimeraDuplicada(info) + colaResumen(resultadosB[idx][0]);
       coloresB[idx][0] = "#ff9800";
   });
 

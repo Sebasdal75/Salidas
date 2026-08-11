@@ -890,5 +890,45 @@ const filaVieja = hojaVieja.escrito[hojaVieja.escrito.length - 1].v[0];
 ok("hoja sin USUARIO: PESTAÑA sigue en columna B", filaVieja[1] === "M-S T1");
 ok("hoja sin USUARIO: se añade al final", filaVieja.length === 8);
 
+console.log("\n=== 5v. La cola del resumen: el bucle infinito de M-S T1 ===");
+// La última guía de cada bloque lleva el estado y el resumen del pedimento en
+// la misma celda, separados por «   ►   ». El barrido de M-S comparaba la celda
+// ENTERA contra el estado esperado, nunca coincidía, y la reescribía sin la
+// cola; actualizarMS se la volvía a pegar. Cada pasada del disparador escribía
+// la hoja completa sin que nada hubiera cambiado.
+const SEP_RESUMEN = separadorResumen();
+const conCola = "➡ Salió en GLOBAL 1" + SEP_RESUMEN + "Bultos: 1 (M-S T1) | ✅ TODO SALIÓ";
+
+ok("la cabeza es solo el estado", cabezaEstado(conCola) === "➡ Salió en GLOBAL 1");
+ok("la cola conserva el separador", colaResumen(conCola) === SEP_RESUMEN + "Bultos: 1 (M-S T1) | ✅ TODO SALIÓ");
+ok("sin cola, la cabeza es todo", cabezaEstado("✅ Guía") === "✅ Guía");
+ok("sin cola, la cola es vacía", colaResumen("✅ Guía") === "");
+ok("cabeza + cola reconstruyen el original", cabezaEstado(conCola) + colaResumen(conCola) === conCola);
+ok("la cabeza va sin espacios sobrantes", cabezaEstado("  ✅ Guía  " + SEP_RESUMEN + "x") === "✅ Guía");
+ok("una celda vacía no rompe nada", cabezaEstado("") === "" && colaResumen("") === "");
+
+// LA CONDICIÓN DEL BUCLE: con la cola puesta, el estado ya es el correcto y el
+// barrido NO debe reescribir. Antes esta comparación daba siempre distinto.
+ok("con la cola puesta, el estado YA coincide y no se reescribe",
+   cabezaEstado(conCola) === "➡ Salió en GLOBAL 1");
+ok("la celda entera NO coincide (por eso se repetía para siempre)",
+   String(conCola).trim() !== "➡ Salió en GLOBAL 1");
+
+// Y sigue reconociéndose como salida, con cola o sin ella.
+ok("esEstadoSalida funciona sobre la cabeza", esEstadoSalida(cabezaEstado(conCola)) === true);
+ok("la prioridad se mide sobre la cabeza, no sobre la cola",
+   puedePisar(cabezaEstado("⛔ DUPLICADO (En: GLOBAL 1 Fila 4)" + SEP_RESUMEN + "Bultos: 2"),
+              "➡ Salió en GLOBAL 1") === false);
+
+// El segundo bicho, que el primero tapaba: al pegar el resumen hay que quitar
+// el anterior. En las filas movidas el estado se conserva tal cual venía de la
+// hoja —cola incluida— y se le colgaba otro resumen detrás en cada recálculo.
+let acumulada = conCola;
+for (let v = 0; v < 5; v++) {
+    acumulada = cabezaEstado(acumulada) + SEP_RESUMEN + "Bultos: 1 (M-S T1) | ✅ TODO SALIÓ";
+}
+ok("pegar el resumen 5 veces no alarga la celda", acumulada === conCola);
+ok("solo queda un separador", acumulada.split(SEP_RESUMEN).length === 2);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
