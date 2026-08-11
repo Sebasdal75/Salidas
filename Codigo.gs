@@ -2746,7 +2746,8 @@ function onOpen() {
     .addSubMenu(ui.createMenu('🔍 Revisar')
         .addItem('¿Por qué esta guía sale así?', 'diagnosticarGuia')
         .addItem('Diagnóstico del sistema', 'diagnosticoSistema')
-        .addItem('Medir velocidad de escaneo', 'medirRendimiento'))
+        .addItem('Medir velocidad de escaneo', 'medirRendimiento')
+        .addItem('Prueba: ¿qué cuesta abrir el caché?', 'probarCosteCache'))
 
     .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
         .addItem('Cierre del día (historial + caché)', 'cierreDelDia')
@@ -2882,13 +2883,29 @@ function medirRendimiento() {
   }
   let guiasAfectadas = guiaMuestra ? new Set([guiaMuestra]) : new Set();
 
+  // Se le pasa la fila final sacada del caché, igual que hace un escaneo de
+  // verdad. Sin ella se llamaba al getLastRow, y por eso seguía apareciendo en
+  // el desglose con 100-300 ms una llamada que el escaneo ya no paga: se
+  // estaba midiendo el camino del menú y presentándolo como el del operador.
+  let filaSugerida = filaFinalDesdeCache(cacheInfo, nombre, lr);
+
   perfIniciar();
   t0 = Date.now();
-  recalcularHoja(hoja, ss, cacheInfo, guiasAfectadas, false);
+  recalcularHoja(hoja, ss, cacheInfo, guiasAfectadas, false, false, filaSugerida);
   let tEscaneo = Date.now() - t0;
   let perfEscaneo = perfFin();
   L.push("Recalcular la hoja:          " + tEscaneo + " ms" +
-         (guiaMuestra ? "  (probando con una guía real de la hoja)" : "  (hoja vacía)"));
+         (guiaMuestra ? "  (probando con una guía real de la hoja)" : ""));
+  if (!guiaMuestra) {
+      // Sin guía de muestra el filtro de M-S se desactiva y se abren TODAS.
+      // Eso multiplica el tiempo, y el aviso de antes —un discreto «(hoja
+      // vacía)»— era demasiado fácil de pasar por alto: se leía el número como
+      // si fuera el de un escaneo normal cuando es el peor caso posible.
+      L.push("   ⚠️ LA COLUMNA A ESTÁ VACÍA. Esto NO es un escaneo normal: es el");
+      L.push("      PEOR CASO. Sin una guía que filtrar se abren TODAS las M-S,");
+      L.push("      y abrir cada pestaña en frío cuesta cientos de ms.");
+      L.push("      Escanea algo en la columna A y vuelve a medir.");
+  }
 
   // 3. Barrido completo de M-S: no pasa en un escaneo normal, solo cuando la
   //    guía toca muchas pestañas o al forzar desde el menú. Se mide aparte y NO
@@ -2978,6 +2995,168 @@ function medirRendimiento() {
   }
 
   ui.alert("⏱️ Velocidad de escaneo", L.join("\n"), ui.ButtonSet.OK);
+}
+
+// =========================================================================
+// PRUEBA: ¿QUIÉN PAGA EL PRIMER CONTACTO CON CACHE_SISTEMA?
+// =========================================================================
+// La medición normal dice que leer el caché cuesta ~570 ms en UNA sola
+// llamada, cuando una llamada corriente cuesta ~90. Eso no es el volumen de
+// datos: leer 96 celdas de una M-S en frío costó 235 ms y esas mismas 96 en
+// caliente costaron 3. Lo caro es abrir la pestaña la primera vez.
+//
+// De ahí sale la idea de guardar el índice fuera de la hoja (CacheService) y
+// dejar de abrir CACHE_SISTEMA para leerlo. Pero el escaneo también ESCRIBE en
+// esa hoja (actualizarBloqueEnCache), y hoy la lectura va primero, así que es
+// ella la que paga el primer toque y la escritura ya llega en caliente. Si se
+// quita la lectura, la escritura pasa a ser la primera. La pregunta que decide
+// si CacheService ahorra algo o nada es una sola:
+//
+//     ¿escribir en frío cuesta lo mismo que leer en frío?
+//
+// Por ejecución solo se puede medir UNA cosa en frío —la primera que toque la
+// hoja la calienta para todo lo demás—, y en medirRendimiento la lectura del
+// caché siempre llega antes. Por eso esto va aparte y no allí dentro.
+//
+// No cambia nada del sistema: escribe una celda de usar y tirar y la borra.
+function probarCosteCache() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+
+  // Cada paso se cronometra desde el primero, incluidos los que parecen
+  // gratis. Si el primer toque lo pagara getMaxColumns en vez de la escritura,
+  // el resultado saldría engañosamente barato y no habría forma de saberlo.
+  let t0 = Date.now();
+  let cacheSheet = ss.getSheetByName("CACHE_SISTEMA");
+  let msAbrir = Date.now() - t0;
+
+  if (!cacheSheet) {
+    ui.alert("🧪 Prueba del caché",
+             "No existe CACHE_SISTEMA. Usa «Reconstruir caché completo» primero.",
+             ui.ButtonSet.OK);
+    return;
+  }
+
+  t0 = Date.now();
+  let colScratch = cacheSheet.getMaxColumns();
+  let msMaxCols = Date.now() - t0;
+
+  // La celda de pruebas va en la FILA 1 de la última columna de la rejilla:
+  //   · No la mira nadie. El índice solo lee columnas cuyo encabezado acaba en
+  //     _FISICO, y esta columna no tiene encabezado.
+  //   · Al estar en la fila 1 no alarga el rango hacia abajo, así que la
+  //     lectura de después mide lo de siempre y no 3.000 filas de relleno.
+  // Se borra enseguida. Si la ejecución se cortara justo en medio, lo que
+  // quedaría es una celda suelta en una columna sin encabezado — invisible
+  // para el índice, y la poda de huérfanas la elimina sola por ser la de más
+  // a la derecha, sin desplazar ninguna columna en uso.
+  const celdaPrueba = cacheSheet.getRange(1, colScratch);
+
+  // 1. ESCRITURA EN FRÍO. Va la primera a propósito: es el único dato que no
+  //    tenemos y el que decide el rumbo.
+  t0 = Date.now();
+  celdaPrueba.setValue("⏱");
+  SpreadsheetApp.flush();
+  let msEscrituraFria = Date.now() - t0;
+
+  // Se deshace ANTES de leer, para que el rango con datos vuelva a ser el de
+  // siempre y la lectura de abajo mida lo que mediría en un escaneo real.
+  celdaPrueba.clearContent();
+  SpreadsheetApp.flush();
+
+  // 2. LECTURA, ya en caliente.
+  t0 = Date.now();
+  let datos = cacheSheet.getDataRange().getValues();
+  let msLecturaCaliente = Date.now() - t0;
+
+  // 3. ESCRITURA EN CALIENTE: la referencia de cuánto cuesta el mismo trabajo
+  //    sin el primer toque. La diferencia con (1) ES el coste de abrir.
+  t0 = Date.now();
+  celdaPrueba.setValue("⏱");
+  SpreadsheetApp.flush();
+  let msEscrituraCaliente = Date.now() - t0;
+  celdaPrueba.clearContent();
+  SpreadsheetApp.flush();
+
+  // 4. Llamada trivial de referencia, para tener el suelo de este archivo.
+  t0 = Date.now();
+  for (let k = 0; k < 3; k++) cacheSheet.getRange(1, 1).getValue();
+  let msLlamadaNormal = Math.round((Date.now() - t0) / 3);
+
+  let L = [];
+  L.push("Qué mide: cuánto cuesta el PRIMER contacto con CACHE_SISTEMA en una");
+  L.push("ejecución, según se llegue escribiendo o leyendo.");
+  L.push("");
+  L.push("── LOS NÚMEROS ──");
+  L.push("Abrir la hoja por su nombre:      " + msAbrir + " ms");
+  L.push("Preguntar cuántas columnas tiene: " + msMaxCols + " ms");
+  L.push("ESCRIBIR 1 celda, EN FRÍO:        " + msEscrituraFria + " ms   ← el dato");
+  L.push("Leer la hoja entera, en caliente: " + msLecturaCaliente + " ms   (" + datos.length + " filas)");
+  L.push("Escribir 1 celda, en caliente:    " + msEscrituraCaliente + " ms");
+  L.push("Una llamada corriente:            ~" + msLlamadaNormal + " ms");
+  L.push("");
+
+  // ── Veredicto ───────────────────────────────────────────────────────────
+  // El umbral es 3 veces una llamada corriente. Por debajo, escribir es una
+  // llamada más y no materializa la rejilla; por encima, escribir carga la
+  // hoja igual que leerla y mover el índice a CacheService no quita ese coste,
+  // solo lo cambia de sitio.
+  let umbral = Math.max(msLlamadaNormal * 3, 200);
+  L.push("── QUÉ SIGNIFICA ──");
+  if (msEscrituraFria > umbral) {
+      L.push("🔴 Escribir en frío cuesta casi lo mismo que leer en frío.");
+      L.push("");
+      L.push("Abrir la pestaña se paga igual, escribas o leas. Mover el índice");
+      L.push("a CacheService NO ahorraría nada: quitaríamos la lectura y el");
+      L.push("coste se lo comería la escritura, que sigue ahí en cada escaneo.");
+      L.push("");
+      L.push("El camino es otro: dejar de escribir en CACHE_SISTEMA en CADA");
+      L.push("escaneo. Por ejemplo acumular en memoria y volcar cada N, o al");
+      L.push("cerrar. Eso sí tiene riesgo y hay que pensarlo bien.");
+  } else {
+      let ahorro = Math.max(0, 566 - msEscrituraFria);
+      L.push("🟢 Escribir en frío es barato: no materializa la hoja.");
+      L.push("");
+      L.push("Entonces el índice SÍ puede vivir en CacheService. Quitaríamos la");
+      L.push("lectura de CACHE_SISTEMA del escaneo, la escritura pasaría a ser");
+      L.push("el primer toque y costaría solo " + msEscrituraFria + " ms.");
+      L.push("Ahorro estimado: ~" + ahorro + " ms por escaneo.");
+  }
+
+  // ── ¿Cabe el índice en CacheService? ────────────────────────────────────
+  // Se mide antes de construir nada. El límite son 100 KB por clave: si no
+  // cabe hay que trocearlo, y eso es bastante más código del que parece.
+  let payload = JSON.stringify(datos);
+  let kb = (payload.length / 1024).toFixed(1);
+  let cache = CacheService.getDocumentCache();
+  let cabe = true;
+  let msPut = 0, msGet = 0;
+
+  t0 = Date.now();
+  try { cache.put("WMS_PRUEBA_TAMANO", payload, 60); }
+  catch (err) { cabe = false; }
+  msPut = Date.now() - t0;
+
+  if (cabe) {
+      t0 = Date.now();
+      cache.get("WMS_PRUEBA_TAMANO");
+      msGet = Date.now() - t0;
+      cache.remove("WMS_PRUEBA_TAMANO");
+  }
+
+  L.push("");
+  L.push("── ¿CABE EL ÍNDICE FUERA DE LA HOJA? ──");
+  L.push("Tamaño del índice serializado: " + kb + " KB   (límite: 100 KB por clave)");
+  if (cabe) {
+      L.push("Guardarlo en CacheService:     " + msPut + " ms");
+      L.push("Recuperarlo de CacheService:   " + msGet + " ms   ← esto sustituiría a los ~566");
+      L.push("✅ Cabe entero, sin trocear.");
+  } else {
+      L.push("⚠️ No cabe en una sola clave: habría que partirlo en trozos.");
+      L.push("   Se puede, pero es bastante más código y más sitios donde fallar.");
+  }
+
+  ui.alert("🧪 ¿Qué cuesta abrir el caché?", L.join("\n"), ui.ButtonSet.OK);
 }
 
 // =========================================================================
