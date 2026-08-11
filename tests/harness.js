@@ -930,5 +930,68 @@ for (let v = 0; v < 5; v++) {
 ok("pegar el resumen 5 veces no alarga la celda", acumulada === conCola);
 ok("solo queda un separador", acumulada.split(SEP_RESUMEN).length === 2);
 
+console.log("\n=== 5w. Una alerta grave no se cae sola ===");
+// El caso real: una guía sale duplicada en M-S, el operador la ve, y un rato
+// después la fila está en verde sin que nadie haya arreglado nada. Pasaba
+// porque el recálculo reconstruye la columna B entera y la condición que
+// generó el ⛔ deja de detectarse en cuanto el caché cambia.
+ok("un ⛔ no lo pisa un ✅",
+   conservarAlertaGrave("⛔ DUPLICADO (ya en Ped: 6100166, fila 3)", "✅ Guía")
+   === "⛔ DUPLICADO (ya en Ped: 6100166, fila 3)");
+ok("un 🛑 no lo pisa un ➡",
+   conservarAlertaGrave("🛑 PEDIMENTO REPETIDO", "➡ Salió en GLOBAL 1") === "🛑 PEDIMENTO REPETIDO");
+ok("un ⛔ tampoco lo pisa un ⚠️",
+   conservarAlertaGrave("⛔ DUPLICADO (En: M-S T1 Fila 9)", "⚠️ Sobra (Ajena)")
+   === "⛔ DUPLICADO (En: M-S T1 Fila 9)");
+
+// Pero lo igual de grave o más SÍ pasa: si no, la alerta se quedaría congelada
+// en la primera versión y no se enteraría de un problema peor.
+ok("un 🛑 sí pisa a un ⛔",
+   conservarAlertaGrave("⛔ DUPLICADO (En: GLOBAL 3 Fila 9)", "🛑 PEDIMENTO REPETIDO") === "🛑 PEDIMENTO REPETIDO");
+ok("un ⛔ pisa a otro ⛔ (se actualiza la fila que nombra)",
+   conservarAlertaGrave("⛔ DUPLICADO (En: GLOBAL 3 Fila 9)", "⛔ DUPLICADO (En: GLOBAL 3 Fila 12)")
+   === "⛔ DUPLICADO (En: GLOBAL 3 Fila 12)");
+
+// Por debajo de ⛔ no se protege nada, y es a propósito: «❌ Guía Inválida»
+// sale del propio contenido de la columna A, se recalcula bien siempre, y
+// pegarla dejaría el error puesto después de corregir la guía.
+ok("un ❌ NO se protege", conservarAlertaGrave("❌ Guía Inválida", "✅ Guía") === "✅ Guía");
+ok("un ⚠️ NO se protege", conservarAlertaGrave("⚠️ Sobra (Ajena)", "✅ Guía") === "✅ Guía");
+ok("un estado informativo no se protege", conservarAlertaGrave("✅ Guía", "") === "");
+
+// La cola del resumen sí tiene que seguir viva: se conserva el ESTADO, no el
+// contador de bultos, que cambia cada vez que sale un paquete.
+ok("se conserva la alerta pero con el resumen nuevo",
+   conservarAlertaGrave("⛔ DUPLICADO (En: M-S T1 Fila 9)" + SEP_RESUMEN + "Bultos: 5 | ⚠️ Faltan 2 por mover",
+                        "✅ Guía" + SEP_RESUMEN + "Bultos: 5 | ✅ TODO SALIÓ")
+   === "⛔ DUPLICADO (En: M-S T1 Fila 9)" + SEP_RESUMEN + "Bultos: 5 | ✅ TODO SALIÓ");
+
+ok("el color se deduce del texto conservado", colorDeAlerta("⛔ DUPLICADO (x)") === "#ff9800");
+ok("🛑 ERROR mantiene su ámbar", colorDeAlerta("🛑 ERROR: pedimento incompleto") === "#ffc107");
+ok("🛑 a secas va en rojo", colorDeAlerta("🛑 PEDIMENTO REPETIDO") === "#dc3545");
+ok("sin alerta, fondo blanco", colorDeAlerta("✅ Guía") === "#FFFFFF");
+
+// --- Las tres salidas de la regla ---
+function escenario(repintarTodo, filasEditadas) {
+    // fila 0: guía con ⛔ que el recálculo quiere bajar a ✅
+    // fila 1: guía con ⛔ pero la columna A vacía (fila borrada)
+    let datos = [["1Z111", "⛔ DUPLICADO (En: M-S T1 Fila 9)"], ["", "⛔ DUPLICADO (En: M-S T1 Fila 9)"]];
+    let res = [["✅ Guía"], [""]];
+    let col = [["#07c369"], ["#FFFFFF"]];
+    let n = conservarAlertasGraves(datos, res, col, 2, repintarTodo, filasEditadas, 0, 1);
+    return { n: n, res: res, col: col };
+}
+let normal = escenario(false, null);
+ok("en una pasada normal la alerta se conserva", normal.n === 1);
+ok("y recupera su color", normal.col[0][0] === "#ff9800");
+ok("columna A vacía: la fila se resetea igual", normal.res[1][0] === "");
+
+let forzado = escenario(true, null);
+ok("«Forzar Actualización» no conserva nada", forzado.n === 0 && forzado.res[0][0] === "✅ Guía");
+
+let editado = escenario(false, new Set([0]));
+ok("la fila recién editada no conserva la alerta vieja",
+   editado.n === 0 && editado.res[0][0] === "✅ Guía");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

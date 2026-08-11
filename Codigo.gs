@@ -648,7 +648,15 @@ function procesarEdicion(e) {
     // última fila, el recálculo tiene que llegar igualmente hasta ahí para
     // limpiar su estado y su hora.
     let filaFinal = filaFinalDesdeCache(cacheInfo, nombreHoja, filaInicial + numRows - 1);
-    recalcularHoja(hoja, e.source, cacheInfo, guiasAfectadas, tocoPreforma, false, filaFinal);
+
+    // Las filas que el operador ACABA de tocar. Sin esto, la regla de conservar
+    // alertas graves las dejaría pegadas también aquí: corriges la guía que
+    // estaba duplicada y el ⛔ se queda, hablando de un valor que ya no está en
+    // la celda. Los índices van 0-based, como datosMasivos.
+    let filasEditadas = new Set();
+    for (let r = 0; r < numRows; r++) filasEditadas.add(filaInicial + r - 1);
+
+    recalcularHoja(hoja, e.source, cacheInfo, guiasAfectadas, tocoPreforma, false, filaFinal, filasEditadas);
 
     if (esModoInventario) {
         sincronizarInventariosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
@@ -787,12 +795,16 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
 // el camino del escaneo. Los menús y los triggers NO la pasan a propósito: ahí
 // nadie espera delante de la pantalla y se prefiere la verdad del servidor. Si
 // no se pasa, todo se comporta exactamente como antes — es el botón de pánico.
-function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida) {
+// `filasEditadas` (índices 0-based dentro de la hoja, o sea fila - 1) son las
+// filas que el operador acaba de tocar. Van al final porque casi nadie las
+// pasa: solo el camino de la edición las conoce. Sirven para que una alerta
+// conservada no sobreviva a la propia corrección que la resuelve.
+function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida, filasEditadas) {
     if (tocoPreforma === undefined) tocoPreforma = true;
     let n = perf("nombre de la hoja", 0, () => claveHoja(hoja.getName()));
-    if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida);
-    else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida);
-    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida);
+    if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas);
+    else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas);
+    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida, filasEditadas);
 }
 
 // =========================================================================
@@ -1876,6 +1888,76 @@ function puedePisar(previo, nuevo) {
     return nivelAlerta(nuevo) >= nivelAlerta(previo);
 }
 
+// -------------------------------------------------------------------------
+// UNA ALERTA GRAVE NO SE CAE SOLA
+//
+// puedePisar protegía los pases PARCIALES (el barrido de M-S), pero no el
+// recálculo completo, que es el que de verdad borraba alertas. Los tres
+// cerebros reconstruyen la columna B entera en cada pasada, así que una alerta
+// sobrevive únicamente mientras la condición que la generó se siga detectando.
+// Y esa condición se mira contra el caché, que cambia cada vez que CUALQUIERA
+// escanea en CUALQUIER pestaña. Resultado: el operador veía salir el ⛔, se iba,
+// y al volver la fila estaba en verde sin que nadie hubiera arreglado nada.
+//
+// La regla es la misma de antes, ahora también aquí: lo recalculado solo pisa
+// a lo que ya había si es igual de grave o más.
+//
+// Solo se protege de ⛔ para arriba, y esto es deliberado:
+//   · ⛔ y 🛑 hablan de una RELACIÓN con otra fila o con otra pestaña. Son las
+//     que dependen del caché y por tanto las que desaparecen solas.
+//   · ❌ «Guía Inválida» sale del propio contenido de la columna A. Se
+//     recalcula bien siempre, así que protegerla no arregla nada y en cambio
+//     dejaría el error pegado después de corregir la guía.
+//
+// Y hay tres salidas, las tres deliberadas:
+//   · columna A vacía   -> la fila se resetea entera; borrar tiene que limpiar
+//   · fila recién editada -> «hasta que se modifique»: si el operador la acaba
+//     de tocar, la alerta vieja ya no habla de lo que hay ahora en la celda
+//   · repintarTodo      -> «Forzar Actualización» reconstruye sin conservar nada
+function conservarAlertaGrave(previo, nuevo) {
+    if (nivelAlerta(previo) < NIVEL_ALTO) return nuevo;
+    if (puedePisar(cabezaEstado(previo), cabezaEstado(nuevo))) return nuevo;
+    // Se conserva el estado, pero con la cola NUEVA: el resumen del bloque
+    // ("Bultos: 3 | ✅ TODO SALIÓ") sí tiene que seguir actualizándose.
+    return cabezaEstado(previo) + colaResumen(nuevo);
+}
+
+// Color de fondo que le toca a una alerta conservada. Se deduce del texto
+// porque el color original se perdió: la celda solo guarda las letras.
+function colorDeAlerta(texto) {
+    let t = String(texto).trim();
+    if (t.startsWith("🛑 ERROR")) return "#ffc107";
+    if (t.startsWith("🛑")) return "#dc3545";
+    if (t.startsWith("⛔")) return "#ff9800";
+    if (t.startsWith("❌")) return "#df5f6b";
+    return "#FFFFFF";
+}
+
+// Aplica la regla a la hoja entera, justo antes de escribir. Devuelve cuántas
+// filas conservaron su alerta, que es lo que mira el banco de pruebas.
+// `idxDato` / `idxEstado` son las posiciones dentro de datosMasivos: la
+// columna A y su estado B son 0 y 1; la preforma O y su estado P son 14 y 15.
+function conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, idxDato, idxEstado) {
+    if (repintarTodo) return 0;
+    if (idxDato === undefined) idxDato = 0;
+    if (idxEstado === undefined) idxEstado = 1;
+    let conservadas = 0;
+    for (let i = 0; i < ultimaFila; i++) {
+        if (!datosMasivos[i]) continue;
+        if (String(datosMasivos[i][idxDato]).trim() === "") continue;
+        if (filasEditadas && filasEditadas.has(i)) continue;
+
+        let previo = String(datosMasivos[i][idxEstado]);
+        let conservado = conservarAlertaGrave(previo, resultadosB[i][0]);
+        if (conservado === resultadosB[i][0]) continue;
+
+        resultadosB[i][0] = conservado;
+        coloresB[i][0] = colorDeAlerta(conservado);
+        conservadas++;
+    }
+    return conservadas;
+}
+
 // Coletilla que explica por qué el conteo de un bloque es más bajo de lo que
 // se ve en pantalla: esas filas llevan alerta y no cuentan como bulto.
 function notaConAlerta(n) {
@@ -2011,7 +2093,7 @@ function horaPreservada(datosMasivos, i, idxHora, valorFila, horaActual) {
 // =========================================================================
 // CEREBRO PRINCIPAL: GLOBALES, T1, REZAGO, PREFORMA Y AGA
 // =========================================================================
-function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida) {
+function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida, filasEditadas) {
   if (tocoPreforma === undefined) tocoPreforma = true;
   // Si viene sugerida, se ahorra la llamada más cara del sistema. La etiqueta
   // se conserva: en la próxima medición del camino de edición debe salir con
@@ -2420,6 +2502,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   }
 
   let coloresA = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada);
+  // Una alerta grave no se cae sola: si lo recalculado es menos grave que
+  // lo que ya había, se conserva lo que había. Ver conservarAlertasGraves.
+  conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
+  conservarAlertasGraves(datosMasivos, resultadosP, coloresP, ultimaFila, repintarTodo, filasEditadas, 14, 15);
+
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA, repintarTodo);
   aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null, repintarTodo);
 
@@ -2463,7 +2550,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 // =========================================================================
 // CEREBRO PRINCIPAL: M-S
 // =========================================================================
-function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) {
+function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas) {
   const ultimaFila = filaFinalSugerida > 0
       ? filaFinalSugerida
       : perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
@@ -2628,6 +2715,10 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) 
   marcarPedimentosRepetidosFuera(resultadosB, coloresB,
       calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo));
 
+  // Una alerta grave no se cae sola: si lo recalculado es menos grave que
+  // lo que ya había, se conserva lo que había. Ver conservarAlertasGraves.
+  conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
+
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
                            coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
 
@@ -2658,7 +2749,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) 
 //   · misma guía en dos ubicaciones IW distintas de la misma pestaña
 //   · misma guía repetida dentro de la misma ubicación (duplicado local)
 // =========================================================================
-function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida) {
+function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas) {
   const ultimaFila = filaFinalSugerida > 0
       ? filaFinalSugerida
       : perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
@@ -2782,6 +2873,10 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida) 
       resultadosB[idx][0] = textoPrimeraDuplicada(info) + colaResumen(resultadosB[idx][0]);
       coloresB[idx][0] = "#ff9800";
   });
+
+  // Una alerta grave no se cae sola: si lo recalculado es menos grave que
+  // lo que ya había, se conserva lo que había. Ver conservarAlertasGraves.
+  conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
                            coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
