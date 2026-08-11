@@ -303,6 +303,42 @@ COLS_CAPTURA.forEach(c =>
 ok("la columna Q ya no está en el lote", columnasDelLote().indexOf(17) === -1);
 ok("la columna D ya no está en el lote", columnasDelLote().indexOf(4) === -1);
 
+console.log("\n=== 5u. filaFinalDesdeCache (hasta dónde recalcular) ===");
+// Columna 0 = _FISICO (llega a la fila 3), columna 1 = _PREFORMA (llega a la 5).
+const cacheFF = { headers: ["GLOBAL 2_FISICO", "GLOBAL 2_PREFORMA", "M-S T1_FISICO"], data: [
+  ["GLOBAL 2_FISICO", "GLOBAL 2_PREFORMA", "M-S T1_FISICO"],
+  ["1Z1",  "1ZA", "1ZM"],
+  ["1Z2",  "1ZB", ""   ],
+  ["1Z3",  "1ZC", ""   ],
+  ["",     "1ZD", ""   ],
+  ["",     "1ZE", ""   ]
+]};
+
+ok("la preforma baja más que la A: manda la preforma",
+   filaFinalDesdeCache(cacheFF, "GLOBAL 2", 0) === 5);
+ok("una M-S sin columna de preforma no revienta",
+   filaFinalDesdeCache(cacheFF, "M-S T1", 0) === 1);
+ok("hoja no indexada -> 0, o sea pregunta a Sheets",
+   filaFinalDesdeCache(cacheFF, "NO EXISTE", 0) === 0);
+ok("sin caché -> 0", filaFinalDesdeCache(null, "GLOBAL 2", 0) === 0);
+ok("normaliza el nombre de la hoja",
+   filaFinalDesdeCache(cacheFF, "global 2", 0) === 5);
+
+// EL assert que impide la regresión del borrado de la última fila.
+ok("la fila recién editada es siempre el suelo",
+   filaFinalDesdeCache(cacheFF, "GLOBAL 2", 40) === 40);
+ok("edición en bloque: manda la última fila del bloque",
+   filaFinalDesdeCache(cacheFF, "GLOBAL 2", 500) === 500);
+ok("si el caché va más abajo que la edición, manda el caché",
+   filaFinalDesdeCache(cacheFF, "GLOBAL 2", 2) === 5);
+
+// Hoja indexada pero vacía: nunca 0 ni negativo, o la lectura fallaría.
+const cacheVacioFF = { headers: ["NUEVA_FISICO"], data: [["NUEVA_FISICO"]] };
+ok("hoja indexada pero sin datos -> 1, no 0",
+   filaFinalDesdeCache(cacheVacioFF, "NUEVA", 0) === 1);
+ok("hoja indexada y sin datos, con edición en la fila 1 -> 1",
+   filaFinalDesdeCache(cacheVacioFF, "NUEVA", 1) === 1);
+
 console.log("\n=== 5s. construirIndiceCache ===");
 // data[0] son los encabezados; data[r] corresponde a la fila r de la hoja.
 const hdrsIdx = ["GLOBAL 2_FISICO", "GLOBAL 2_PREFORMA", "M-S T1_FISICO", "INVENTARIO A_FISICO"];
@@ -403,6 +439,13 @@ ok("la preforma de un destino se respeta",
    columnasHuerfanas(["GLOBAL 4_FISICO", "GLOBAL 4_PREFORMA"], new Set(["GLOBAL 4"])).length === 0);
 ok("los encabezados vacíos se ignoran",
    columnasHuerfanas(["", "GLOBAL 4_FISICO", ""], new Set(["GLOBAL 4"])).length === 0);
+// Un encabezado de solo espacios es un HUECO para columnaDeHeader. Si la poda
+// lo tomara por pestaña desconocida lo borraría, desplazando las columnas de su
+// derecha y descolocando el caché entero.
+ok("un encabezado de solo espacios se salta, no se borra",
+   columnasHuerfanas(["   ", "GLOBAL 4_FISICO"], new Set(["GLOBAL 4"])).length === 0);
+ok("un tabulador tampoco se borra",
+   columnasHuerfanas(["\t", "GLOBAL 4_FISICO"], new Set(["GLOBAL 4"])).length === 0);
 ok("sin nada que podar devuelve vacío",
    columnasHuerfanas(["M-S T1_FISICO"], new Set(["M-S T1"])).length === 0);
 

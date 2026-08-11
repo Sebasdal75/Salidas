@@ -641,7 +641,14 @@ function procesarEdicion(e) {
     }
 
     let tocoPreforma = tocaColO || (colInicial <= 14 && colInicial + numCols - 1 >= 14);
-    recalcularHoja(hoja, e.source, cacheInfo, guiasAfectadas, tocoPreforma);
+
+    // Hasta dónde recalcular, sin pagar un getLastRow. Se calcula DESPUÉS de
+    // actualizar el caché, para que refleje lo que se acaba de escribir, y con
+    // la última fila editada como suelo: si acabas de borrar la guía de la
+    // última fila, el recálculo tiene que llegar igualmente hasta ahí para
+    // limpiar su estado y su hora.
+    let filaFinal = filaFinalDesdeCache(cacheInfo, nombreHoja, filaInicial + numRows - 1);
+    recalcularHoja(hoja, e.source, cacheInfo, guiasAfectadas, tocoPreforma, false, filaFinal);
 
     if (esModoInventario) {
         sincronizarInventariosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
@@ -746,12 +753,16 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
 // `tocoPreforma`: si es false, no se recalculan los colores de la columna O.
 // Un escaneo normal (columna A) no puede cambiarlos, y comprobarlos cuesta una
 // lectura de columna completa. Los menús pasan true para repintado total.
-function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo) {
+// `filaFinalSugerida` (opcional, y por eso va la última) evita un getLastRow en
+// el camino del escaneo. Los menús y los triggers NO la pasan a propósito: ahí
+// nadie espera delante de la pantalla y se prefiere la verdad del servidor. Si
+// no se pasa, todo se comporta exactamente como antes — es el botón de pánico.
+function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida) {
     if (tocoPreforma === undefined) tocoPreforma = true;
     let n = perf("nombre de la hoja", 0, () => claveHoja(hoja.getName()));
-    if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo, repintarTodo);
-    else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo, repintarTodo);
-    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo);
+    if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida);
+    else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida);
+    else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida);
 }
 
 // =========================================================================
@@ -921,6 +932,39 @@ function sincronizarDestinosAfectados(source, cacheInfo, guiasAfectadas, hojaOri
         let h = perf("abrir destino por nombre", 0, () => source.getSheetByName(clave));
         if (h) actualizarGlobalPreforma(h, source, cacheInfo, guiasAfectadas, false, false);
     });
+}
+
+// Hasta dónde hay que recalcular una hoja, sin preguntárselo a Sheets.
+//
+// `getLastRow()` mira TODAS las columnas; el caché solo conoce la A y la O. La
+// diferencia importa en un caso muy concreto y nada raro:
+//
+//   Borras la guía de la última fila con datos. El caché se actualiza ANTES de
+//   recalcular, así que ya devuelve la fila anterior. El recálculo no llegaría a
+//   esa fila y el "✅ Ok" de la B y la hora de la L se quedarían pegados para
+//   siempre — y la red de seguridad de los 5 minutos no lo recoge, porque solo
+//   busca filas con dato y sin estado.
+//
+// Por eso la fila recién editada es SIEMPRE un suelo. Devuelve 0 cuando la hoja
+// no está indexada, que significa «pregúntaselo a Sheets».
+function filaFinalDesdeCache(cacheInfo, clave, filaEditadaFinal) {
+    if (!cacheInfo || !cacheInfo.headers) return 0;
+
+    let k = claveHoja(clave);
+    let colF = cacheInfo.headers.indexOf(k + "_FISICO");
+    let colP = cacheInfo.headers.indexOf(k + "_PREFORMA");
+
+    // Sin ninguna de las dos columnas, la hoja no está en el caché.
+    if (colF === -1 && colP === -1) return 0;
+
+    // Que falte SOLO la de preforma es normal: las M-S no la tienen.
+    let lrF = colF === -1 ? 0 : ultimaFilaEnCache(cacheInfo, colF);
+    let lrP = colP === -1 ? 0 : ultimaFilaEnCache(cacheInfo, colP);
+    if (lrF < 0) lrF = 0;
+    if (lrP < 0) lrP = 0;
+
+    let suelo = filaEditadaFinal > 0 ? filaEditadaFinal : 0;
+    return Math.max(lrF, lrP, suelo, 1);
 }
 
 function hojaContieneAlgunaGuia(cacheInfo, colIdx, guias) {
@@ -1282,7 +1326,11 @@ function podarCacheHuerfano(source) {
 function columnasHuerfanas(headers, existentes) {
     let aBorrar = [];
     for (let i = 0; i < headers.length; i++) {
-        let h = String(headers[i]);
+        // Con trim(): un encabezado de solo espacios es un HUECO reutilizable
+        // para columnaDeHeader, y sin este trim aquí se tomaba por «pestaña
+        // desconocida» y se borraba la columna, desplazando todas las de su
+        // derecha. Saltarlo es mucho menos destructivo que eliminarlo.
+        let h = String(headers[i]).trim();
         if (h === "") continue;
         let nombre = claveHoja(h.replace("_FISICO", "").replace("_PREFORMA", ""));
 
@@ -1610,11 +1658,14 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
 
         if (modificados) {
             perf("M-S: escribir A:B", lr * 2, () => rangoStatus.setValues(vals));
-            msModificadas.push(hojaMS);
+            msModificadas.push({ hoja: hojaMS, lr: lr });
         }
     }
 
-    msModificadas.forEach(hojaMS => actualizarMS(hojaMS, source, cacheInfo, false));
+    // El lr de cada M-S ya se calculó arriba desde el caché: se reutiliza en vez
+    // de que actualizarMS lo vuelva a pedir. Y es coherente por construcción,
+    // porque es la misma fila con la que se acaba de escribir la columna B.
+    msModificadas.forEach(m => actualizarMS(m.hoja, source, cacheInfo, false, m.lr));
 }
 
 // Propaga un cambio al resto de pestañas de INVENTARIO. Solo se abren las que
@@ -1900,9 +1951,14 @@ function horaPreservada(datosMasivos, i, idxHora, valorFila, horaActual) {
 // =========================================================================
 // CEREBRO PRINCIPAL: GLOBALES, T1, REZAGO, PREFORMA Y AGA
 // =========================================================================
-function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo) {
+function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida) {
   if (tocoPreforma === undefined) tocoPreforma = true;
-  const ultimaFila = perf("getLastRow", 0, () => Math.max(hoja.getLastRow(), 1));
+  // Si viene sugerida, se ahorra la llamada más cara del sistema. La etiqueta
+  // se conserva: en la próxima medición del camino de edición debe salir con
+  // CERO llamadas, y esa es la prueba de que el atajo se activó.
+  const ultimaFila = filaFinalSugerida > 0
+      ? filaFinalSugerida
+      : perf("getLastRow", 0, () => Math.max(hoja.getLastRow(), 1));
   if (ultimaFila < 1) return;
 
   perf("asegurarColumnas", 0, () => asegurarColumnas(hoja, 19));
@@ -2344,8 +2400,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 // =========================================================================
 // CEREBRO PRINCIPAL: BODEGAS (M-S)
 // =========================================================================
-function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
-  const ultimaFila = perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
+function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) {
+  const ultimaFila = filaFinalSugerida > 0
+      ? filaFinalSugerida
+      : perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
   if (ultimaFila < 1) return;
 
   perf("asegurarColumnas", 0, () => asegurarColumnas(hoja, 12));
@@ -2533,8 +2591,10 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo) {
 //   · misma guía en dos ubicaciones IW distintas de la misma pestaña
 //   · misma guía repetida dentro de la misma ubicación (duplicado local)
 // =========================================================================
-function actualizarInventario(hoja, cacheInfo, repintarTodo) {
-  const ultimaFila = perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
+function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida) {
+  const ultimaFila = filaFinalSugerida > 0
+      ? filaFinalSugerida
+      : perf("getLastRow (M-S/inventario)", 0, () => Math.max(hoja.getLastRow(), 1));
   asegurarColumnas(hoja, 12);
 
   const datosMasivos = perf("leer la hoja A:L", ultimaFila * 12, () =>
@@ -3120,7 +3180,7 @@ function diagnosticoSistema() {
       let indexadas = [], huerfanas = [], preformasSobrantes = [];
 
       cacheInfo.headers.forEach(h => {
-          let t = String(h);
+          let t = String(h).trim();
           if (t === "") return;
           let nombre = claveHoja(t.replace("_FISICO", "").replace("_PREFORMA", ""));
           if (!existentes.has(nombre)) { huerfanas.push(t); return; }
