@@ -166,16 +166,17 @@
     border-radius: 8px;
     overflow: hidden;
   }
-  .msg {
-    background: var(--surface);
-    display: grid;
-    /* minmax(0,1fr) y no 1fr: si no, un literal largo ensancha la rejilla por
-       encima del contenedor en vez de partirse. */
-    grid-template-columns: 5px minmax(0, 1fr);
-    gap: 0;
+  /* Flex, no rejilla. Una rejilla de dos pistas puede colapsar la del texto
+     cuando el contenedor se estrecha, y entonces las palabras salen una por
+     línea y encimadas. Con flex, la barra tiene ancho fijo y el cuerpo se queda
+     con el resto; `min-width: 0` es lo que le permite partir el texto en vez de
+     desbordar la caja. */
+  .msg { background: var(--surface); display: flex; align-items: stretch; }
+  .msg .bar { flex: 0 0 5px; background: var(--gris); }
+  .msg .body {
+    flex: 1 1 auto; min-width: 0;
+    padding: .9rem 1.1rem; display: flex; flex-direction: column; gap: .3rem;
   }
-  .msg .bar { background: var(--gris); }
-  .msg .body { padding: .9rem 1.1rem; display: flex; flex-direction: column; gap: .3rem; }
   .msg .txt {
     font-family: var(--mono);
     font-size: .88rem;
@@ -215,27 +216,16 @@
   .nota p:last-child { margin-bottom: 0; }
 
   /* ---------- Listas ---------- */
-  ol.pasos { counter-reset: p; list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-direction: column; gap: .8rem; }
-  ol.pasos li {
-    counter-increment: p;
-    display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: .8rem;
-    align-items: start;
-  }
-  ol.pasos li::before {
-    content: counter(p);
-    font-family: var(--mono); font-size: .78rem; font-weight: 700;
-    color: var(--surface); background: var(--accent);
-    width: 1.6rem; height: 1.6rem; border-radius: 50%;
-    display: grid; place-items: center;
-    margin-top: .12rem;
-  }
+  /* Listas de flujo normal con marcador. Eran rejillas de dos columnas y la del
+     texto se colapsaba en cuanto el contenedor se estrechaba: «columna M»
+     acababa partido en dos líneas y montado sobre lo siguiente. */
+  ol.pasos { list-style: decimal; padding-left: 1.7rem; margin: 1rem 0 0; }
+  ol.pasos li { margin-bottom: .7rem; }
+  ol.pasos li::marker { font-weight: 700; color: var(--accent); }
 
-  ul.nope { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-direction: column; gap: .65rem; }
-  ul.nope li {
-    display: grid; grid-template-columns: 1.3rem minmax(0, 1fr); gap: .7rem;
-    font-size: .96rem; line-height: 1.5;
-  }
-  ul.nope li::before { content: "✕"; color: var(--malo); font-weight: 700; }
+  ul.nope { list-style: none; padding-left: 1.7rem; margin: 1rem 0 0; }
+  ul.nope li { margin-bottom: .6rem; font-size: .96rem; line-height: 1.5; text-indent: -1.15rem; }
+  ul.nope li::before { content: "✕  "; color: var(--malo); font-weight: 700; }
 
   /* ---------- Menú (definiciones) ---------- */
   .menu { display: flex; flex-direction: column; gap: 1px; background: var(--line); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }

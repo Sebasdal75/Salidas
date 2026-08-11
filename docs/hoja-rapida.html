@@ -156,46 +156,49 @@
     gap: clamp(.8rem, 3vw, .3in);
     align-items: start;
   }
-  /* Sin esto, un texto largo dentro de una rejilla la ensancha por encima del
-     contenedor en vez de partirse, y lo de al lado acaba fuera de la caja. */
-  .cols > *, .pasos li, .msg, .sw { min-width: 0; }
+  .cols > * { min-width: 0; }
 
-  /* ---------- Pasos ---------- */
-  .pasos { display: flex; flex-direction: column; gap: .09in; margin: 0; padding: 0; list-style: none; counter-reset: p; }
-  .pasos li {
-    display: grid; grid-template-columns: 1.25em minmax(0, 1fr); gap: .5em;
-    font-size: 9.5pt; line-height: 1.4;
+  /* ---------- Pasos ----------
+     Lista de flujo normal, con el número como marcador. Antes esto era una
+     rejilla de dos columnas y en cuanto el contenedor se estrechaba la columna
+     del texto se colapsaba: las palabras salían una por línea y encimadas. Una
+     lista corriente no puede hacer eso. */
+  .pasos {
+    margin: 0; padding-left: 1.5em;
+    list-style: decimal;
+    font-size: 9.5pt; line-height: 1.45;
   }
-  .pasos li::before {
-    counter-increment: p; content: counter(p);
-    font: 700 8pt/1.25em var(--mono);
-    text-align: center; height: 1.25em;
-    background: var(--ink); color: var(--paper);
-    border-radius: 50%;
-  }
-  /* Sin nowrap: en una columna estrecha desbordaba la caja y el texto acababa
-     pisando lo de al lado. Que parta, aunque sea feo. */
+  .pasos li { margin-bottom: .07in; padding-left: .05em; }
+  .pasos li::marker { font-weight: 800; color: var(--accent); }
   .pasos code, .pasos .txt {
-    font: 600 8.6pt var(--mono);
+    font-family: var(--mono); font-size: .92em; font-weight: 600;
     background: var(--paper-alt); padding: .05em .3em; border-radius: 2px;
     overflow-wrap: break-word;
   }
 
-  /* ---------- Diccionario de mensajes ---------- */
-  .msgs { display: flex; flex-direction: column; gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
-  .msg { display: grid; grid-template-columns: .16in minmax(0, 1fr); background: var(--paper); }
-  .msg .chip { }
-  .msg .cuerpo { padding: .055in .09in; min-width: 0; }
+  /* ---------- Diccionario de mensajes ----------
+     El color va como borde izquierdo, no como columna de rejilla: así no hay
+     ninguna pista que pueda encogerse y dejar el texto sin sitio. */
+  .msgs {
+    display: flex; flex-direction: column; gap: 1px;
+    background: var(--line-soft); border: 1px solid var(--line-soft);
+  }
+  .msg {
+    background: var(--paper);
+    border-left: .14in solid var(--gris);
+    padding: .055in .09in;
+  }
   .msg .t {
-    font: 700 8.2pt var(--mono);
-    display: block; overflow-wrap: break-word;
+    display: block;
+    font-family: var(--mono); font-size: 8.2pt; font-weight: 700;
+    overflow-wrap: break-word;
   }
   .msg .d { display: block; font-size: 7.8pt; line-height: 1.35; color: var(--muted); margin-top: .02in; }
 
   /* ---------- Colores de la columna que se escanea ---------- */
-  .paleta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 1.6in), 1fr)); gap: .06in .18in; }
-  .sw { display: grid; grid-template-columns: .2in minmax(0, 1fr); gap: .07in; align-items: center; font-size: 8.4pt; }
-  .sw i { display: block; height: .13in; border: 1px solid rgba(0,0,0,.28); }
+  .paleta { display: flex; flex-wrap: wrap; gap: .06in .22in; }
+  .sw { display: flex; align-items: center; gap: .07in; font-size: 8.4pt; flex: 1 1 1.5in; }
+  .sw i { display: block; width: .2in; height: .13in; flex: none; border: 1px solid rgba(0,0,0,.28); }
   .sw b { font-weight: 700; }
   .sw span { color: var(--muted); }
 
@@ -317,21 +320,21 @@
     <div>
       <h2>Qué contesta la columna B</h2>
       <div class="msgs">
-        <div class="msg"><div class="chip" style="background:#07c369"></div><div class="cuerpo"><span class="t">✅ Ok</span><span class="d">Estaba en la lista esperada. Sigue.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#71b3e6"></div><div class="cuerpo"><span class="t">✅ Guía</span><span class="d">Bien, pero ese pedimento no trae preforma.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#f5c6cb"></div><div class="cuerpo"><span class="t">❌ Va en: 6100166</span><span class="d">Esa guía pertenece a otro pedimento. Muévela.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#df5f6b"></div><div class="cuerpo"><span class="t">⚠️ Sobra (Ajena)</span><span class="d">No está en ninguna preforma. Aparta el bulto.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">⚠️ Sin registrar en M-S</span><span class="d">Nunca pasó por una M-S. Avisa.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ DUPLICADO (En: … Fila 40)</span><span class="d">Ya está en otra pestaña, en esa fila.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ DUPLICADO (ya en Ped: …)</span><span class="d">En otro pedimento de esta misma hoja. Se pintan las dos.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#acacac"></div><div class="cuerpo"><span class="t">🔄 Duplicado local</span><span class="d">La disparaste dos veces en el mismo pedimento. Borra la de abajo.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#df5f6b"></div><div class="cuerpo"><span class="t">❌ Guía Inválida</span><span class="d">Mala lectura. Vuelve a escanear; si insiste, tecléala.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">🛑 ERROR: Faltan 2 números</span><span class="d">El pedimento va incompleto. Complétalo a 7.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">🛑 PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya existe. Si dice «En: …», está en otra pestaña.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#e0e0e0"></div><div class="cuerpo"><span class="t">➡ Salió en A1 77-14-ZP</span><span class="d">Ya se embarcó ahí. Informativo.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">⏳ Pendiente (reintenta)</span><span class="d">Había otro escaneando. Se resuelve solo; si no, vuelve a escribirla.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#FFF3CD"></div><div class="cuerpo"><span class="t">Bultos: 8 | ❌ Faltan 2 (…)</span><span class="d">Resumen del pedimento. Te dice cuáles faltan.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#FFF3CD"></div><div class="cuerpo"><span class="t">Bultos: 0 | ⚠️ 1 con alerta</span><span class="d">Sí hay guías debajo, pero llevan alerta y no cuentan.</span></div></div>
+        <div class="msg" style="border-left-color:#07c369"><span class="t">✅ Ok</span><span class="d">Estaba en la lista esperada. Sigue.</span></div>
+        <div class="msg" style="border-left-color:#71b3e6"><span class="t">✅ Guía</span><span class="d">Bien, pero ese pedimento no trae preforma.</span></div>
+        <div class="msg" style="border-left-color:#f5c6cb"><span class="t">❌ Va en: 6100166</span><span class="d">Esa guía pertenece a otro pedimento. Muévela.</span></div>
+        <div class="msg" style="border-left-color:#df5f6b"><span class="t">⚠️ Sobra (Ajena)</span><span class="d">No está en ninguna preforma. Aparta el bulto.</span></div>
+        <div class="msg" style="border-left-color:#ffc107"><span class="t">⚠️ Sin registrar en M-S</span><span class="d">Nunca pasó por una M-S. Avisa.</span></div>
+        <div class="msg" style="border-left-color:#ff9800"><span class="t">⛔ DUPLICADO (En: … Fila 40)</span><span class="d">Ya está en otra pestaña, en esa fila.</span></div>
+        <div class="msg" style="border-left-color:#ff9800"><span class="t">⛔ DUPLICADO (ya en Ped: …)</span><span class="d">En otro pedimento de esta misma hoja. Se pintan las dos.</span></div>
+        <div class="msg" style="border-left-color:#acacac"><span class="t">🔄 Duplicado local</span><span class="d">La disparaste dos veces en el mismo pedimento. Borra la de abajo.</span></div>
+        <div class="msg" style="border-left-color:#df5f6b"><span class="t">❌ Guía Inválida</span><span class="d">Mala lectura. Vuelve a escanear; si insiste, tecléala.</span></div>
+        <div class="msg" style="border-left-color:#ffc107"><span class="t">🛑 ERROR: Faltan 2 números</span><span class="d">El pedimento va incompleto. Complétalo a 7.</span></div>
+        <div class="msg" style="border-left-color:#dc3545"><span class="t">🛑 PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya existe. Si dice «En: …», está en otra pestaña.</span></div>
+        <div class="msg" style="border-left-color:#e0e0e0"><span class="t">➡ Salió en A1 77-14-ZP</span><span class="d">Ya se embarcó ahí. Informativo.</span></div>
+        <div class="msg" style="border-left-color:#e2e3e5"><span class="t">⏳ Pendiente (reintenta)</span><span class="d">Había otro escaneando. Se resuelve solo; si no, vuelve a escribirla.</span></div>
+        <div class="msg" style="border-left-color:#FFF3CD"><span class="t">Bultos: 8 | ❌ Faltan 2 (…)</span><span class="d">Resumen del pedimento. Te dice cuáles faltan.</span></div>
+        <div class="msg" style="border-left-color:#FFF3CD"><span class="t">Bultos: 0 | ⚠️ 1 con alerta</span><span class="d">Sí hay guías debajo, pero llevan alerta y no cuentan.</span></div>
       </div>
     </div>
   </div>
@@ -387,19 +390,19 @@
     <div>
       <h2>Qué contesta la columna P</h2>
       <div class="msgs">
-        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">12 bultos</span><span class="d">Lo que el sistema espera de ese pedimento.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">► Resumen: 12 bultos</span><span class="d">Lo mismo, en la última guía del bloque.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">⚠️ PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya está en la preforma. Junta los dos bloques.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ GUÍA REPETIDA (ya en Ped: …)</span><span class="d">La capturaste en dos pedimentos. Se pintan las dos en rojo.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#acacac"></div><div class="cuerpo"><span class="t">🔄 Guía repetida local</span><span class="d">Dos veces en el mismo pedimento. Borra la de abajo.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">🛑 ERROR: Faltan 2 números</span><span class="d">El pedimento va incompleto. Complétalo a 7.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#07c369"></div><div class="cuerpo"><span class="t">✅ REZAGO COMPLETO</span><span class="d">Solo en hojas de rezago: llegaron todas.</span></div></div>
+        <div class="msg" style="border-left-color:#e2e3e5"><span class="t">12 bultos</span><span class="d">Lo que el sistema espera de ese pedimento.</span></div>
+        <div class="msg" style="border-left-color:#e2e3e5"><span class="t">► Resumen: 12 bultos</span><span class="d">Lo mismo, en la última guía del bloque.</span></div>
+        <div class="msg" style="border-left-color:#ffc107"><span class="t">⚠️ PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya está en la preforma. Junta los dos bloques.</span></div>
+        <div class="msg" style="border-left-color:#ff9800"><span class="t">⛔ GUÍA REPETIDA (ya en Ped: …)</span><span class="d">La capturaste en dos pedimentos. Se pintan las dos en rojo.</span></div>
+        <div class="msg" style="border-left-color:#acacac"><span class="t">🔄 Guía repetida local</span><span class="d">Dos veces en el mismo pedimento. Borra la de abajo.</span></div>
+        <div class="msg" style="border-left-color:#ffc107"><span class="t">🛑 ERROR: Faltan 2 números</span><span class="d">El pedimento va incompleto. Complétalo a 7.</span></div>
+        <div class="msg" style="border-left-color:#07c369"><span class="t">✅ REZAGO COMPLETO</span><span class="d">Solo en hojas de rezago: llegaron todas.</span></div>
       </div>
 
       <h2 style="margin-top:.2in">Ojo con esto</h2>
       <div class="msgs">
-        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">El pedimento va DEBAJO</span><span class="d">Si lo pones arriba, sus guías se cuelgan del pedimento anterior y todo el conteo sale mal.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">Sin filas en blanco</span><span class="d">Una fila vacía en medio parte el bloque en dos.</span></div></div>
+        <div class="msg" style="border-left-color:#dc3545"><span class="t">El pedimento va DEBAJO</span><span class="d">Si lo pones arriba, sus guías se cuelgan del pedimento anterior y todo el conteo sale mal.</span></div>
+        <div class="msg" style="border-left-color:#dc3545"><span class="t">Sin filas en blanco</span><span class="d">Una fila vacía en medio parte el bloque en dos.</span></div>
       </div>
     </div>
   </div>
@@ -455,15 +458,15 @@
     <div>
       <h2>Qué contesta la columna B</h2>
       <div class="msgs">
-        <div class="msg"><div class="chip" style="background:#71b3e6"></div><div class="cuerpo"><span class="t">✅ Guía</span><span class="d">Registrada. Sigue.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#e0e0e0"></div><div class="cuerpo"><span class="t">➡ Salió en A1 77-14-ZP</span><span class="d">Ya se embarcó. Lo pone el sistema solo.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ff9800"></div><div class="cuerpo"><span class="t">⛔ DUPLICADO (En: M-S T1 …)</span><span class="d">Está en OTRA M-S. Decide en cuál va.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#acacac"></div><div class="cuerpo"><span class="t">🔄 Duplicado local</span><span class="d">Dos veces en el mismo pedimento. Borra la de abajo.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#df5f6b"></div><div class="cuerpo"><span class="t">❌ Guía Inválida</span><span class="d">Mala lectura. Vuelve a escanear.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#dc3545"></div><div class="cuerpo"><span class="t">🛑 PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya existe aquí o en otra M-S.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#07c369"></div><div class="cuerpo"><span class="t">Bultos: 13 (M-S T1) | ✅ TODO SALIÓ</span><span class="d">Resumen: todo ese pedimento ya se embarcó.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#ffc107"></div><div class="cuerpo"><span class="t">Bultos: 13 (…) | ⚠️ Faltan 4 por mover</span><span class="d">Quedan bultos aquí sin embarcar.</span></div></div>
-        <div class="msg"><div class="chip" style="background:#e2e3e5"></div><div class="cuerpo"><span class="t">Bultos: 0</span><span class="d">Pedimento puesto, sin guías debajo todavía.</span></div></div>
+        <div class="msg" style="border-left-color:#71b3e6"><span class="t">✅ Guía</span><span class="d">Registrada. Sigue.</span></div>
+        <div class="msg" style="border-left-color:#e0e0e0"><span class="t">➡ Salió en A1 77-14-ZP</span><span class="d">Ya se embarcó. Lo pone el sistema solo.</span></div>
+        <div class="msg" style="border-left-color:#ff9800"><span class="t">⛔ DUPLICADO (En: M-S T1 …)</span><span class="d">Está en OTRA M-S. Decide en cuál va.</span></div>
+        <div class="msg" style="border-left-color:#acacac"><span class="t">🔄 Duplicado local</span><span class="d">Dos veces en el mismo pedimento. Borra la de abajo.</span></div>
+        <div class="msg" style="border-left-color:#df5f6b"><span class="t">❌ Guía Inválida</span><span class="d">Mala lectura. Vuelve a escanear.</span></div>
+        <div class="msg" style="border-left-color:#dc3545"><span class="t">🛑 PEDIMENTO REPETIDO</span><span class="d">Ese pedimento ya existe aquí o en otra M-S.</span></div>
+        <div class="msg" style="border-left-color:#07c369"><span class="t">Bultos: 13 (M-S T1) | ✅ TODO SALIÓ</span><span class="d">Resumen: todo ese pedimento ya se embarcó.</span></div>
+        <div class="msg" style="border-left-color:#ffc107"><span class="t">Bultos: 13 (…) | ⚠️ Faltan 4 por mover</span><span class="d">Quedan bultos aquí sin embarcar.</span></div>
+        <div class="msg" style="border-left-color:#e2e3e5"><span class="t">Bultos: 0</span><span class="d">Pedimento puesto, sin guías debajo todavía.</span></div>
       </div>
 
       <h2 style="margin-top:.2in">Lo que NO es un error</h2>
