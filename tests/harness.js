@@ -370,6 +370,23 @@ const hdrsDobles = ["GLOBAL 2_FISICO", "GLOBAL 2_FISICO"];
 let idxDobles = construirIndiceCache([hdrsDobles, ["1Z999", "1Z999"]], hdrsDobles);
 ok("dos columnas de la misma hoja producen dos entradas", idxDobles.get("1Z999").length === 2);
 
+// Leer la rejilla entera en vez de getDataRange trae de propina cientos de
+// filas vacías al final. El índice tiene que salir EXACTAMENTE igual: si estas
+// filas de relleno cambiaran algo, cambiarían los mensajes de duplicado.
+const dataConRelleno = dataIdx.slice();
+for (let i = 0; i < 500; i++) dataConRelleno.push(["", "", "", ""]);
+let idxRelleno = construirIndiceCache(dataConRelleno, hdrsIdx);
+ok("las filas de relleno no cambian el tamaño del índice", idxRelleno.size === idx.size);
+ok("las filas de relleno no cambian las entradas",
+   JSON.stringify(Array.from(idxRelleno.entries())) === JSON.stringify(Array.from(idx.entries())));
+
+// Lo mismo para saber hasta dónde recalcular: el relleno no puede correr la
+// última fila hacia abajo, o se recalcularían cientos de filas en blanco.
+const cacheRelleno = { headers: hdrsIdx, data: dataConRelleno };
+ok("el relleno no corre la última fila", ultimaFilaEnCache(cacheRelleno, 0) === 5);
+ok("filaFinalDesdeCache ignora el relleno",
+   filaFinalDesdeCache(cacheRelleno, "GLOBAL 2", 0) === 5);
+
 ok("sin encabezados devuelve un índice vacío", construirIndiceCache([[]], []).size === 0);
 ok("sin datos devuelve un índice vacío", construirIndiceCache(null, hdrsIdx).size === 0);
 ok("solo encabezados devuelve un índice vacío", construirIndiceCache([hdrsIdx], hdrsIdx).size === 0);
@@ -420,6 +437,21 @@ ok("array vacío", cacheVacio([]) === true);
 ok("null", cacheVacio(null) === true);
 ok("una fila con encabezado de verdad NO está vacío", cacheVacio([["GLOBAL 2_FISICO"]]) === false);
 ok("encabezados + datos NO está vacío", cacheVacio([["GLOBAL 2_FISICO"], ["1Z111"]]) === false);
+
+// La foto ya no se lee con getDataRange sino sobre la rejilla entera, así que
+// una hoja en blanco llega como miles de filas vacías en vez de como [[""]].
+// El atajo viejo ("más de una fila => hay caché") la habría dado por buena y
+// habríamos indexado la nada creyendo que teníamos caché.
+const rejillaEnBlanco = [];
+for (let i = 0; i < 3000; i++) rejillaEnBlanco.push(["", "", "", "", "", "", "", ""]);
+ok("rejilla de 3.000 filas vacías SÍ está vacía", cacheVacio(rejillaEnBlanco) === true);
+
+// Y al revés: con encabezados de verdad, que el resto de la rejilla venga en
+// blanco no significa que no haya caché. Es una hoja indexada y todavía sin
+// escanear, que es el estado normal a primera hora.
+const rejillaSoloEncabezados = [["GLOBAL 2_FISICO", "GLOBAL 2_PREFORMA", "", "", "", "", "", ""]];
+for (let i = 0; i < 2999; i++) rejillaSoloEncabezados.push(["", "", "", "", "", "", "", ""]);
+ok("rejilla con encabezados y sin datos NO está vacía", cacheVacio(rejillaSoloEncabezados) === false);
 
 console.log("\n=== 5r. Poda del caché al renombrar una pestaña ===");
 // Se renombró "GLOBAL 2" a "GLOBAL 4": su columna vieja tiene que irse, o la

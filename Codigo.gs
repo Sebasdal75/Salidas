@@ -774,15 +774,28 @@ function getCacheData(source) {
     let cacheSheet = perf("caché: abrir hoja", 0, () => source.getSheetByName("CACHE_SISTEMA"));
     if (!cacheSheet) return null;
 
-    // Una sola ida y vuelta en vez de tres. getDataRange() devuelve justo el
-    // rango con datos, así que sustituye a getLastRow + getLastColumn + getRange
-    // — y getLastRow era, medido, la llamada más cara de todo el sistema.
-    let fullData = perf("caché: leer valores", 0, () => cacheSheet.getDataRange().getValues());
+    // getDataRange() parecía lo barato —una ida y vuelta en vez de tres— y
+    // resultó ser lo más caro de todo el sistema. Medido: 682 ms para 236
+    // filas, y EN CALIENTE, con la pestaña ya abierta. No es el coste de abrir
+    // ni el volumen del dato: es que getDataRange tiene que averiguar hasta
+    // dónde llegan los datos, y eso lleva dentro el mismo getLastRow que ya
+    // estaba documentado aquí como la llamada más cara que hay.
+    //
+    // Un rango de límites conocidos no paga nada de eso: la hoja activa se lee
+    // entera, 3.572 celdas, en 11 ms. getMaxRows/getMaxColumns son metadatos de
+    // la rejilla, no contenido, y cuestan 5 ms medidos.
+    //
+    // Se leen de más todas las filas reservadas y vacías. Da igual:
+    // construirIndiceCache las descarta antes de convertirlas a texto, que es
+    // justo para lo que se le puso esa guarda.
+    let maxFilas = perf("caché: medir la rejilla", 0, () => cacheSheet.getMaxRows());
+    let maxCols = perf("caché: medir la rejilla", 0, () => cacheSheet.getMaxColumns());
+    let fullData = perf("caché: leer valores", maxFilas * maxCols, () =>
+        cacheSheet.getRange(1, 1, maxFilas, maxCols).getValues());
 
-    // getDataRange() sobre una hoja en blanco NO devuelve un array vacío:
-    // devuelve [[""]]. Sin esta guarda se entregaría un caché falso en lugar de
-    // null, y quien comprueba "¿hay caché?" (el diagnóstico, el registro de
-    // borrados) daría por bueno un índice inexistente.
+    // Sin esta guarda se entregaría un caché falso en lugar de null, y quien
+    // comprueba "¿hay caché?" (el diagnóstico, el registro de borrados) daría
+    // por bueno un índice inexistente.
     if (cacheVacio(fullData)) return null;
 
     globalCacheHeaders = fullData[0];
@@ -795,9 +808,19 @@ function getCacheData(source) {
 }
 
 // ¿La foto del caché está en blanco? Es lo que antes decidía `lr < 1 || lc < 1`.
+//
+// Lo decide la FILA DE ENCABEZADOS, no cuántas filas vengan. Antes bastaba con
+// que hubiera más de una fila para darlo por bueno, y eso valía mientras la
+// foto se leyera con getDataRange: una hoja en blanco llegaba como [[""]], una
+// sola fila. Ahora se lee la rejilla completa, así que una hoja en blanco llega
+// como miles de filas vacías y aquel atajo la habría dado por válida.
+//
+// Mirar los encabezados es además lo correcto de por sí: sin encabezados no hay
+// ninguna columna _FISICO que indexar, y construirIndiceCache devolvería un
+// índice vacío con el que la detección de duplicados no diría nada.
 function cacheVacio(fullData) {
     if (!fullData || fullData.length === 0) return true;
-    if (fullData.length > 1) return false;
+    if (!fullData[0]) return true;
     return fullData[0].every(v => String(v).trim() === "");
 }
 
@@ -3064,10 +3087,18 @@ function probarCosteCache() {
   celdaPrueba.clearContent();
   SpreadsheetApp.flush();
 
-  // 2. LECTURA, ya en caliente.
+  // 2. LAS DOS FORMAS DE LEER, una detrás de otra y ya las dos en caliente,
+  //    para que la comparación sea limpia. Esta es la prueba de cargo: la
+  //    primera medición dio 682 ms EN CALIENTE, más que los 566 en frío, así
+  //    que abrir la pestaña no tenía nada que ver. Lo que cuesta es que
+  //    getDataRange averigüe hasta dónde llegan los datos.
   t0 = Date.now();
   let datos = cacheSheet.getDataRange().getValues();
   let msLecturaCaliente = Date.now() - t0;
+
+  t0 = Date.now();
+  let datosRejilla = cacheSheet.getRange(1, 1, cacheSheet.getMaxRows(), colScratch).getValues();
+  let msLecturaRejilla = Date.now() - t0;
 
   // 3. ESCRITURA EN CALIENTE: la referencia de cuánto cuesta el mismo trabajo
   //    sin el primer toque. La diferencia con (1) ES el coste de abrir.
@@ -3084,48 +3115,27 @@ function probarCosteCache() {
   let msLlamadaNormal = Math.round((Date.now() - t0) / 3);
 
   let L = [];
-  L.push("Qué mide: cuánto cuesta el PRIMER contacto con CACHE_SISTEMA en una");
-  L.push("ejecución, según se llegue escribiendo o leyendo.");
+  L.push("Qué mide: por qué leer CACHE_SISTEMA cuesta ~10 veces una llamada");
+  L.push("normal, y si el arreglo funciona.");
   L.push("");
-  L.push("── LOS NÚMEROS ──");
+  L.push("── LAS DOS FORMAS DE LEER (las dos en caliente) ──");
+  L.push("getDataRange, como estaba:   " + msLecturaCaliente + " ms   (" + datos.length + " filas)");
+  L.push("Rango explícito, como queda: " + msLecturaRejilla + " ms   (" + datosRejilla.length + " filas)");
+  L.push("");
+  L.push("── EL RESTO ──");
   L.push("Abrir la hoja por su nombre:      " + msAbrir + " ms");
   L.push("Preguntar cuántas columnas tiene: " + msMaxCols + " ms");
-  L.push("ESCRIBIR 1 celda, EN FRÍO:        " + msEscrituraFria + " ms   ← el dato");
-  L.push("Leer la hoja entera, en caliente: " + msLecturaCaliente + " ms   (" + datos.length + " filas)");
+  L.push("Escribir 1 celda, en frío:        " + msEscrituraFria + " ms");
   L.push("Escribir 1 celda, en caliente:    " + msEscrituraCaliente + " ms");
   L.push("Una llamada corriente:            ~" + msLlamadaNormal + " ms");
+  L.push("(las dos escrituras incluyen un flush forzado, que un escaneo real no");
+  L.push(" hace: ahí se vuelca todo junto al final. Salen más caras de lo que son.)");
   L.push("");
 
-  // ── Veredicto ───────────────────────────────────────────────────────────
-  // El umbral es 3 veces una llamada corriente. Por debajo, escribir es una
-  // llamada más y no materializa la rejilla; por encima, escribir carga la
-  // hoja igual que leerla y mover el índice a CacheService no quita ese coste,
-  // solo lo cambia de sitio.
-  let umbral = Math.max(msLlamadaNormal * 3, 200);
-  L.push("── QUÉ SIGNIFICA ──");
-  if (msEscrituraFria > umbral) {
-      L.push("🔴 Escribir en frío cuesta casi lo mismo que leer en frío.");
-      L.push("");
-      L.push("Abrir la pestaña se paga igual, escribas o leas. Mover el índice");
-      L.push("a CacheService NO ahorraría nada: quitaríamos la lectura y el");
-      L.push("coste se lo comería la escritura, que sigue ahí en cada escaneo.");
-      L.push("");
-      L.push("El camino es otro: dejar de escribir en CACHE_SISTEMA en CADA");
-      L.push("escaneo. Por ejemplo acumular en memoria y volcar cada N, o al");
-      L.push("cerrar. Eso sí tiene riesgo y hay que pensarlo bien.");
-  } else {
-      let ahorro = Math.max(0, 566 - msEscrituraFria);
-      L.push("🟢 Escribir en frío es barato: no materializa la hoja.");
-      L.push("");
-      L.push("Entonces el índice SÍ puede vivir en CacheService. Quitaríamos la");
-      L.push("lectura de CACHE_SISTEMA del escaneo, la escritura pasaría a ser");
-      L.push("el primer toque y costaría solo " + msEscrituraFria + " ms.");
-      L.push("Ahorro estimado: ~" + ahorro + " ms por escaneo.");
-  }
-
-  // ── ¿Cabe el índice en CacheService? ────────────────────────────────────
-  // Se mide antes de construir nada. El límite son 100 KB por clave: si no
-  // cabe hay que trocearlo, y eso es bastante más código del que parece.
+  // ── ¿Cabe el índice en CacheService, y a qué precio? ────────────────────
+  // Se mide antes de construir nada, porque es lo que decide si vale la pena
+  // construirlo. El límite son 100 KB por clave: si no cabe hay que trocearlo,
+  // y eso es bastante más código del que parece.
   let payload = JSON.stringify(datos);
   let kb = (payload.length / 1024).toFixed(1);
   let cache = CacheService.getDocumentCache();
@@ -3144,12 +3154,44 @@ function probarCosteCache() {
       cache.remove("WMS_PRUEBA_TAMANO");
   }
 
+  // ── Veredicto ───────────────────────────────────────────────────────────
+  // La primera corrida de esta prueba tumbó la hipótesis de partida. Se creía
+  // que lo caro era abrir la pestaña por primera vez, porque en las M-S las
+  // mismas 4 lecturas costaban 942 ms en frío y 13 en caliente. Pero aquí la
+  // lectura EN CALIENTE dio 682 ms, más que los 566 en frío de la medición
+  // anterior: el primer toque no pintaba nada. Lo caro era getDataRange, que
+  // para saber dónde acaban los datos hace por dentro el mismo getLastRow que
+  // ya estaba documentado como la llamada más cara del sistema.
+  L.push("── QUÉ SIGNIFICA ──");
+  let mejora = msLecturaCaliente - msLecturaRejilla;
+  if (mejora > 100) {
+      L.push("🟢 El rango explícito ahorra " + mejora + " ms por escaneo.");
+      L.push("");
+      L.push("Leer un rango de límites conocidos no obliga a Sheets a calcular");
+      L.push("dónde acaban los datos, que era todo el coste. Se leen de más las");
+      L.push("filas reservadas vacías y no importa: el índice las descarta.");
+      L.push("");
+      L.push("Con esto, los " + msGet + " ms de CacheService dejan de compensar el");
+      L.push("riesgo de tener el índice en dos sitios que se pueden desincronizar.");
+  } else if (mejora > 0) {
+      L.push("🟡 El rango explícito solo ahorra " + mejora + " ms.");
+      L.push("");
+      L.push("Menos de lo esperado. Si la lectura sigue por encima de 300 ms,");
+      L.push("el siguiente paso es recortar las filas reservadas de CACHE_SISTEMA");
+      L.push("o mover el índice a CacheService.");
+  } else {
+      L.push("🔴 El rango explícito no mejora nada (o empeora).");
+      L.push("");
+      L.push("Entonces el coste no era averiguar el extremo de los datos, y hay");
+      L.push("que ir a CacheService o a escribir el caché menos a menudo.");
+  }
+
   L.push("");
-  L.push("── ¿CABE EL ÍNDICE FUERA DE LA HOJA? ──");
+  L.push("── LA ALTERNATIVA: EL ÍNDICE FUERA DE LA HOJA ──");
   L.push("Tamaño del índice serializado: " + kb + " KB   (límite: 100 KB por clave)");
   if (cabe) {
       L.push("Guardarlo en CacheService:     " + msPut + " ms");
-      L.push("Recuperarlo de CacheService:   " + msGet + " ms   ← esto sustituiría a los ~566");
+      L.push("Recuperarlo de CacheService:   " + msGet + " ms");
       L.push("✅ Cabe entero, sin trocear.");
   } else {
       L.push("⚠️ No cabe en una sola clave: habría que partirlo en trozos.");
