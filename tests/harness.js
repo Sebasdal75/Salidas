@@ -303,6 +303,88 @@ COLS_CAPTURA.forEach(c =>
 ok("la columna Q ya no está en el lote", columnasDelLote().indexOf(17) === -1);
 ok("la columna D ya no está en el lote", columnasDelLote().indexOf(4) === -1);
 
+console.log("\n=== 5s. construirIndiceCache ===");
+// data[0] son los encabezados; data[r] corresponde a la fila r de la hoja.
+const hdrsIdx = ["GLOBAL 2_FISICO", "GLOBAL 2_PREFORMA", "M-S T1_FISICO", "INVENTARIO A_FISICO"];
+const dataIdx = [
+  hdrsIdx,
+  ["1Z111",         "1ZPRE",  "1Z111", ""       ],  // fila 1
+  ["",              "",       "",      "1Z222"  ],  // fila 2
+  ["SIN PEDIMENTO", "",       "",      ""       ],  // fila 3
+  ["  1z333  ",     "",       "",      ""       ],  // fila 4
+  ["6100166",       "",       "",      ""       ]   // fila 5: un pedimento SÍ se indexa
+];
+let idx = construirIndiceCache(dataIdx, hdrsIdx);
+
+ok("la misma guía en dos pestañas da dos entradas", idx.get("1Z111").length === 2);
+ok("el índice de fila ES la fila de la hoja", idx.get("1Z111")[0].fila === 1);
+ok("marca la M-S como M-S", idx.get("1Z111").some(e => e.hoja === "M-S T1" && e.isMS === true));
+ok("marca el inventario como inventario", idx.get("1Z222")[0].isInventario === true);
+ok("el destino no es ni M-S ni inventario",
+   idx.get("1Z111").some(e => e.hoja === "GLOBAL 2" && !e.isMS && !e.isInventario));
+ok("normaliza espacios y minúsculas", idx.has("1Z333") && idx.get("1Z333")[0].fila === 4);
+ok("salta los marcadores estructurales", !idx.has("SIN PEDIMENTO"));
+ok("el pedimento sí entra al índice", idx.has("6100166"));
+ok("las columnas _PREFORMA NO entran", !idx.has("1ZPRE"));
+ok("las celdas vacías no crean entradas", !idx.has(""));
+
+// El caso que produce el "DUPLICADO fantasma": dos columnas con el mismo nombre
+// de hoja, que es lo que queda tras renombrar una pestaña sin podar el caché.
+const hdrsDobles = ["GLOBAL 2_FISICO", "GLOBAL 2_FISICO"];
+let idxDobles = construirIndiceCache([hdrsDobles, ["1Z999", "1Z999"]], hdrsDobles);
+ok("dos columnas de la misma hoja producen dos entradas", idxDobles.get("1Z999").length === 2);
+
+ok("sin encabezados devuelve un índice vacío", construirIndiceCache([[]], []).size === 0);
+ok("sin datos devuelve un índice vacío", construirIndiceCache(null, hdrsIdx).size === 0);
+ok("solo encabezados devuelve un índice vacío", construirIndiceCache([hdrsIdx], hdrsIdx).size === 0);
+ok("una fila hueca no revienta",
+   construirIndiceCache([hdrsIdx, null, ["1Z777","","",""]], hdrsIdx).get("1Z777")[0].fila === 2);
+
+// Equivalencia con la implementación anterior, sobre datos con ruido.
+function indiceIngenuo(data, headers) {
+  let m = new Map();
+  for (let c = 0; c < headers.length; c++) {
+    let h = String(headers[c]);
+    if (!h.endsWith("_FISICO")) continue;
+    let hoja = claveHoja(h.replace("_FISICO", ""));
+    for (let r = 1; r < data.length; r++) {
+      let v = String(data[r][c]).trim().toUpperCase();
+      if (v === "" || esMarcadorEstructural(v)) continue;
+      let arr = m.get(v) || [];
+      arr.push({ hoja: hoja, fila: r, isMS: esHojaMS(hoja), isInventario: esHojaInventario(hoja) });
+      m.set(v, arr);
+    }
+  }
+  return m;
+}
+const hdrsRuido = ["GLOBAL 2_FISICO", "M-S T1_FISICO", "GLOBAL 2_PREFORMA", "INVENTARIO A_FISICO", "", "RARO"];
+let dataRuido = [hdrsRuido];
+for (let i = 1; i <= 200; i++) {
+  dataRuido.push([
+    i % 3 === 0 ? "" : "1Z" + (i % 47),
+    i % 5 === 0 ? "SIN PEDIMENTO" : (i % 7 === 0 ? "  " : "1Z" + (i % 31)),
+    "1ZPRE" + i,
+    i % 11 === 0 ? "1Z" + (i % 47) : "",
+    "basura", "basura"
+  ]);
+}
+let a = construirIndiceCache(dataRuido, hdrsRuido);
+let b = indiceIngenuo(dataRuido, hdrsRuido);
+ok("mismo número de guías que la versión anterior", a.size === b.size);
+// El ORDEN importa: quien consulta el índice se queda con la primera entrada
+// que encaje, así que es lo que decide qué ubicación se nombra en el mensaje
+// de duplicado. Tiene que ser idéntico al de antes, no solo equivalente.
+ok("mismas entradas, en el mismo orden, con los mismos campos",
+   JSON.stringify([...a.entries()]) === JSON.stringify([...b.entries()]));
+
+console.log("\n=== 5s2. cacheVacio (la guarda que getDataRange se lleva por delante) ===");
+ok("hoja en blanco: getDataRange devuelve [[\"\"]]", cacheVacio([[""]]) === true);
+ok("varias celdas vacías en una sola fila", cacheVacio([["", "  ", ""]]) === true);
+ok("array vacío", cacheVacio([]) === true);
+ok("null", cacheVacio(null) === true);
+ok("una fila con encabezado de verdad NO está vacío", cacheVacio([["GLOBAL 2_FISICO"]]) === false);
+ok("encabezados + datos NO está vacío", cacheVacio([["GLOBAL 2_FISICO"], ["1Z111"]]) === false);
+
 console.log("\n=== 5r. Poda del caché al renombrar una pestaña ===");
 // Se renombró "GLOBAL 2" a "GLOBAL 4": su columna vieja tiene que irse, o la
 // hoja se compara contra su propio pasado y sale entera duplicada.

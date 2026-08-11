@@ -633,7 +633,7 @@ function procesarEdicion(e) {
 
     // El caché se actualiza ANTES de recalcular: así los recálculos ven la
     // realidad y pueden reevaluar duplicados desde cero.
-    let guiasAfectadas = actualizarBloqueEnCache(e.source, nombreHoja, filaInicial, numRows,
+    let guiasAfectadas = actualizarBloqueEnCache(e.source, hoja, nombreHoja, filaInicial, numRows,
                                                  colInicial, numCols, valoresEditados);
     if (guiasAfectadas === null) {
         // Hubo que reconstruir la fotografía de la hoja: recargamos el caché.
@@ -763,11 +763,17 @@ function getCacheData(source) {
     let cacheSheet = perf("caché: abrir hoja", 0, () => source.getSheetByName("CACHE_SISTEMA"));
     if (!cacheSheet) return null;
 
-    let lr = perf("caché: getLastRow", 0, () => cacheSheet.getLastRow());
-    let lc = perf("caché: getLastColumn", 0, () => cacheSheet.getLastColumn());
-    if (lr < 1 || lc < 1) return null;
+    // Una sola ida y vuelta en vez de tres. getDataRange() devuelve justo el
+    // rango con datos, así que sustituye a getLastRow + getLastColumn + getRange
+    // — y getLastRow era, medido, la llamada más cara de todo el sistema.
+    let fullData = perf("caché: leer valores", 0, () => cacheSheet.getDataRange().getValues());
 
-    let fullData = perf("caché: leer valores", lr * lc, () => cacheSheet.getRange(1, 1, lr, lc).getValues());
+    // getDataRange() sobre una hoja en blanco NO devuelve un array vacío:
+    // devuelve [[""]]. Sin esta guarda se entregaría un caché falso en lugar de
+    // null, y quien comprueba "¿hay caché?" (el diagnóstico, el registro de
+    // borrados) daría por bueno un índice inexistente.
+    if (cacheVacio(fullData)) return null;
+
     globalCacheHeaders = fullData[0];
     globalCacheData = fullData;
 
@@ -775,6 +781,13 @@ function getCacheData(source) {
         construirIndiceCache(globalCacheData, globalCacheHeaders));
 
     return { data: globalCacheData, headers: globalCacheHeaders, map: globalCacheMap };
+}
+
+// ¿La foto del caché está en blanco? Es lo que antes decidía `lr < 1 || lc < 1`.
+function cacheVacio(fullData) {
+    if (!fullData || fullData.length === 0) return true;
+    if (fullData.length > 1) return false;
+    return fullData[0].every(v => String(v).trim() === "");
 }
 
 // Índice guía -> [{hoja, fila, isMS, isInventario}] a partir de la foto del caché.
@@ -803,20 +816,25 @@ function construirIndiceCache(data, headers) {
     }
     if (columnas.length === 0) return mapa;
 
-    // Recorrido por filas: toca cada array de fila una sola vez, en vez de
-    // recorrer las 3.000 filas enteras una vez por columna.
-    for (let r = 1; r < data.length; r++) {
-        let fila = data[r];
-        if (!fila) continue;
+    // El recorrido va por COLUMNAS y luego por filas, igual que antes, y eso no
+    // es un detalle de estilo: el orden en que se apilan las entradas decide
+    // cuál se nombra en «⛔ DUPLICADO (En: … Fila N)», porque quien consulta se
+    // queda con la primera que encaje. Recorrer por filas parecía más rápido y
+    // habría cambiado ese mensaje sin avisar. La ganancia real no estaba ahí,
+    // sino en no convertir a texto lo que está vacío.
+    for (let k = 0; k < columnas.length; k++) {
+        let col = columnas[k];
+        let c = col.c;
 
-        for (let k = 0; k < columnas.length; k++) {
-            let col = columnas[k];
-            let bruto = fila[col.c];
+        for (let r = 1; r < data.length; r++) {
+            let fila = data[r];
+            if (!fila) continue;
 
             // La celda vacía se descarta ANTES de convertirla a texto. En un
             // caché de 3.000 filas la enorme mayoría están en blanco (relleno
             // de asegurarFilas) y hasta ahora cada una pagaba tres operaciones
             // de cadena para acabar descartada igual.
+            let bruto = fila[c];
             if (bruto === "" || bruto === null || bruto === undefined) continue;
 
             let v = String(bruto).trim().toUpperCase();
@@ -1049,13 +1067,20 @@ function marcarPedimentosRepetidosFuera(resultadosB, coloresB, mapa) {
 // Devuelve un Set con las guías tocadas (valores nuevos y antiguos), o null
 // si hubo que reconstruir la fotografía completa de la hoja.
 // =========================================================================
-function actualizarBloqueEnCache(source, nombreHoja, filaInicial, numRows, colInicial, numCols, valoresEditados) {
+// `hoja` es la pestaña que se acaba de editar. Antes se buscaba aquí dentro con
+// buscarHojaPorClave(), que recorre TODAS las pestañas del archivo preguntando
+// su nombre, y encima se hacía siempre aunque solo hiciera falta en dos ramas
+// raras. El único llamador ya la tiene en la mano, así que se la pasa.
+//
+// Además es más correcto: buscarHojaPorClave compara nombres normalizados, así
+// que en la rama del renombrado —la que existe precisamente para curar ese
+// caso— podía devolver null y dejar la foto sin rehacer.
+function actualizarBloqueEnCache(source, hoja, nombreHoja, filaInicial, numRows, colInicial, numCols, valoresEditados) {
     let clave = claveHoja(nombreHoja);
     let cacheSheet = source.getSheetByName("CACHE_SISTEMA");
-    let hojaObjetivo = buscarHojaPorClave(source, clave);
 
     if (!cacheSheet) {
-        if (hojaObjetivo) actualizarFotografiaMental(hojaObjetivo, source);
+        if (hoja) actualizarFotografiaMental(hoja, source);
         invalidarCacheRAM();
         return null;
     }
@@ -1080,7 +1105,7 @@ function actualizarBloqueEnCache(source, nombreHoja, filaInicial, numRows, colIn
     // cambio de nombre ya deja el caché coherente.
     if (headers.indexOf(clave + "_FISICO") === -1) {
         podarCacheHuerfano(source);
-        if (hojaObjetivo) actualizarFotografiaMental(hojaObjetivo, source);
+        if (hoja) actualizarFotografiaMental(hoja, source);
         invalidarCacheRAM();
         return null;
     }
@@ -1158,6 +1183,9 @@ function actualizarBloqueEnCache(source, nombreHoja, filaInicial, numRows, colIn
     return guiasAfectadas;
 }
 
+// OJO: recorre TODAS las pestañas pidiendo su nombre. Fuera del camino de
+// escaneo a propósito — si vuelve a aparecer ahí, son ~26 llamadas por escaneo.
+// Hoy solo la usa la herramienta de medición.
 function buscarHojaPorClave(source, clave) {
     let objetivo = claveHoja(clave);
     let hojas = source.getSheets();
