@@ -79,7 +79,7 @@
 
   /* ---------- Barra de pantalla (no se imprime) ---------- */
   .barra {
-    max-width: 8.5in;
+    max-width: 11in;
     margin: 1rem auto .5rem;
     padding: .7rem .9rem;
     display: flex; flex-wrap: wrap; align-items: center; gap: .75rem;
@@ -111,8 +111,11 @@
   .aviso-print.visible { display: block; }
 
   /* ---------- La hoja ---------- */
+  /* Horizontal: 11 pulgadas de ancho por 8.5 de alto. Es como salen por
+     defecto en la impresora de la nave, y sobra ancho para poner el
+     diccionario a dos columnas en vez de una lista larguísima. */
   .hoja {
-    width: 100%; max-width: 8.5in; min-height: 11in;
+    width: 100%; max-width: 11in; min-height: 8.5in;
     margin: 0 auto 1.2rem;
     /* El padding en pulgadas era el culpable del texto en vertical: media
        pulgada por lado son ~96 px, y en una vista estrecha se comía TODO el
@@ -150,13 +153,18 @@
 
   /* Dos columnas si caben, una si no. Sin media queries: en impresión no son
      fiables, y la página puede acabar en vertical o en horizontal. */
+  /* En horizontal cabe la columna de instrucciones más estrecha y el
+     diccionario más ancho. Si la ventana se estrecha, auto-fit lo deja en una
+     sola columna sin necesidad de media queries. */
   .cols {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.1in), 1fr));
-    gap: clamp(.8rem, 3vw, .3in);
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 3in), 1fr));
+    gap: clamp(.8rem, 2vw, .28in);
     align-items: start;
   }
   .cols > * { min-width: 0; }
+  .cols > .ancho { grid-column: span 2; }
+  @media (max-width: 7in) { .cols > .ancho { grid-column: auto; } }
 
   /* ---------- Pasos ----------
      Lista de flujo normal, con el número como marcador. Antes esto era una
@@ -179,14 +187,17 @@
   /* ---------- Diccionario de mensajes ----------
      El color va como borde izquierdo, no como columna de rejilla: así no hay
      ninguna pista que pueda encogerse y dejar el texto sin sitio. */
-  .msgs {
-    display: flex; flex-direction: column; gap: 1px;
-    background: var(--line-soft); border: 1px solid var(--line-soft);
-  }
+  /* Columnas de texto, no flex: el diccionario se reparte solo en dos columnas
+     cuando hay ancho y vuelve a una cuando no. `break-inside: avoid` impide que
+     un mensaje quede partido entre columnas o entre páginas. */
+  .msgs { columns: 2 2.45in; column-gap: .14in; }
   .msg {
     background: var(--paper);
-    border-left: .14in solid var(--gris);
-    padding: .055in .09in;
+    border-left: .13in solid var(--gris);
+    border-bottom: 1px solid var(--line-soft);
+    padding: .05in .085in;
+    break-inside: avoid; page-break-inside: avoid;
+    -webkit-column-break-inside: avoid;
   }
   .msg .t {
     display: block;
@@ -231,8 +242,10 @@
     display: flex; justify-content: space-between; gap: 1rem;
   }
 
-  @media (max-width: 8.9in) {
+  @media (max-width: 11.4in) {
     .hoja { min-height: 0; }
+  }
+  @media (max-width: 7in) {
     .cabecera { flex-wrap: wrap; }
     .cabecera .quien { text-align: left; }
   }
@@ -242,7 +255,7 @@
      navegador, así que imponerla no funciona y diseñar para ella tampoco. El
      margen NO es cero: toda impresora tiene un borde donde no puede imprimir,
      y confiar solo en el padding interior recorta el contenido. */
-  @page { margin: 1cm; }
+  @page { size: letter landscape; margin: 1cm; }
   @media print {
     /* Sin esto el navegador imprime los fondos en blanco y la tarjeta pierde
        justo lo que la hace útil: poder reconocer el color. */
@@ -276,7 +289,7 @@
 </style>
 
 <div class="barra">
-  <p><b>Tres hojas, una por puesto.</b> Al imprimir salen en tres páginas: columna A, columna O y M-S. Puedes imprimir solo la que necesites eligiendo el número de página. Se acomodan solas tanto en vertical como en horizontal.</p>
+  <p><b>Tres hojas, una por puesto.</b> Pensadas para <b>hoja carta en horizontal</b>: salen en tres páginas —columna A, columna O y M-S— y puedes imprimir solo la que necesites eligiendo el número de página.</p>
   <button type="button" id="btn">Imprimir</button>
   <span>o <kbd>Ctrl</kbd> + <kbd>P</kbd></span>
   <p class="aviso-print" id="avisoPrint">Esta vista no deja abrir el diálogo de impresión. Usa <kbd>Ctrl</kbd> + <kbd>P</kbd> (<kbd>⌘</kbd> + <kbd>P</kbd> en Mac), o abre la página en una pestaña aparte.</p>
@@ -339,7 +352,7 @@
     </div>
   </div>
 
-  <div class="raro">
+  <div class="raro ancho">
     <h3>Si algo se ve raro</h3>
     <p class="fuerte">Todo esto se hace en la computadora, nunca desde la pistola. Disparar el escáner para «probar» mete guías de verdad en la hoja y ensucia el conteo.</p>
     <p>Menú <code>📦 Opciones Avanzadas</code> → <code>🔄 Forzar Actualización</code> en esa pestaña. Arregla casi todo.</p>
@@ -407,7 +420,7 @@
     </div>
   </div>
 
-  <div class="raro">
+  <div class="raro ancho">
     <h3>Si algo se ve raro</h3>
     <p class="fuerte">Todo esto se hace en la computadora, nunca desde la pistola. Disparar el escáner para «probar» mete guías de verdad en la hoja y ensucia el conteo.</p>
     <p>Menú <code>📦 Opciones Avanzadas</code> → <code>🔄 Forzar Actualización</code> en esa pestaña.</p>
@@ -477,7 +490,7 @@
     </div>
   </div>
 
-  <div class="raro">
+  <div class="raro ancho">
     <h3>Si algo se ve raro</h3>
     <p class="fuerte">Todo esto se hace en la computadora, nunca desde la pistola. Disparar el escáner para «probar» mete guías de verdad en la hoja y ensucia el conteo.</p>
     <p>Menú <code>📦 Opciones Avanzadas</code> → <code>🔄 Forzar Actualización</code> en esa pestaña.</p>
