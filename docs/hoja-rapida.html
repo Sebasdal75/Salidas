@@ -104,11 +104,24 @@
     border: 1px solid var(--line); border-radius: 3px;
     padding: .1em .4em;
   }
+  .barra .botones { display: flex; flex-wrap: wrap; gap: .4rem; }
+  .barra button {
+    background: var(--paper-alt); color: var(--ink);
+    border: 1px solid var(--line);
+  }
+  .barra button.primario { background: var(--accent); color: var(--accent-in); border-color: var(--accent); }
   .aviso-print {
-    flex: 1 1 100%; margin: 0; font-size: .78rem;
-    color: var(--muted); display: none;
+    flex: 1 1 100%; margin: 0; font-size: .8rem;
+    color: var(--ink); display: none;
+    background: var(--paper-alt); border-left: 3px solid var(--accent);
+    padding: .45rem .6rem; border-radius: 0 3px 3px 0;
   }
   .aviso-print.visible { display: block; }
+
+  /* En pantalla, la hoja no elegida se atenúa para que se vea qué va a salir. */
+  body.solo-a .hoja:not(#hoja-a),
+  body.solo-o .hoja:not(#hoja-o),
+  body.solo-ms .hoja:not(#hoja-ms) { opacity: .28; }
 
   /* ---------- La hoja ---------- */
   /* Horizontal: 11 pulgadas de ancho por 8.5 de alto. Es como salen por
@@ -125,7 +138,7 @@
     background: var(--paper);
     border: 1px solid var(--line);
     box-shadow: 0 1px 3px rgba(0,0,0,.07);
-    display: flex; flex-direction: column; gap: .26in;
+    display: flex; flex-direction: column; gap: .17in;
   }
 
   .cabecera {
@@ -134,7 +147,7 @@
     border-bottom: 3px solid var(--ink);
   }
   .cabecera h1 {
-    margin: 0; font-size: 22pt; font-weight: 800;
+    margin: 0; font-size: 18pt; font-weight: 800;
     letter-spacing: -.02em; text-wrap: balance;
   }
   .cabecera .quien {
@@ -158,10 +171,11 @@
      sola columna sin necesidad de media queries. */
   .cols {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(100%, 3in), 1fr));
-    gap: clamp(.8rem, 2vw, .28in);
+    grid-template-columns: minmax(0, 2.9in) minmax(0, 1fr);
+    gap: clamp(.8rem, 2vw, .24in);
     align-items: start;
   }
+  @media (max-width: 7in) { .cols { grid-template-columns: minmax(0, 1fr); } }
   .cols > * { min-width: 0; }
   .cols > .ancho { grid-column: span 2; }
   @media (max-width: 7in) { .cols > .ancho { grid-column: auto; } }
@@ -172,11 +186,11 @@
      del texto se colapsaba: las palabras salían una por línea y encimadas. Una
      lista corriente no puede hacer eso. */
   .pasos {
-    margin: 0; padding-left: 1.5em;
+    margin: 0; padding-left: 1.4em;
     list-style: decimal;
-    font-size: 9.5pt; line-height: 1.45;
+    font-size: 8.8pt; line-height: 1.38;
   }
-  .pasos li { margin-bottom: .07in; padding-left: .05em; }
+  .pasos li { margin-bottom: .05in; padding-left: .05em; }
   .pasos li::marker { font-weight: 800; color: var(--accent); }
   .pasos code, .pasos .txt {
     font-family: var(--mono); font-size: .92em; font-weight: 600;
@@ -190,21 +204,23 @@
   /* Columnas de texto, no flex: el diccionario se reparte solo en dos columnas
      cuando hay ancho y vuelve a una cuando no. `break-inside: avoid` impide que
      un mensaje quede partido entre columnas o entre páginas. */
-  .msgs { columns: 2 2.45in; column-gap: .14in; }
+  /* column-width en vez de un número fijo: pone las que quepan. En horizontal
+     salen tres, en vertical dos, y en una ventana estrecha una. */
+  .msgs { columns: 2.2in; column-gap: .13in; }
   .msg {
     background: var(--paper);
-    border-left: .13in solid var(--gris);
+    border-left: .12in solid var(--gris);
     border-bottom: 1px solid var(--line-soft);
-    padding: .05in .085in;
+    padding: .04in .075in;
     break-inside: avoid; page-break-inside: avoid;
     -webkit-column-break-inside: avoid;
   }
   .msg .t {
     display: block;
-    font-family: var(--mono); font-size: 8.2pt; font-weight: 700;
+    font-family: var(--mono); font-size: 7.6pt; font-weight: 700;
     overflow-wrap: break-word;
   }
-  .msg .d { display: block; font-size: 7.8pt; line-height: 1.35; color: var(--muted); margin-top: .02in; }
+  .msg .d { display: block; font-size: 7.1pt; line-height: 1.3; color: var(--muted); margin-top: .015in; }
 
   /* ---------- Colores de la columna que se escanea ---------- */
   .paleta { display: flex; flex-wrap: wrap; gap: .06in .22in; }
@@ -217,13 +233,13 @@
   .raro {
     border: 2px solid var(--ink);
     background: var(--paper-alt);
-    padding: .13in .16in;
+    padding: .1in .13in;
   }
   .raro h3 {
     margin: 0 0 .06in; font-size: 9pt; font-weight: 800;
     text-transform: uppercase; letter-spacing: .07em;
   }
-  .raro p { margin: 0 0 .05in; font-size: 8.6pt; line-height: 1.42; }
+  .raro p { margin: 0 0 .04in; font-size: 8.1pt; line-height: 1.38; }
   .raro p:last-child { margin-bottom: 0; }
   .raro .fuerte {
     font-weight: 800;
@@ -277,9 +293,20 @@
       break-after: page; page-break-after: always;
     }
     .hoja:last-of-type { break-after: auto; page-break-after: auto; }
-    .msg, .msgs { break-inside: avoid; page-break-inside: avoid; }
-    .paleta, .pasos li { break-inside: avoid; page-break-inside: avoid; }
+    .msg { break-inside: avoid; page-break-inside: avoid; }
+    .paleta, .pasos li, .raro { break-inside: avoid; page-break-inside: avoid; }
     .cabecera { break-after: avoid; page-break-after: avoid; }
+
+    /* Imprimir una sola hoja: los botones ponen una clase en el body y aquí se
+       esconden las demás. Hace falta que la clase se QUEDE puesta, porque en
+       vistas incrustadas el diálogo de impresión suele estar bloqueado y el
+       operador acaba usando Ctrl+P a mano. */
+    body.solo-a .hoja:not(#hoja-a),
+    body.solo-o .hoja:not(#hoja-o),
+    body.solo-ms .hoja:not(#hoja-ms) { display: none !important; }
+    body.solo-a #hoja-a, body.solo-o #hoja-o, body.solo-ms #hoja-ms {
+      break-after: auto; page-break-after: auto;
+    }
     .raro { break-inside: avoid; page-break-inside: avoid; }
   }
 
@@ -289,16 +316,20 @@
 </style>
 
 <div class="barra">
-  <p><b>Tres hojas, una por puesto.</b> Pensadas para <b>hoja carta en horizontal</b>: salen en tres páginas —columna A, columna O y M-S— y puedes imprimir solo la que necesites eligiendo el número de página.</p>
-  <button type="button" id="btn">Imprimir</button>
-  <span>o <kbd>Ctrl</kbd> + <kbd>P</kbd></span>
-  <p class="aviso-print" id="avisoPrint">Esta vista no deja abrir el diálogo de impresión. Usa <kbd>Ctrl</kbd> + <kbd>P</kbd> (<kbd>⌘</kbd> + <kbd>P</kbd> en Mac), o abre la página en una pestaña aparte.</p>
+  <p><b>Tres hojas, una por puesto.</b> Pensadas para <b>hoja carta en horizontal</b>. Elige cuál imprimir y cada una sale en su propia página.</p>
+  <div class="botones">
+    <button type="button" data-hoja="a">Solo columna A</button>
+    <button type="button" data-hoja="o">Solo columna O</button>
+    <button type="button" data-hoja="ms">Solo M-S</button>
+    <button type="button" data-hoja="todas" class="primario">Las tres</button>
+  </div>
+  <p class="aviso-print" id="avisoPrint"></p>
 </div>
 
 <!-- ================================================================= -->
 <!-- 1 · COLUMNA A                                                      -->
 <!-- ================================================================= -->
-<div class="hoja">
+<div class="hoja" id="hoja-a">
 
   <div class="cabecera">
     <h1>Columna A · Escaneo físico</h1>
@@ -365,7 +396,7 @@
 <!-- ================================================================= -->
 <!-- 2 · COLUMNA O                                                      -->
 <!-- ================================================================= -->
-<div class="hoja">
+<div class="hoja" id="hoja-o">
 
   <div class="cabecera">
     <h1>Columna O · Preforma</h1>
@@ -433,7 +464,7 @@
 <!-- ================================================================= -->
 <!-- 3 · M-S                                                            -->
 <!-- ================================================================= -->
-<div class="hoja">
+<div class="hoja" id="hoja-ms">
 
   <div class="cabecera">
     <h1>M-S · Registro previo</h1>
@@ -501,14 +532,30 @@
 </div>
 
 <script>
-  document.getElementById("btn").addEventListener("click", function () {
-    // En vistas incrustadas el diálogo de impresión puede estar bloqueado.
-    // Si no se puede abrir, se dice qué hacer en vez de no hacer nada.
+  var NOMBRES = { a: "columna A", o: "columna O", ms: "M-S", todas: "las tres hojas" };
+
+  function elegir(cual) {
+    document.body.className = (cual === "todas") ? "" : "solo-" + cual;
+
+    var aviso = document.getElementById("avisoPrint");
+    var quedan = (cual === "todas") ? "3 páginas" : "1 página";
+
+    // En vistas incrustadas el diálogo de impresión suele estar bloqueado. Por
+    // eso la selección se QUEDA puesta: si el botón no puede abrir el diálogo,
+    // Ctrl+P a mano imprime igualmente solo lo elegido.
+    var pudo = false;
     try {
-      if (typeof window.print !== "function") throw new Error("sin print");
-      window.print();
-    } catch (err) {
-      document.getElementById("avisoPrint").classList.add("visible");
-    }
-  });
+      if (typeof window.print === "function") { window.print(); pudo = true; }
+    } catch (err) { pudo = false; }
+
+    aviso.innerHTML = pudo
+      ? "Listo: se va a imprimir <b>" + NOMBRES[cual] + "</b> (" + quedan + ")."
+      : "Seleccionado <b>" + NOMBRES[cual] + "</b> (" + quedan + "). Esta vista no deja abrir el diálogo: pulsa <b>Ctrl + P</b> (⌘ + P en Mac) y saldrá solo eso.";
+    aviso.classList.add("visible");
+  }
+
+  var botones = document.querySelectorAll(".barra button[data-hoja]");
+  for (var i = 0; i < botones.length; i++) {
+    botones[i].addEventListener("click", function () { elegir(this.getAttribute("data-hoja")); });
+  }
 </script>
