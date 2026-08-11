@@ -84,8 +84,7 @@ Cuatro dominios, decididos **por el nombre** (todo pasa por `claveHoja()` =
 MACHO **sí** reciben el volcado de la columna M, las internas **no**.
 Ver §7.
 
-> **Aviso conceptual:** las M-S se llaman "bodegas" en comentarios viejos, pero
-> no lo son. Son un **registro previo**: el bulto se escanea cuando ya está
+> **Qué es una M-S:** un **registro previo**. El bulto se escanea cuando ya está
 > físicamente presente pero aún no se sabe en qué unidad se va. Su contenido
 > alimenta la preforma de la Global (§6.1).
 
@@ -324,7 +323,7 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
 6. **`esGuiaUPSValida` acepta cualquier cosa >7 caracteres** que no sea 1Z. Guías
    cortas (≥8 dígitos) pasan; 7 dígitos exactos = pedimento. Si cambias esto,
    corre `TEST_guias()` desde el editor.
-7. **El tipo de M-S y la bodega real salen del nombre/caché, no de las guías.**
+7. **El tipo de M-S y la M-S real salen del nombre/caché, no de las guías.**
    No reintroduzcas heurísticas de prefijo.
 
 ---

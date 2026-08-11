@@ -4,7 +4,7 @@
 // Arquitectura: caché híbrido (hoja oculta CACHE_SISTEMA + índice en RAM),
 // escrituras siempre en lote, y tres dominios aislados entre sí:
 //   · GLOBALES / REZAGO / AGA  -> cruzan Físico (col A) contra Preforma (col O)
-//   · BODEGAS (M-S ...)        -> cruzan solo contra otras bodegas
+//   · M-S ...                  -> cruzan solo contra otras M-S
 //   · INVENTARIOS              -> cruzan SOLO contra otros inventarios
 //
 // Regla de oro: ninguna llamada a la API de Sheets dentro de un bucle.
@@ -147,7 +147,7 @@ function esHojaMS(nombreHoja) {
     return n.startsWith("M-S ") || n.startsWith("SIMPLES") || n.startsWith("MULTIPLES");
 }
 
-// El tipo de una bodega lo decide el operador al elegir la pestaña. No se
+// El tipo de una M-S lo decide el operador al elegir la pestaña. No se
 // puede deducir de las guías: con guías cortas no hay nada que distinga un T1
 // de un global, y con guías 1Z el prefijo del embarcador tampoco lo dice.
 function tipoMS(nombreHoja) {
@@ -981,7 +981,7 @@ function hojaContieneAlgunaGuia(cacheInfo, colIdx, guias) {
 //   INVENTARIO -> solo choca con INVENTARIO (incluida otra ubicación IW de la
 //                 misma pestaña: por eso NO se descarta la hoja actual, solo
 //                 la fila exacta).
-//   BODEGA     -> solo choca con otras BODEGAS.
+//   M-S        -> solo choca con otras M-S.
 //   GLOBAL     -> solo choca con otras GLOBALES/REZAGO/AGA.
 // -------------------------------------------------------------------------
 function verificarDuplicadoConCache(cacheInfo, nombreHojaActual, guiaBuscada, filaActual) {
@@ -1042,7 +1042,7 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
             if (match.hoja === claveEsta && match.fila === i) continue;
 
             if (esInv) {
-                if (!match.isInventario) continue;   // inventario ignora Global y Bodegas
+                if (!match.isInventario) continue;   // inventario ignora Global y M-S
             } else if (esMS) {
                 if (!match.isMS || match.hoja === claveEsta) continue;
             } else {
@@ -1239,7 +1239,7 @@ function buscarHojaPorClave(source, clave) {
     return null;
 }
 
-// Las bodegas (M-S ...) no llevan preforma: su columna O siempre está vacía.
+// Las M-S no llevan preforma: su columna O siempre está vacía.
 // No tiene sentido reservarles columna en el caché ni leerla en cada foto.
 function usaPreforma(nombreHoja) {
     return !esHojaMS(nombreHoja);
@@ -1282,7 +1282,7 @@ function actualizarFotografiaMental(hoja, source) {
     let maxCols = Math.max(cacheSheet.getLastColumn(), 1);
     let headers = cacheSheet.getRange(1, 1, 1, maxCols).getValues()[0];
 
-    // Las columnas se reservan por separado, no en pares: así una bodega ocupa
+    // Las columnas se reservan por separado, no en pares: así una M-S ocupa
     // una sola columna en vez de dos, una de ellas siempre vacía.
     let conPreforma = usaPreforma(clave);
     let colFisico = columnaDeHeader(cacheSheet, headers, clave + "_FISICO");
@@ -1336,7 +1336,7 @@ function columnasHuerfanas(headers, existentes) {
 
         // Pestaña renombrada o borrada.
         if (!existentes.has(nombre)) { aBorrar.push(i + 1); continue; }
-        // Columna de preforma de una bodega: siempre vacía, no se usa.
+        // Columna de preforma de una M-S: siempre vacía, no se usa.
         if (h.endsWith("_PREFORMA") && !usaPreforma(nombre)) aBorrar.push(i + 1);
     }
     return aBorrar.sort((a, b) => b - a);
@@ -1558,8 +1558,8 @@ function obtenerRegistroMSDesdeCache(cacheInfo, nombreHojaActual) {
     return { guiasOrigen: guiasOrigen, registroMS: registroMS };
 }
 
-// Marca en las bodegas las guías que ya fueron escaneadas en una hoja destino.
-// `guiasAfectadas` acota el trabajo: si sabemos qué guías cambiaron, las bodegas
+// Marca en las M-S las guías que ya fueron escaneadas en una hoja destino.
+// `guiasAfectadas` acota el trabajo: si sabemos qué guías cambiaron, las M-S
 // que no las contienen no se tocan (cero llamadas a la API). Con null hace
 // barrido completo (menú / trigger por tiempo).
 function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
@@ -2194,7 +2194,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       let ped = bloque.pedimento;
       let esperadas = mapaPreformas[ped] || new Set();
       let sobran = 0; let escaneadasUnicas = new Set();
-      // Bodegas donde estas guías fueron escaneadas de verdad, según el caché.
+      // M-S donde estas guías fueron escaneadas de verdad, según el caché.
       let origenesReales = new Set();
 
       let txtFalta = "";
@@ -2279,7 +2279,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                       estadoStr = txtFalta.trim();
                       coloresB[bloque.filaPedimento][0] = "#ffc107";
                   } else {
-                      // Se informa la bodega REAL por la que pasó, tomada del
+                      // Se informa la M-S real por la que pasó, tomada del
                       // caché, en vez de deducirla del formato de las guías.
                       if (nombreHoja.indexOf("A1") !== -1) estadoStr = "✅ A1 COMPLETO";
                       else if (origenesReales.size > 0) estadoStr = "✅ " + Array.from(origenesReales).sort().join(" + ");
@@ -2398,7 +2398,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 }
 
 // =========================================================================
-// CEREBRO PRINCIPAL: BODEGAS (M-S)
+// CEREBRO PRINCIPAL: M-S
 // =========================================================================
 function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) {
   const ultimaFila = filaFinalSugerida > 0
@@ -2567,7 +2567,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) 
   let fila3Resumen = tipoStr + ": " + totalPedimentosTipo;
 
   // El total incluye las guías ya movidas; se desglosa para no perder el dato
-  // de cuántas siguen físicamente en la bodega.
+  // de cuántas siguen en piso.
   let textoBultos = "Total bultos: " + guiasGlobales.size;
   if (totalMovidas > 0) textoBultos += " (salieron: " + totalMovidas + " | en piso: " + (guiasGlobales.size - totalMovidas) + ")";
 
@@ -2585,7 +2585,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida) 
 // CEREBRO PRINCIPAL: INVENTARIOS
 //
 // Los inventarios forman un dominio cerrado: se cruzan SOLO entre pestañas de
-// inventario. Lo que esté en Globales, Bodegas o Rezago no genera ninguna
+// inventario. Lo que esté en Globales, M-S o Rezago no genera ninguna
 // alerta aquí. Dentro del dominio sí se detecta:
 //   · misma guía en dos pestañas de inventario distintas
 //   · misma guía en dos ubicaciones IW distintas de la misma pestaña
@@ -2623,7 +2623,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida) 
 
           for (let m = 0; m < matches.length; m++) {
               let match = matches[m];
-              if (!match.isInventario) continue;                            // ignora Global / Bodegas
+              if (!match.isInventario) continue;                            // ignora Global / M-S
               if (match.hoja === claveEsta && match.fila === i) continue;    // la propia fila
 
               if (match.hoja === claveEsta) {

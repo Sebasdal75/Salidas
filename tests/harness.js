@@ -104,14 +104,14 @@ ok("Global solo choca con otra global", r.encontrado && r.ubicacion.indexOf("GLO
 r = verificarDuplicadoConCache(cache, "GLOBALES", G, 10);
 ok("Una hoja no se marca a sí misma", !r.encontrado);
 
-const cacheSoloBodega = {
+const cacheSoloMS = {
   map: new Map([[G, [{ hoja: "M-S T1", fila: 20, isMS: true, isInventario: false }]]]),
   headers: [], data: []
 };
 ok("Guía que pasó por T1 se escanea en Global sin alerta",
-   !verificarDuplicadoConCache(cacheSoloBodega, "GLOBALES", G, 3).encontrado);
+   !verificarDuplicadoConCache(cacheSoloMS, "GLOBALES", G, 3).encontrado);
 ok("Inventario ignora que la guía esté en M-S",
-   !verificarDuplicadoConCache(cacheSoloBodega, "INVENTARIO A", G, 3).encontrado);
+   !verificarDuplicadoConCache(cacheSoloMS, "INVENTARIO A", G, 3).encontrado);
 
 console.log("\n=== 4. calcularDuplicadosExternos (hoja completa) ===");
 const datos = [];
@@ -120,13 +120,13 @@ datos[30] = [G];
 
 let dupsInv = calcularDuplicadosExternos(datos, 60, "INVENTARIO A", cache);
 ok("fila 30 marcada como duplicada", dupsInv.has(30));
-ok("apunta a inventario, no a global/bodega", dupsInv.get(30).isInventario === true);
+ok("apunta a inventario, no a global/M-S", dupsInv.get(30).isInventario === true);
 
 let dupsGlobal = calcularDuplicadosExternos(datos, 60, "AGA", cache);
 ok("en hoja Global apunta a GLOBALES", dupsGlobal.get(30).hoja === "GLOBALES");
 
 ok("inventario no marca nada si la guía solo está en M-S",
-   calcularDuplicadosExternos(datos, 60, "INVENTARIO A", cacheSoloBodega).size === 0);
+   calcularDuplicadosExternos(datos, 60, "INVENTARIO A", cacheSoloMS).size === 0);
 
 console.log("\n=== 5. horaPreservada ===");
 const filas = [
