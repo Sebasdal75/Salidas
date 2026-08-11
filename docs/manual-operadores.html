@@ -169,7 +169,9 @@
   .msg {
     background: var(--surface);
     display: grid;
-    grid-template-columns: 5px 1fr;
+    /* minmax(0,1fr) y no 1fr: si no, un literal largo ensancha la rejilla por
+       encima del contenedor en vez de partirse. */
+    grid-template-columns: 5px minmax(0, 1fr);
     gap: 0;
   }
   .msg .bar { background: var(--gris); }
@@ -216,7 +218,7 @@
   ol.pasos { counter-reset: p; list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-direction: column; gap: .8rem; }
   ol.pasos li {
     counter-increment: p;
-    display: grid; grid-template-columns: 1.6rem 1fr; gap: .8rem;
+    display: grid; grid-template-columns: 1.6rem minmax(0, 1fr); gap: .8rem;
     align-items: start;
   }
   ol.pasos li::before {
@@ -230,7 +232,7 @@
 
   ul.nope { list-style: none; padding: 0; margin: 1rem 0 0; display: flex; flex-direction: column; gap: .65rem; }
   ul.nope li {
-    display: grid; grid-template-columns: 1.3rem 1fr; gap: .7rem;
+    display: grid; grid-template-columns: 1.3rem minmax(0, 1fr); gap: .7rem;
     font-size: .96rem; line-height: 1.5;
   }
   ul.nope li::before { content: "✕"; color: var(--malo); font-weight: 700; }
@@ -422,25 +424,31 @@
       <div class="body">
         <div class="txt">⛔ DUPLICADO (ya en Ped: 6098352, fila 41)</div>
         <div class="sig">La misma guía aparece en dos pedimentos distintos de esta hoja.</div>
-      <div class="msg">
-        <div class="c" style="background:#ff9800"></div>
-        <div class="txt">⚠️ DUPLICADO (repetida en la fila 88)</div>
-        <div class="qué">Este aviso sale en la <strong>primera</strong> de las dos. Las dos se pintan, para que veas la pareja completa.</div>
-        <div class="haz">Compara las dos filas y borra la que sobra.</div>
-      </div>
-      <div class="msg">
-        <div class="c" style="background:#dc3545"></div>
-        <div class="txt">🛑 PEDIMENTO REPETIDO (En: GLOBAL 3 Fila 120)</div>
-        <div class="qué">El mismo pedimento está en otra pestaña del mismo tipo. Entre una M-S y su destino no salta: eso es normal.</div>
-        <div class="haz">Ve a esa hoja y decide en cuál va.</div>
-      </div>
-      <div class="msg">
-        <div class="c" style="background:#FFF3CD"></div>
-        <div class="txt">Bultos: 0 | ⚠️ 1 con alerta</div>
-        <div class="qué">Sí hay guías debajo, pero llevan alerta (duplicada, inválida) y por eso no cuentan como bulto.</div>
-        <div class="haz">Resuelve la alerta de esa fila.</div>
-      </div>
         <div class="act"><b>Haz:</b> averigua a cuál pertenece y borra la otra.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--dup)"></div>
+      <div class="body">
+        <div class="txt">⚠️ DUPLICADO (repetida en la fila 88)</div>
+        <div class="sig">Este aviso sale en la <strong>primera</strong> de las dos. Las dos se pintan, para que veas la pareja completa.</div>
+        <div class="act"><b>Haz:</b> compara las dos filas y borra la que sobra.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--repe)"></div>
+      <div class="body">
+        <div class="txt">🛑 PEDIMENTO REPETIDO (En: GLOBAL 3 Fila 120)</div>
+        <div class="sig">El mismo pedimento está en otra pestaña del mismo tipo. Entre una M-S y su destino no salta: eso es el flujo normal.</div>
+        <div class="act"><b>Haz:</b> ve a esa hoja y decide en cuál va.</div>
+      </div>
+    </div>
+    <div class="msg">
+      <div class="bar" style="background:var(--falta)"></div>
+      <div class="body">
+        <div class="txt">Bultos: 0 | ⚠️ 1 con alerta</div>
+        <div class="sig">Sí hay guías debajo, pero llevan alerta (duplicada, inválida) y por eso no cuentan como bulto.</div>
+        <div class="act"><b>Haz:</b> resuelve la alerta de esa fila.</div>
       </div>
     </div>
     <div class="msg">
@@ -623,7 +631,7 @@
   <p>El sistema solo vigila tres columnas: <strong>A</strong> (escaneo), <strong>N</strong> (letra de color) y <strong>O</strong> (preforma). Las columnas <strong>D</strong> y <strong>Q</strong> quedaron libres al retirarse los costales y la marca <span class="lit">T1</span>, que ya no se usaban.</p>
 
   <h2>El menú <span class="lit">📦 Opciones Avanzadas</span></h2>
-  <p>Está arriba, a la derecha de <strong>Ayuda / Help</strong>. Cada opción con detalle: qué hace, cuándo usarla y qué esperar.</p>
+  <p>Está arriba, a la derecha de <strong>Ayuda / Help</strong>. Las tres del día a día están sueltas al principio; el resto va agrupado en cuatro submenús: <span class="lit">🔍 Revisar</span>, <span class="lit">🌙 Cierre y limpieza</span>, <span class="lit">⚙️ Disparadores</span> y <span class="lit">🔧 Mantenimiento</span>.</p>
   <div class="menu">
     <div class="item">
       <div class="nombre">📋 Agrupar Guías por Pedimento (Col A)</div>

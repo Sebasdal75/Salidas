@@ -2733,26 +2733,38 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida) 
 // MENÚ
 // =========================================================================
 function onOpen() {
-  SpreadsheetApp.getUi().createMenu('📦 Opciones Avanzadas')
+  const ui = SpreadsheetApp.getUi();
+  ui.createMenu('📦 Opciones Avanzadas')
+    // Arriba, suelto, lo del día a día. Todo lo demás en submenús: son cosas de
+    // mantenimiento o de configuración, y tenerlas a la vista hacía un menú
+    // larguísimo donde costaba encontrar las dos que se usan a diario.
     .addItem('📋 Agrupar Guías por Pedimento (Col A)', 'agruparPorPedimento')
     .addItem('🧹 Limpiar guías movidas (Rango seleccionado)', 'limpiarGuiasMovidasSeleccion')
-    .addSeparator()
     .addItem('🔄 Forzar Actualización de esta pestaña', 'forzarActualizacionHojaActiva')
-    .addItem('♻️ Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
     .addSeparator()
-    .addItem('🔍 ¿Por qué esta guía sale así?', 'diagnosticarGuia')
-    .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema')
-    .addItem('⏱️ Medir velocidad de escaneo', 'medirRendimiento')
-    .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
-    .addSeparator()
-    .addItem('🌙 Cierre del día (historial + caché)', 'cierreDelDia')
-    .addItem('🧾 Vaciar historial de borrados ahora', 'limpiarHistorialAhora')
-    .addItem('🕙 Vaciarlo solo cada día', 'instalarLimpiezaHistorial')
-    .addItem('🚫 Dejar de vaciarlo solo', 'quitarLimpiezaHistorial')
-    .addSeparator()
-    .addItem('⚙️ Instalar trigger avanzado (6 min, sin usuario)', 'instalarTriggerAvanzado')
-    .addItem('🙋 Trigger simple + usuario en el historial', 'instalarTriggerConUsuario')
-    .addItem('↩️ Volver al trigger simple', 'desinstalarTriggerAvanzado')
+
+    .addSubMenu(ui.createMenu('🔍 Revisar')
+        .addItem('¿Por qué esta guía sale así?', 'diagnosticarGuia')
+        .addItem('Diagnóstico del sistema', 'diagnosticoSistema')
+        .addItem('Medir velocidad de escaneo', 'medirRendimiento'))
+
+    .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
+        .addItem('Cierre del día (historial + caché)', 'cierreDelDia')
+        .addSeparator()
+        .addItem('Vaciar historial de borrados ahora', 'limpiarHistorialAhora')
+        .addItem('Vaciarlo solo cada día', 'instalarLimpiezaHistorial')
+        .addItem('Dejar de vaciarlo solo', 'quitarLimpiezaHistorial'))
+
+    .addSubMenu(ui.createMenu('⚙️ Disparadores')
+        .addItem('Trigger avanzado (6 min, sin usuario)', 'instalarTriggerAvanzado')
+        .addItem('Trigger simple + usuario en el historial', 'instalarTriggerConUsuario')
+        .addSeparator()
+        .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado'))
+
+    .addSubMenu(ui.createMenu('🔧 Mantenimiento')
+        .addItem('Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
+        .addItem('Proteger hojas del sistema', 'protegerHojasSistema'))
+
     .addToUi();
 }
 

@@ -114,7 +114,11 @@
   .hoja {
     width: 100%; max-width: 8.5in; min-height: 11in;
     margin: 0 auto 1.2rem;
-    padding: .45in .5in;
+    /* El padding en pulgadas era el culpable del texto en vertical: media
+       pulgada por lado son ~96 px, y en una vista estrecha se comía TODO el
+       ancho útil, así que las palabras salían una por línea o encimadas.
+       Con clamp() se encoge cuando hace falta y se mantiene al imprimir. */
+    padding: clamp(.7rem, 5vw, .5in);
     background: var(--paper);
     border: 1px solid var(--line);
     box-shadow: 0 1px 3px rgba(0,0,0,.07);
@@ -146,12 +150,20 @@
 
   /* Dos columnas si caben, una si no. Sin media queries: en impresión no son
      fiables, y la página puede acabar en vertical o en horizontal. */
-  .cols { display: grid; grid-template-columns: repeat(auto-fit, minmax(3.1in, 1fr)); gap: .3in; align-items: start; }
+  .cols {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 3.1in), 1fr));
+    gap: clamp(.8rem, 3vw, .3in);
+    align-items: start;
+  }
+  /* Sin esto, un texto largo dentro de una rejilla la ensancha por encima del
+     contenedor en vez de partirse, y lo de al lado acaba fuera de la caja. */
+  .cols > *, .pasos li, .msg, .sw { min-width: 0; }
 
   /* ---------- Pasos ---------- */
   .pasos { display: flex; flex-direction: column; gap: .09in; margin: 0; padding: 0; list-style: none; counter-reset: p; }
   .pasos li {
-    display: grid; grid-template-columns: 1.25em 1fr; gap: .5em;
+    display: grid; grid-template-columns: 1.25em minmax(0, 1fr); gap: .5em;
     font-size: 9.5pt; line-height: 1.4;
   }
   .pasos li::before {
@@ -171,7 +183,7 @@
 
   /* ---------- Diccionario de mensajes ---------- */
   .msgs { display: flex; flex-direction: column; gap: 1px; background: var(--line-soft); border: 1px solid var(--line-soft); }
-  .msg { display: grid; grid-template-columns: .16in 1fr; background: var(--paper); }
+  .msg { display: grid; grid-template-columns: .16in minmax(0, 1fr); background: var(--paper); }
   .msg .chip { }
   .msg .cuerpo { padding: .055in .09in; min-width: 0; }
   .msg .t {
@@ -181,8 +193,8 @@
   .msg .d { display: block; font-size: 7.8pt; line-height: 1.35; color: var(--muted); margin-top: .02in; }
 
   /* ---------- Colores de la columna que se escanea ---------- */
-  .paleta { display: grid; grid-template-columns: repeat(2, 1fr); gap: .06in .18in; }
-  .sw { display: grid; grid-template-columns: .2in 1fr; gap: .07in; align-items: center; font-size: 8.4pt; }
+  .paleta { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 1.6in), 1fr)); gap: .06in .18in; }
+  .sw { display: grid; grid-template-columns: .2in minmax(0, 1fr); gap: .07in; align-items: center; font-size: 8.4pt; }
   .sw i { display: block; height: .13in; border: 1px solid rgba(0,0,0,.28); }
   .sw b { font-weight: 700; }
   .sw span { color: var(--muted); }
@@ -218,6 +230,8 @@
 
   @media (max-width: 8.9in) {
     .hoja { min-height: 0; }
+    .cabecera { flex-wrap: wrap; }
+    .cabecera .quien { text-align: left; }
   }
 
   /* ---------- Impresión ---------- */
@@ -242,6 +256,7 @@
       width: auto; max-width: none; min-height: 0;
       margin: 0; border: none; box-shadow: none;
       padding: 0;
+      min-height: 0;
       background: #FFFFFF;
       break-after: page; page-break-after: always;
     }
