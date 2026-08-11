@@ -956,3 +956,58 @@ Solo se borra **contenido** (`clearContent`), nunca filas ni formato: los
 encabezados, los anchos y cualquier validación quedan intactos. Y si hiciera
 falta recuperar algo, sigue estando en *Archivo → Historial de versiones* de
 Google.
+
+---
+
+## La medición se estaba mintiendo sobre el caché
+
+Al descartar el caché en RAM entre ediciones, cargarlo dejó de ser algo que pasa
+«solo la primera vez» y pasó a ocurrir en **cada escaneo**. La medición seguía
+etiquetándolo como `Cargar caché (solo 1ª vez)` y **restándolo del tiempo por
+escaneo**, así que reportaba un número más bonito que el real.
+
+Corregido: la etiqueta dice `en CADA escaneo`, el total lo incluye, y se
+desglosa para que se vea de dónde sale:
+
+```
+Tiempo por escaneo: ~1.0 s   (351 ms de caché + 613 ms de recálculo)
+```
+
+---
+
+## Cierre del día en un solo paso
+
+Antes eran tres o cuatro acciones sueltas. `🌙 Cierre del día` hace, en este
+orden y bajo un solo lock:
+
+1. Vacía las hojas de escaneo.
+2. Vacía `HISTORIAL_BORRADOS`.
+3. Poda las columnas huérfanas del caché y lo reconstruye entero.
+
+Antes de tocar nada enseña **qué** se va a borrar y **cuánto**: cada pestaña con
+su número de filas, los registros del historial y el total. Nada se ejecuta sin
+un sí.
+
+Qué se vacía y qué no:
+
+| | Columnas |
+|---|---|
+| Destinos (Global, A1, Rezago) | A, B, L, N, O, P, S + totales C1:C3 y Q1:Q2 |
+| M-S e inventarios | A, B, L |
+| **Nunca** | **M** (lista FEMAD, se mantiene entre días) |
+
+Solo se borra **contenido** (`clearContent`): ni filas, ni formato, ni
+validaciones. Esto último no es un detalle de estilo — **la validación de la
+columna A es la que hace sonar la alerta en la pistola Zebra**, así que romperla
+dejaría a los operadores sin aviso. Los fondos y el tachado sí se resetean a
+neutro, que es lo que se espera de una hoja vacía.
+
+---
+
+## Fuera `Codigo.txt`
+
+Existía para poder pegar el código en el editor de Apps Script. Se retira a
+petición: mantener una segunda copia del código en el repositorio es un riesgo
+—si una de las dos se queda atrás, alguien puede pegar la vieja en producción— y
+`Codigo.gs` ya cumple esa función. Sigue en el historial de git por si hiciera
+falta.

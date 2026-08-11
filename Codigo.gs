@@ -289,6 +289,95 @@ function instalarTriggerAvanzado() {
 }
 
 // =========================================================================
+// CIERRE DEL DÍA
+// =========================================================================
+// Un solo paso para lo que antes eran tres o cuatro sueltos: vaciar las hojas
+// de escaneo, vaciar el historial y dejar el caché reconstruido y podado.
+//
+// Solo se borra CONTENIDO (clearContent). Nunca filas, nunca formato, nunca
+// validaciones: la validación de la columna A es la que hace sonar la alerta en
+// la pistola Zebra, así que romperla dejaría a los operadores sin aviso.
+//
+// Columnas que se vacían y por qué las demás no:
+//   A  escaneo        · B  estado       · L  hora
+//   N  letra de color · O  preforma     · P  estado preforma · S  hora preforma
+//   C1:C3 y Q1:Q2, que son los totales.
+// La M NO se toca: es la lista FEMAD, que se mantiene entre días.
+const COLS_CIERRE_DESTINO = [1, 2, 12, 14, 15, 16, 19];
+const COLS_CIERRE_SIMPLE  = [1, 2, 12];
+
+function cierreDelDia() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+
+  // ── 1. Inventario de lo que se va a borrar, para poder enseñarlo ──────────
+  let objetivo = [];
+  let totalFilas = 0;
+  ss.getSheets().forEach(h => {
+      let n = claveHoja(h.getName());
+      if (esHojaSistema(n) || esHojaInterna(n)) return;
+      if (!esHojaPrincipal(n) && !esHojaMS(n) && !esHojaInventario(n)) return;
+      let lr = h.getLastRow();
+      if (lr < 1) return;
+      objetivo.push({ hoja: h, clave: n, filas: lr });
+      totalFilas += lr;
+  });
+
+  const hojaHist = ss.getSheetByName("HISTORIAL_BORRADOS");
+  const filasHist = hojaHist ? Math.max(hojaHist.getLastRow() - 1, 0) : 0;
+
+  if (objetivo.length === 0 && filasHist === 0) {
+      ui.alert("🌙 Cierre del día", "No hay nada que limpiar.", ui.ButtonSet.OK);
+      return;
+  }
+
+  // ── 2. Confirmación con los números delante ──────────────────────────────
+  let detalle = objetivo.map(o => "   · " + o.clave + "  (" + o.filas + " filas)").join("\n");
+  let resp = ui.alert("🌙 Cierre del día",
+      "Se va a vaciar:\n\n" + detalle +
+      "\n\n   · HISTORIAL_BORRADOS  (" + filasHist + " registros)" +
+      "\n\nEn total " + totalFilas + " filas de escaneo.\n\n" +
+      "NO se tocan: la columna M (lista FEMAD), las validaciones de datos\n" +
+      "ni el formato. Solo se borra el contenido.\n\n" +
+      "Si algo sale mal, se recupera en Archivo → Historial de versiones.\n\n" +
+      "¿Continuar?", ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  // ── 3. Vaciar, hoja por hoja ─────────────────────────────────────────────
+  conLock(archivo => {
+      objetivo.forEach(o => {
+          let cols = esHojaPrincipal(o.clave) && !esHojaInventario(o.clave)
+              ? COLS_CIERRE_DESTINO : COLS_CIERRE_SIMPLE;
+          let maxCol = o.hoja.getMaxColumns();
+          cols.forEach(c => {
+              if (c > maxCol) return;
+              let rango = o.hoja.getRange(1, c, o.filas, 1);
+              rango.clearContent();
+              rango.setBackground("#FFFFFF").setFontColor("#000000").setFontLine("none");
+          });
+      });
+
+      limpiarHistorialDiario();
+
+      // ── 4. Caché desde cero y sin columnas huérfanas ─────────────────────
+      podarCacheHuerfano(archivo);
+      archivo.getSheets().forEach(h => {
+          let n = claveHoja(h.getName());
+          if (!esHojaSistema(n) && !esHojaInterna(n)) actualizarFotografiaMental(h, archivo);
+      });
+      invalidarCacheRAM();
+      getCacheData(archivo);
+  });
+
+  ui.alert("🌙 Cierre del día",
+      "Listo.\n\n" +
+      "   · " + objetivo.length + " pestañas vaciadas (" + totalFilas + " filas)\n" +
+      "   · " + filasHist + " registros de historial borrados\n" +
+      "   · Caché reconstruido y podado\n\n" +
+      "Las validaciones y el formato siguen en su sitio.", ui.ButtonSet.OK);
+}
+
+// =========================================================================
 // LIMPIEZA AUTOMÁTICA DEL HISTORIAL
 // =========================================================================
 // Hora a la que se vacía HISTORIAL_BORRADOS, en formato 24 h. El trigger corre
@@ -2573,6 +2662,7 @@ function onOpen() {
     .addItem('⏱️ Medir velocidad de escaneo', 'medirRendimiento')
     .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
     .addSeparator()
+    .addItem('🌙 Cierre del día (vaciar todo y reconstruir)', 'cierreDelDia')
     .addItem('🧾 Vaciar historial de borrados ahora', 'limpiarHistorialAhora')
     .addItem('🕙 Vaciarlo solo cada día', 'instalarLimpiezaHistorial')
     .addItem('🚫 Dejar de vaciarlo solo', 'quitarLimpiezaHistorial')
@@ -2676,7 +2766,7 @@ function medirRendimiento() {
   let cacheInfo = getCacheData(ss);
   let tCache = Date.now() - t0;
   L.push("── DESGLOSE ──");
-  L.push("Cargar caché (solo 1ª vez): " + tCache + " ms" +
+  L.push("Cargar caché (en CADA escaneo): " + tCache + " ms" +
          (cacheInfo ? "  ·  " + cacheInfo.map.size + " guías indexadas" : "  ·  SIN CACHÉ"));
 
   // 2. Recálculo completo de la hoja: es el grueso de cada escaneo.
@@ -2700,7 +2790,7 @@ function medirRendimiento() {
   recalcularHoja(hoja, ss, cacheInfo, guiasAfectadas, false);
   let tEscaneo = Date.now() - t0;
   let perfEscaneo = perfFin();
-  L.push("Un escaneo completo:         " + tEscaneo + " ms" +
+  L.push("Recalcular la hoja:          " + tEscaneo + " ms" +
          (guiaMuestra ? "  (probando con una guía real de la hoja)" : "  (hoja vacía)"));
 
   // 3. Barrido completo de M-S: no pasa en un escaneo normal, solo cuando la
@@ -2728,15 +2818,16 @@ function medirRendimiento() {
     perfLineas(perfSyncTodo, tSyncTodo).forEach(x => L.push(x));
   }
 
-  // El caché ya está caliente entre escaneos seguidos, así que el coste
-  // representativo es el del escaneo medido arriba, que ya incluye la
-  // sincronización de las M-S que de verdad toca esa guía.
-  let porEscaneo = tEscaneo;
+  // El caché SÍ cuenta: desde que se descarta al empezar cada edición, cada
+  // escaneo paga su relectura. Antes se restaba del total con la excusa de que
+  // solo se cargaba la primera vez, y eso ya no es cierto.
+  let porEscaneo = tCache + tEscaneo;
   let porMinuto = porEscaneo > 0 ? Math.floor(60000 / porEscaneo) : 0;
 
   L.push("");
   L.push("── CAPACIDAD ──");
-  L.push("Tiempo por escaneo: ~" + (porEscaneo / 1000).toFixed(1) + " s");
+  L.push("Tiempo por escaneo: ~" + (porEscaneo / 1000).toFixed(1) + " s" +
+         "   (" + tCache + " ms de caché + " + tEscaneo + " ms de recálculo)");
   L.push("Techo del archivo:  ~" + porMinuto + " escaneos por minuto");
   L.push("Repartido entre 7 operadores: ~" + Math.floor(porMinuto / 7) + " escaneos/min cada uno");
   L.push("");
