@@ -958,30 +958,47 @@ function procesarEdicion(e) {
             let valRaw = valoresEditados[r][c];
             let valorIngresado = typeof valRaw === 'string' ? valRaw.trim().toUpperCase() : String(valRaw);
 
-            // -------- DETECTAR BORRADOS --------
-            if (valorIngresado === "" && (colActual === 1 || colActual === 15)) {
+            // -------- DETECTAR BORRADOS Y SOBRESCRITURAS --------
+            //
+            // Vaciar una celda ya se registraba. Escribir ENCIMA de una guía no,
+            // y resulta que es lo que de verdad hace desaparecer bultos.
+            //
+            // El caso real: el operador deja la app del escáner abierta un rato,
+            // la vista se queda desactualizada o en blanco, y al volver escanea
+            // en una fila que él ve vacía pero que en el servidor ya tenía una
+            // guía. La guía anterior se pierde y no quedaba constancia en
+            // ninguna parte: el historial solo miraba los vaciados.
+            //
+            // Es exactamente lo que se vio en el historial de Google como
+            // «se reemplazó 6034586 con 6034576» sin que nadie supiera por qué.
+            //
+            // No se bloquea: sobrescribir también es lo que se hace al corregir
+            // una lectura mala, y estorbar ahí sería peor. Se deja constancia,
+            // que es lo que faltaba para poder recuperarla.
+            if (colActual === 1 || colActual === 15) {
                 let valorAnteriorEstado = "";
                 if (colActual === 1 && valsEstadoB) valorAnteriorEstado = String(valsEstadoB[r][0]).trim();
                 else if (colActual === 15 && valsEstadoP) valorAnteriorEstado = String(valsEstadoP[r][14]).trim();
 
                 // Valor previo: e.oldValue lo trae gratis en ediciones de una sola celda;
                 // si no, lo sacamos del caché.
-                let valorBorrado = "";
+                let valorPrevio = "";
                 if (numRows === 1 && numCols === 1 && e.oldValue !== undefined && e.oldValue !== null) {
-                    valorBorrado = String(e.oldValue).trim();
+                    valorPrevio = String(e.oldValue).trim();
                 }
-                if (valorBorrado === "" && cacheInfo && cacheInfo.headers) {
+                if (valorPrevio === "" && cacheInfo && cacheInfo.headers) {
                     let sufijo = (colActual === 1) ? "_FISICO" : "_PREFORMA";
                     let idx = cacheInfo.headers.indexOf(nombreHoja + sufijo);
                     if (idx !== -1 && cacheInfo.data.length > filaActual) {
-                        valorBorrado = String(cacheInfo.data[filaActual][idx]).trim();
+                        valorPrevio = String(cacheInfo.data[filaActual][idx]).trim();
                     }
                 }
 
-                if (valorBorrado !== "") {
+                let motivo = motivoDeCambio(valorPrevio, valorIngresado);
+                if (motivo) {
                     let tipoCol = (colActual === 1) ? "Físico (Col A)" : "Preforma (Col O)";
-                    filasHistorial.push(eventoHistorial(nombreHoja, filaActual, tipoCol, valorBorrado,
-                                                      valorAnteriorEstado, "BORRADO MANUAL (Celda vaciada)"));
+                    filasHistorial.push(eventoHistorial(nombreHoja, filaActual, tipoCol, valorPrevio,
+                                                      valorAnteriorEstado, motivo));
                 }
             }
 
@@ -1899,6 +1916,27 @@ function normalizarTitulo(t) {
     return String(t).trim().toUpperCase()
         .replace(/Á/g, "A").replace(/É/g, "E").replace(/Í/g, "I")
         .replace(/Ó/g, "O").replace(/Ú/g, "U").replace(/Ñ/g, "N");
+}
+
+// ¿Este cambio en la columna A u O hay que anotarlo en el historial, y por qué?
+// Devuelve el motivo, o null si no hay nada que registrar.
+//
+// Se registran dos cosas, y la segunda es la que faltaba:
+//   · Vaciar una celda que tenía algo.
+//   · ESCRIBIR ENCIMA de una guía con otra distinta. Es lo que pasa cuando la
+//     app del escáner lleva rato abierta, la vista se queda desactualizada, y
+//     el operador escanea en una fila que él ve vacía pero que en el servidor
+//     ya tenía una guía. La anterior se perdía sin dejar rastro.
+//
+// Escribir sobre una celda vacía es lo normal y no se anota: sería una línea
+// de historial por cada escaneo del día.
+function motivoDeCambio(valorPrevio, valorNuevo) {
+    let previo = String(valorPrevio).trim();
+    let nuevo = String(valorNuevo).trim();
+    if (previo === "") return null;
+    if (nuevo === "") return "BORRADO MANUAL (Celda vaciada)";
+    if (previo.toUpperCase() === nuevo.toUpperCase()) return null;
+    return "SOBRESCRITA con «" + nuevo + "» (la celda ya tenía otra guía)";
 }
 
 function eventoHistorial(hojaAfectada, fila, columnaStr, valorBorrado, estadoAnterior, motivo) {

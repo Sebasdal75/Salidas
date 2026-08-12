@@ -1063,6 +1063,29 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y6. Sobrescribir una guía deja constancia ===");
+// El caso real: la app del escáner lleva rato abierta, la vista se queda
+// desactualizada, y el operador escanea en una fila que él ve vacía pero que en
+// el servidor ya tenía una guía. La anterior se perdía SIN RASTRO, porque el
+// historial solo miraba los vaciados de celda.
+ok("escribir encima de otra guía se registra",
+   motivoDeCambio("1ZABC111", "1ZXYZ999").indexOf("SOBRESCRITA") === 0);
+ok("y el motivo dice con qué se sustituyó",
+   motivoDeCambio("1ZABC111", "1ZXYZ999").indexOf("1ZXYZ999") !== -1);
+ok("un pedimento sobrescrito por otro también",
+   motivoDeCambio("6034586", "6034576").indexOf("SOBRESCRITA") === 0);
+
+// Lo que ya se registraba antes sigue igual.
+ok("vaciar una celda con guía se registra",
+   motivoDeCambio("1ZABC111", "") === "BORRADO MANUAL (Celda vaciada)");
+
+// Lo que NO debe registrarse, o el historial sería una línea por escaneo.
+ok("escribir en una celda vacía no se registra", motivoDeCambio("", "1ZABC111") === null);
+ok("dos celdas vacías tampoco", motivoDeCambio("", "") === null);
+ok("reescribir el MISMO valor no se registra", motivoDeCambio("1ZABC111", "1ZABC111") === null);
+ok("ni cambiando solo mayúsculas", motivoDeCambio("1zabc111", "1ZABC111") === null);
+ok("ni con espacios de sobra", motivoDeCambio("  1ZABC111  ", "1ZABC111") === null);
+
 console.log("\n=== 5y5. La escritura no alcanza a las filas vecinas ===");
 // Escribir de vuelta filas que no cambiaron es una forma silenciosa de perder
 // una guía: se reescriben con la copia que se leyó unos milisegundos antes, y
