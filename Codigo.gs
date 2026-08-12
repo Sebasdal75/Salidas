@@ -245,7 +245,7 @@ function filasNecesarias(filaTocada, maxActual) {
 
 // Estira la hoja si el escaneo se está acercando al final. Devuelve cuántas
 // filas se añadieron (0 si no hizo falta), que es lo que mira la medición.
-function asegurarFilasDeEscaneo(hoja, filaTocada) {
+function asegurarFilasDeEscaneo(hoja, filaTocada, nombreHoja) {
     let max = hoja.getMaxRows();
     let destino = filasNecesarias(filaTocada, max);
     if (destino === 0) return 0;
@@ -257,16 +257,121 @@ function asegurarFilasDeEscaneo(hoja, filaTocada) {
     // que hace sonar el escáner Zebra. Sin esto, el operador cruzaría la
     // frontera de la hoja y el escáner se quedaría mudo sin que nada lo avise.
     //
-    // Se copia solo la validación, NO el formato: si el operador está
-    // escaneando justo en la última fila, esa fila puede llevar el color de una
-    // alerta y no queremos clonarlo cincuenta veces. Los colores los repinta el
-    // recálculo de todas formas.
-    let cols = hoja.getMaxColumns();
-    hoja.getRange(max, 1, 1, cols).copyTo(
-        hoja.getRange(max + 1, 1, aAnadir, cols),
-        SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false);
+    // La regla se CONSTRUYE, no se copia de la fila de arriba. Copiarla parecía
+    // más simple, pero solo funciona si esa fila la tiene: las reglas puestas a
+    // mano cubren un rango fijo (A1:A200 y O1:O200), así que a partir de la
+    // fila 201 no hay nada que copiar y el escáner se habría quedado mudo justo
+    // en las filas nuevas, que es donde nadie lo comprueba.
+    let clave = nombreHoja ? claveHoja(nombreHoja) : claveHoja(hoja.getName());
+    aplicarValidacionRetenida(hoja, 1, max + 1, aAnadir);
+    if (usaPreforma(clave) && hoja.getMaxColumns() >= 15) {
+        aplicarValidacionRetenida(hoja, 15, max + 1, aAnadir);
+    }
 
     return aAnadir;
+}
+
+// -------------------------------------------------------------------------
+// VALIDACIÓN «GUÍA RETENIDA»
+//
+// Es la que hace sonar el escáner Zebra: rechaza la guía si aparece en la lista
+// de retenidas de la columna M. La pusiste a mano, pestaña por pestaña, y por
+// eso se queda desfasada en cuanto se añade una hoja o crecen las filas.
+const TXT_GUIA_RETENIDA = "GUIA RETENIDA";
+
+// La fórmula se construye fila a fila en vez de dejar UNA regla con referencia
+// relativa para todo el rango. En la interfaz de Sheets la referencia se ajusta
+// sola, pero desde Apps Script ese ajuste no está garantizado, y si no se
+// ajustara TODAS las filas comprobarían la fila 1: el escáner dejaría de avisar
+// sin que nada lo dijera. Nombrando la fila explícitamente no hay nada que
+// suponer.
+//
+// El rango de la columna M va entero ($M:$M) en vez de acotado a 200 filas.
+// Acotarlo era el origen de dos problemas: la lista de retenidas no puede
+// crecer más allá del tope, y la referencia $M$1:$M200 (con el 200 sin fijar)
+// se iba desplazando hacia abajo fila a fila.
+function formulaGuiaRetenida(letra, fila) {
+    return "=COUNTIF($M:$M," + letra + fila + ")=0";
+}
+
+function reglaGuiaRetenida(letra, fila) {
+    return SpreadsheetApp.newDataValidation()
+        .requireFormulaSatisfied(formulaGuiaRetenida(letra, fila))
+        .setAllowInvalid(false)
+        .setHelpText(TXT_GUIA_RETENIDA)
+        .build();
+}
+
+// Aplica la validación a un tramo de una columna. Una sola llamada a la API por
+// tramo, aunque sean mil filas.
+function aplicarValidacionRetenida(hoja, columna, filaInicial, numFilas) {
+    if (numFilas < 1 || filaInicial < 1) return 0;
+    let letra = columna === 1 ? "A" : "O";
+    let reglas = [];
+    for (let r = 0; r < numFilas; r++) reglas.push([reglaGuiaRetenida(letra, filaInicial + r)]);
+    hoja.getRange(filaInicial, columna, numFilas, 1).setDataValidations(reglas);
+    return numFilas;
+}
+
+// ¿A qué columnas de esta pestaña les toca la validación? La A siempre; la O
+// solo donde se usa la preforma, que es el mismo criterio con el que el caché
+// decide si le reserva columna. Las M-S no la usan.
+function columnasValidables(nombreHoja, maxColumnas) {
+    let cols = [1];
+    if (usaPreforma(nombreHoja) && maxColumnas >= 15) cols.push(15);
+    return cols;
+}
+
+// Botón de menú: repone la validación en todas las pestañas de escaneo, en toda
+// su altura. Incluye la MACHO, que también la lleva.
+function aplicarValidacionEnTodas() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+
+  // Se cuenta primero para poder enseñar qué va a pasar antes de tocar nada.
+  let objetivos = [];
+  ss.getSheets().forEach(h => {
+      let n = claveHoja(h.getName());
+      // Fuera CACHE_SISTEMA e HISTORIAL: su columna M no es la lista FEMAD y
+      // nadie escanea en ellas. La MACHO sí entra.
+      if (esHojaInterna(n)) return;
+      objetivos.push({ hoja: h, nombre: h.getName(), clave: n,
+                       filas: h.getMaxRows(),
+                       cols: columnasValidables(n, h.getMaxColumns()) });
+  });
+
+  if (objetivos.length === 0) {
+      ui.alert("🛡️ Validación", "No hay pestañas de escaneo a las que aplicarla.", ui.ButtonSet.OK);
+      return;
+  }
+
+  let detalle = objetivos.map(o =>
+      "   · " + o.nombre + ": " + o.filas + " filas, columna" +
+      (o.cols.length > 1 ? "s A y O" : " A")).join("\n");
+
+  let resp = ui.alert("🛡️ Reponer la validación «GUIA RETENIDA»",
+      "Se va a poner la validación en " + objetivos.length + " pestañas, en TODA su altura:\n\n" +
+      detalle + "\n\n" +
+      "La regla rechaza la guía si está en la lista de retenidas de la\n" +
+      "columna M. Sustituye a las reglas que haya puestas a mano en esas\n" +
+      "dos columnas.\n\n¿Continuar?", ui.ButtonSet.YES_NO);
+  if (resp !== ui.Button.YES) return;
+
+  let hechas = 0; let filasTotales = 0;
+  conLock(archivo => {
+      objetivos.forEach(o => {
+          o.cols.forEach(c => {
+              filasTotales += aplicarValidacionRetenida(o.hoja, c, 1, o.filas);
+          });
+          hechas++;
+      });
+  });
+
+  ui.alert("🛡️ Validación repuesta",
+      "Listo: " + hechas + " pestañas, " + filasTotales.toLocaleString() + " celdas validadas.\n\n" +
+      "Compruébalo escaneando una guía retenida en la ÚLTIMA fila de\n" +
+      "alguna hoja: el escáner tiene que rechazarla igual que en la\n" +
+      "primera.", ui.ButtonSet.OK);
 }
 
 function invalidarCacheRAM() {
@@ -703,7 +808,7 @@ function procesarEdicion(e) {
     // se encuentre la hoja ya del tamaño bueno. Solo cuesta un getMaxRows por
     // escaneo (2-5 ms medidos); el insertRowsAfter cae una vez cada 50.
     perf("estirar la hoja si hace falta", 0, () =>
-        asegurarFilasDeEscaneo(hoja, filaInicial + numRows - 1));
+        asegurarFilasDeEscaneo(hoja, filaInicial + numRows - 1, nombreHoja));
 
     // El caché se actualiza ANTES de recalcular: así los recálculos ven la
     // realidad y pueden reevaluar duplicados desde cero.
@@ -3039,6 +3144,7 @@ function onOpen() {
 
     .addSubMenu(ui.createMenu('🔧 Mantenimiento')
         .addItem('Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
+        .addItem('Reponer validación «GUIA RETENIDA»', 'aplicarValidacionEnTodas')
         .addItem('Proteger hojas del sistema', 'protegerHojasSistema'))
 
     .addToUi();

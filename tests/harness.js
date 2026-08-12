@@ -1063,5 +1063,38 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5z. La validación «GUIA RETENIDA» ===");
+// Es la que hace sonar el escáner. Se construye fila a fila en vez de dejar una
+// sola regla con referencia relativa: desde Apps Script el ajuste automático de
+// la referencia no está garantizado, y si no se ajustara TODAS las filas
+// comprobarían la fila 1 y el escáner dejaría de avisar sin decir nada.
+ok("la fórmula nombra su propia fila", formulaGuiaRetenida("A", 1) === "=COUNTIF($M:$M,A1)=0");
+ok("la fila 700 comprueba la fila 700", formulaGuiaRetenida("A", 700) === "=COUNTIF($M:$M,A700)=0");
+ok("la columna O comprueba la columna O", formulaGuiaRetenida("O", 42) === "=COUNTIF($M:$M,O42)=0");
+
+// Dos filas distintas NUNCA pueden compartir fórmula: ese sería exactamente el
+// fallo silencioso que se quiere evitar.
+ok("dos filas no comparten fórmula",
+   formulaGuiaRetenida("A", 5) !== formulaGuiaRetenida("A", 6));
+
+// La columna M va entera. Acotarla a 200 filas era el origen de dos problemas:
+// la lista de retenidas no podía crecer, y a partir de la fila 201 no había
+// ninguna regla.
+ok("la columna M se mira entera", formulaGuiaRetenida("A", 1).indexOf("$M:$M") !== -1);
+ok("no queda ningún tope de 200", formulaGuiaRetenida("A", 1).indexOf("200") === -1);
+
+// A qué columnas les toca: la A siempre, la O solo donde se usa la preforma.
+// Es el mismo criterio con el que el caché decide si reserva columna.
+ok("una Global lleva A y O",
+   JSON.stringify(columnasValidables("GLOBAL 4", 19)) === JSON.stringify([1, 15]));
+ok("la MACHO lleva A y O",
+   JSON.stringify(columnasValidables("MACHO", 19)) === JSON.stringify([1, 15]));
+ok("una M-S solo lleva A",
+   JSON.stringify(columnasValidables("M-S T1", 19)) === JSON.stringify([1]));
+ok("un inventario lleva A y O",
+   JSON.stringify(columnasValidables("INVENTARIO A", 19)) === JSON.stringify([1, 15]));
+ok("una hoja estrecha no pide la O",
+   JSON.stringify(columnasValidables("GLOBAL 4", 12)) === JSON.stringify([1]));
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
