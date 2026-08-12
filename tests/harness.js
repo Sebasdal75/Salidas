@@ -1127,6 +1127,16 @@ ok("con datos hasta la 800, deja 820", filasTrasRecorte(800, 1200) === 820);
 ok("y el hueco libre es siempre el margen",
    filasTrasRecorte(800, 1200) - 800 === MARGEN);
 
+// El cálculo nunca puede caer por debajo del último dato. Esto es lo que
+// impide que el recorte se lleve una guía por delante, y borrar filas es lo
+// único del sistema que puede hacer desaparecer una guía sin dejar rastro: el
+// historial registra los vaciados de celda, no las filas eliminadas.
+for (let ultimo = 0; ultimo <= 2000; ultimo += 37) {
+    let d = filasTrasRecorte(ultimo, 3000);
+    if (d !== 0 && d <= ultimo) { ok("RECORTE PELIGROSO con último dato en " + ultimo, false); break; }
+}
+ok("el destino nunca cae sobre una fila con datos", true);
+
 // Nunca estira: esto recorta y nada más.
 ok("si ya está en la base, no toca nada", filasTrasRecorte(0, 200) === 0);
 ok("si es más pequeña que la base, no la estira", filasTrasRecorte(0, 120) === 0);

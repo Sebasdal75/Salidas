@@ -286,12 +286,33 @@ function filasTrasRecorte(ultimaConDatos, maxActual) {
 }
 
 // Devuelve cuántas filas se quitaron (0 si no hacía falta).
+//
+// Borrar filas es lo único de todo el sistema que puede hacer desaparecer una
+// guía SIN DEJAR RASTRO: el historial registra los vaciados de celda, pero una
+// fila eliminada no pasa por ahí. Por eso esta función no se fía de
+// `getLastRow()`: LEE lo que va a borrar y se echa atrás si encuentra
+// cualquier cosa.
+//
+// Cuesta una llamada más, una vez al día por pestaña. Es un precio ridículo
+// comparado con perder el trabajo de una jornada por un cálculo mal hecho.
 function recortarFilasSobrantes(hoja) {
     let max = hoja.getMaxRows();
     let destino = filasTrasRecorte(hoja.getLastRow(), max);
     if (destino === 0) return 0;
-    hoja.deleteRows(destino + 1, max - destino);
-    return max - destino;
+
+    let cuantas = max - destino;
+    let anchoUtil = Math.min(hoja.getMaxColumns(), 19);
+    let loQueSeIba = hoja.getRange(destino + 1, 1, cuantas, anchoUtil).getValues();
+    for (let r = 0; r < loQueSeIba.length; r++) {
+        for (let c = 0; c < loQueSeIba[r].length; c++) {
+            // Hay algo escrito ahí abajo. No se toca nada y se avisa: es mejor
+            // dejar la hoja larga que borrar una guía que alguien necesitaba.
+            if (String(loQueSeIba[r][c]).trim() !== "") return -1;
+        }
+    }
+
+    hoja.deleteRows(destino + 1, cuantas);
+    return cuantas;
 }
 
 // ¿Hasta qué tamaño hay que dejar la hoja? Devuelve 0 si no hay que tocarla.
@@ -590,7 +611,7 @@ function cierreDelDia() {
       "¿Continuar?", ui.ButtonSet.YES_NO);
   if (resp !== ui.Button.YES) return;
 
-  let podadas = 0; let filasQuitadas = 0; let hojasRecortadas = 0;
+  let podadas = 0; let filasQuitadas = 0; let hojasRecortadas = 0; let seNego = [];
   conLock(archivo => {
     // El recorte borra filas en cada pestaña, y borrar filas dispara
     // alCambiarEstructura. Sin esta marca, el cierre lanzaría una avalancha de
@@ -605,7 +626,17 @@ function cierreDelDia() {
       archivo.getSheets().forEach(h => {
           if (esHojaInterna(claveHoja(h.getName()))) return;
           let quitadas = recortarFilasSobrantes(h);
-          if (quitadas > 0) { filasQuitadas += quitadas; hojasRecortadas++; }
+          if (quitadas === -1) { seNego.push(h.getName()); return; }
+          if (quitadas > 0) {
+              filasQuitadas += quitadas; hojasRecortadas++;
+              // Borrar filas es lo único que puede hacer desaparecer una guía
+              // sin pasar por el historial. Queda anotado para que nunca haya
+              // que preguntarse si el recorte se llevó algo por delante.
+              registrarEnHistorialLote(archivo, [eventoHistorial(
+                  claveHoja(h.getName()), quitadas, "Filas de la hoja",
+                  quitadas + " filas vacías", "todas en blanco, verificadas una a una",
+                  "CIERRE DEL DÍA (recorte de filas sobrantes)")]);
+          }
       });
 
       podadas = podarCacheHuerfano(archivo);
@@ -624,6 +655,9 @@ function cierreDelDia() {
       "Listo.\n\n" +
       "   · " + filasHist + " registros de historial borrados\n" +
       "   · " + filasQuitadas.toLocaleString() + " filas vacías quitadas de " + hojasRecortadas + " pestañas\n" +
+      (seNego.length > 0
+          ? "   · ⚠️ NO se recortaron (tenían datos ahí abajo): " + seNego.join(", ") + "\n"
+          : "") +
       "   · " + podadas + " columnas huérfanas podadas del caché\n" +
       "   · Caché reconstruido\n\n" +
       "El contenido de las hojas de escaneo sigue como estaba.", ui.ButtonSet.OK);
