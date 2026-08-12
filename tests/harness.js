@@ -1063,6 +1063,29 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y5. La escritura no alcanza a las filas vecinas ===");
+// Escribir de vuelta filas que no cambiaron es una forma silenciosa de perder
+// una guía: se reescriben con la copia que se leyó unos milisegundos antes, y
+// si otro operador escaneó ahí sin lock (el onEdit simple lo permite cuando el
+// lock está ocupado), su guía se sobrescribe.
+let unaFila = rangoDeUpdates([{ row: 40, col: 1, val: "1Z1" }], 20, 100);
+ok("un escaneo normal escribe UNA fila", unaFila.desde === 40 && unaFila.alto === 1);
+ok("y no empieza en el inicio del bloque", unaFila.desde !== 20);
+
+let dosFilas = rangoDeUpdates([{ row: 40 }, { row: 43 }], 20, 100);
+ok("dos cambios separados: solo el tramo entre ellos",
+   dosFilas.desde === 40 && dosFilas.alto === 4);
+
+let pegado = rangoDeUpdates([{ row: 20 }, { row: 119 }], 20, 100);
+ok("un pegado que cambia todo sí cubre todo",
+   pegado.desde === 20 && pegado.alto === 100);
+
+ok("sin cambios no se escribe nada", rangoDeUpdates([], 20, 100) === null);
+ok("updates fuera del bloque se ignoran",
+   rangoDeUpdates([{ row: 5 }, { row: 500 }], 20, 100) === null);
+ok("una mezcla dentro/fuera solo cuenta las de dentro",
+   rangoDeUpdates([{ row: 5 }, { row: 40 }, { row: 500 }], 20, 100).alto === 1);
+
 console.log("\n=== 5y4. Pestañas M-S mal escritas ===");
 // esHojaMS exige que el nombre empiece por "M-S " —con guion Y con espacio—.
 // Una pestaña llamada "MS CUENTAS ESPECIALES" cae en el cajón de las GLOBALES

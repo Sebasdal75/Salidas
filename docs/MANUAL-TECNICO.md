@@ -378,6 +378,28 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
     que hace sonar el escáner. `asegurarFilasDeEscaneo` la **construye** en vez
     de copiarla de la fila de arriba: copiarla solo funciona si esa fila la
     tiene, y las reglas puestas a mano cubren un rango fijo.
+13. **NADA automático escribe valores en la columna A**, salvo la normalización
+    del propio escaneo — y esa escribe **solo las celdas que cambian**
+    (`rangoDeUpdates`). Es el invariante más importante del archivo: la columna
+    A es del operador.
+
+    El peligro no es escribir un valor equivocado, es **reescribir uno bueno**.
+    El patrón «leo un rango, cambio una celda, escribo el rango entero» devuelve
+    a la hoja una copia leída milisegundos antes; y el `onEdit` simple, cuando
+    no consigue el lock en 10 s, **escanea igual sin lock** (para eso existe
+    `⏳ Pendiente`). Entre la lectura y la escritura cabe un escaneo ajeno, y esa
+    guía desaparece sin quedar en el historial, porque el historial registra
+    vaciados de celda hechos por una persona, no reescrituras de rango.
+
+    Ya pasó dos veces: `sincronizarSalidasMS` reescribía A:B aunque solo tocara
+    la B, y `aplicarBatchUpdates` reescribía el bloque editado entero. Si añades
+    una escritura, acótala a lo que de verdad cambia y **nunca incluyas la
+    columna A si no es lo que estás cambiando**.
+
+    Las únicas dos funciones que mueven valores en la columna A son de menú:
+    `agruparPorPedimento` (con confirmación y registro) y
+    `limpiarGuiasMovidasSeleccion` (con registro). Ninguna función del caché
+    escribe jamás en una hoja de escaneo: el caché solo lee de ellas.
 
 ---
 

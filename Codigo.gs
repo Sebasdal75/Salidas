@@ -848,30 +848,6 @@ function instalarTriggerDeEstructura(ss) {
     ScriptApp.newTrigger('alCambiarEstructura').forSpreadsheet(ss).onChange().create();
 }
 
-// Interruptor para descartarlo como sospechoso sin tocar nada más.
-//
-// El vigilante no escribe en la columna A —solo copia la hoja al caché y
-// repinta la columna B—, pero eso es una lectura mía del código, no una prueba.
-// Si algo raro empezó justo al instalarlo, apágalo, trabaja un rato y compara.
-// Lo único que se pierde mientras está apagado es que el caché vuelve a no
-// enterarse de las filas borradas, que se cura con «Forzar Actualización».
-function quitarVigilanteDeEstructura() {
-    const ss = obtenerArchivo();
-    let quitados = 0;
-    ScriptApp.getProjectTriggers().forEach(t => {
-        if (t.getHandlerFunction() === 'alCambiarEstructura') { ScriptApp.deleteTrigger(t); quitados++; }
-    });
-    ss.toast(quitados > 0
-        ? '🛑 Vigilante de estructura APAGADO. El caché dejará de enterarse de las filas borradas: si eso te da duplicados fantasma, usa «Forzar Actualización».'
-        : 'ℹ️ No estaba instalado.', 'Listo', 10);
-}
-
-function ponerVigilanteDeEstructura() {
-    const ss = obtenerArchivo();
-    instalarTriggerDeEstructura(ss);
-    ss.toast('✅ Vigilante de estructura encendido.', 'Listo', 6);
-}
-
 function desinstalarTriggerAvanzado() {
     const ss = obtenerArchivo();
     ScriptApp.getProjectTriggers().forEach(t => {
@@ -1216,6 +1192,30 @@ const COLS_BATCH = [1, 2, 12, 14, 15, 16, 19];
 // Accesor para poder comprobarlo desde el banco de pruebas.
 function columnasDelLote() { return COLS_BATCH; }
 
+// El rango que se escribe se acota a las filas que DE VERDAD cambian, no al
+// bloque editado entero.
+//
+// Antes se leía el bloque completo, se cambiaban una o dos celdas y se escribía
+// todo de vuelta. Las filas que no cambiaban se reescribían con lo que se había
+// leído unos milisegundos antes, y eso incluye la COLUMNA A. Es la misma forma
+// de perder una guía que había en el barrido de M-S: si otro operador escanea
+// sin lock —el onEdit simple lo permite cuando el lock está ocupado, para eso
+// existe «⏳ Pendiente»— su guía se sobrescribe con la copia vieja.
+//
+// En un escaneo normal hay una sola fila con cambios, así que ahora se escribe
+// exactamente esa celda y no puede alcanzar a ninguna vecina.
+function rangoDeUpdates(updates, minRow, rowCount) {
+    let filas = [];
+    for (let i = 0; i < updates.length; i++) {
+        let r = updates[i].row;
+        if (r >= minRow && r < minRow + rowCount) filas.push(r);
+    }
+    if (filas.length === 0) return null;
+    let desde = Math.min.apply(null, filas);
+    let hasta = Math.max.apply(null, filas);
+    return { desde: desde, alto: hasta - desde + 1 };
+}
+
 function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
     if (!batchUpdates || batchUpdates.length === 0) return;
     COLS_BATCH.forEach(col => {
@@ -1223,13 +1223,16 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
         if (updates.length === 0) return;
         if (hoja.getMaxColumns() < col) return;
 
-        let range = hoja.getRange(minRow, col, rowCount, 1);
+        let tramo = rangoDeUpdates(updates, minRow, rowCount);
+        if (!tramo) return;
+
+        let range = hoja.getRange(tramo.desde, col, tramo.alto, 1);
         let vals = range.getValues();
         let bgs = updates.some(u => u.bg) ? range.getBackgrounds() : null;
 
         updates.forEach(u => {
-            let idx = u.row - minRow;
-            if (idx < 0 || idx >= rowCount) return;
+            let idx = u.row - tramo.desde;
+            if (idx < 0 || idx >= tramo.alto) return;
             if (u.clear) vals[idx][0] = "";
             else if (u.val !== undefined) vals[idx][0] = u.val;
             if (u.bg && bgs) bgs[idx][0] = u.bg;
@@ -3428,9 +3431,6 @@ function onOpen() {
     .addSubMenu(ui.createMenu('⚙️ Disparadores')
         .addItem('Trigger avanzado (6 min, sin usuario)', 'instalarTriggerAvanzado')
         .addItem('Trigger simple + usuario en el historial', 'instalarTriggerConUsuario')
-        .addSeparator()
-        .addItem('🛑 Apagar vigilante de filas borradas', 'quitarVigilanteDeEstructura')
-        .addItem('Encender vigilante de filas borradas', 'ponerVigilanteDeEstructura')
         .addSeparator()
         .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado'))
 
