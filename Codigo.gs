@@ -526,6 +526,9 @@ function instalarTriggerAvanzado() {
     });
     ScriptApp.newTrigger('actualizadorAutomaticoGlobal').timeBased().everyMinutes(5).create();
 
+    // Vigilante de filas borradas/insertadas: onEdit no las ve.
+    instalarTriggerDeEstructura(ss);
+
     ss.toast('✅ Trigger avanzado activo (6 min de límite y usuario en el historial) + repaso automático cada 5 min.', 'Listo', 8);
 }
 
@@ -558,6 +561,12 @@ function cierreDelDia() {
 
   let podadas = 0; let filasQuitadas = 0; let hojasRecortadas = 0;
   conLock(archivo => {
+    // El recorte borra filas en cada pestaña, y borrar filas dispara
+    // alCambiarEstructura. Sin esta marca, el cierre lanzaría una avalancha de
+    // ejecuciones rehaciendo el caché una vez por pestaña, cuando aquí abajo ya
+    // se reconstruye entero una sola vez.
+    marcarMantenimiento();
+    try {
       limpiarHistorialDiario();
 
       // El recorte va ANTES de rehacer la fotografía: así el caché se construye
@@ -575,6 +584,9 @@ function cierreDelDia() {
       });
       invalidarCacheRAM();
       getCacheData(archivo);
+    } finally {
+      quitarMantenimiento();
+    }
   });
 
   ui.alert("🌙 Cierre del día",
@@ -683,14 +695,99 @@ function instalarTriggerConUsuario() {
   });
   ScriptApp.newTrigger('actualizadorAutomaticoGlobal').timeBased().everyMinutes(5).create();
 
+  // Vigilante de filas borradas/insertadas: onEdit no las ve.
+  instalarTriggerDeEstructura(ss);
+
   ss.toast('✅ Escaneo con trigger simple: el historial ya registra quién borra. ' +
            'Límite de 30 s por escaneo + repaso automático cada 5 min.', 'Listo', 8);
+}
+
+// =========================================================================
+// CAMBIOS DE ESTRUCTURA (borrar o insertar filas)
+// =========================================================================
+// onEdit NO se dispara cuando alguien borra una fila entera. Es una limitación
+// de Apps Script, no un descuido: borrar e insertar filas no generan evento de
+// edición. Y es justo el caso que más daño hace al caché.
+//
+// Al borrar una fila, todas las de abajo suben una posición. El caché guarda
+// «esta guía está en la fila N» y esa correspondencia se rompe de golpe para
+// TODAS las filas por debajo del borrado, no solo para la que se fue. A partir
+// de ahí la guía borrada sigue apareciendo como presente y los mensajes de
+// duplicado señalan filas equivocadas.
+//
+// El repaso de 5 minutos tampoco lo recoge: la columna A y la B suben juntas,
+// así que ninguna fila queda «sin validar» y la hoja no se da por pendiente.
+//
+// onChange sí avisa de estos cambios. Hay que instalarlo (no existe versión
+// simple), así que viene con los dos modos de disparador del menú.
+const PROP_MANTENIMIENTO = 'MANTENIMIENTO_EN_CURSO';
+
+// El propio sistema inserta y borra filas: el crecimiento automático al
+// escanear y el recorte del cierre. Esos cambios no necesitan reacción —quien
+// los hizo ya deja el caché en orden— y sin esta marca el recorte del cierre
+// dispararía una avalancha de onChange, uno por pestaña.
+//
+// La marca lleva la hora: si una ejecución se cortara a medias, caduca sola en
+// dos minutos en vez de dejar el aviso apagado para siempre.
+function marcarMantenimiento() {
+    PropertiesService.getScriptProperties().setProperty(PROP_MANTENIMIENTO, String(Date.now()));
+}
+function quitarMantenimiento() {
+    PropertiesService.getScriptProperties().deleteProperty(PROP_MANTENIMIENTO);
+}
+function hayMantenimientoEnCurso() {
+    let v = PropertiesService.getScriptProperties().getProperty(PROP_MANTENIMIENTO);
+    if (!v) return false;
+    return (Date.now() - Number(v)) < 120000;
+}
+
+// ¿Este cambio de estructura puede haber descolocado el caché?
+function cambioAfectaAlCache(tipo) {
+    let t = String(tipo || "");
+    return t === "REMOVE_ROW" || t === "INSERT_ROW" ||
+           t === "REMOVE_COLUMN" || t === "INSERT_COLUMN" ||
+           t === "REMOVE_GRID";
+}
+
+function alCambiarEstructura(e) {
+    if (!e || !cambioAfectaAlCache(e.changeType)) return;
+    if (hayMantenimientoEnCurso()) return;
+
+    conLock(archivo => {
+        // Una pestaña borrada deja su columna en el caché generando duplicados
+        // fantasma para siempre. Se poda aquí en vez de esperar al repaso.
+        if (String(e.changeType) === "REMOVE_GRID") podarCacheHuerfano(archivo);
+
+        // getActiveSheet es la hoja donde el usuario acaba de hacer el cambio.
+        // actualizarFotografiaMental ya se salta sola las hojas del sistema.
+        let hoja = archivo.getActiveSheet();
+        actualizarFotografiaMental(hoja, archivo);
+
+        invalidarCacheRAM();
+        let cacheInfo = getCacheData(archivo);
+
+        // Se recalcula sin repintarTodo: las alertas graves que siguieran en
+        // pie se conservan. Lo que se corrige aquí son los números de fila de
+        // los mensajes, que tras el desplazamiento apuntaban a otro sitio.
+        let n = claveHoja(hoja.getName());
+        if (!esHojaSistema(n)) recalcularHoja(hoja, archivo, cacheInfo, null);
+    });
+}
+
+// Instala (o reinstala) el vigilante de cambios de estructura. Va con los dos
+// modos de disparador, porque el problema que resuelve es el mismo en ambos.
+function instalarTriggerDeEstructura(ss) {
+    ScriptApp.getProjectTriggers().forEach(t => {
+        if (t.getHandlerFunction() === 'alCambiarEstructura') ScriptApp.deleteTrigger(t);
+    });
+    ScriptApp.newTrigger('alCambiarEstructura').forSpreadsheet(ss).onChange().create();
 }
 
 function desinstalarTriggerAvanzado() {
     const ss = obtenerArchivo();
     ScriptApp.getProjectTriggers().forEach(t => {
         if (t.getHandlerFunction() === 'alEditar' ||
+            t.getHandlerFunction() === 'alCambiarEstructura' ||
             t.getHandlerFunction() === 'actualizadorAutomaticoGlobal') ScriptApp.deleteTrigger(t);
     });
     PropertiesService.getScriptProperties().deleteProperty(PROP_TRIGGER);
@@ -889,6 +986,11 @@ function procesarEdicion(e) {
     // aquí, con el lock ya tomado y antes de recalcular, para que el recálculo
     // se encuentre la hoja ya del tamaño bueno. Solo cuesta un getMaxRows por
     // escaneo (2-5 ms medidos); el insertRowsAfter cae una vez cada 50.
+    // Estirar la hoja inserta filas, y eso dispara alCambiarEstructura, que
+    // rehará el caché sin necesidad. Se deja pasar a propósito: marcar
+    // mantenimiento aquí abriría una ventana ciega en la que un borrado de fila
+    // de verdad se perdería, y eso es peor que repetir un trabajo de un segundo
+    // una vez cada cincuenta escaneos.
     perf("estirar la hoja si hace falta", 0, () =>
         asegurarFilasDeEscaneo(hoja, filaInicial + numRows - 1, nombreHoja));
 

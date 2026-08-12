@@ -1063,6 +1063,22 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y3. Cambios de estructura (borrar filas) ===");
+// onEdit NO se dispara al borrar una fila entera: es una limitación de Apps
+// Script. Y borrar una fila sube todas las de abajo, así que el caché queda
+// descolocado para TODAS ellas, no solo para la que se fue.
+ok("borrar una fila afecta al caché", cambioAfectaAlCache("REMOVE_ROW") === true);
+ok("insertar una fila afecta al caché", cambioAfectaAlCache("INSERT_ROW") === true);
+ok("borrar una pestaña afecta al caché", cambioAfectaAlCache("REMOVE_GRID") === true);
+ok("borrar una columna afecta al caché", cambioAfectaAlCache("REMOVE_COLUMN") === true);
+
+// EDIT ya lo cubre onEdit; reaccionar aquí también duplicaría cada escaneo.
+ok("una edición normal NO se procesa aquí", cambioAfectaAlCache("EDIT") === false);
+ok("un cambio de formato no toca el caché", cambioAfectaAlCache("FORMAT") === false);
+ok("OTHER no dispara nada", cambioAfectaAlCache("OTHER") === false);
+ok("sin tipo no dispara nada",
+   cambioAfectaAlCache(undefined) === false && cambioAfectaAlCache("") === false);
+
 console.log("\n=== 5y2. El recorte del cierre del día ===");
 const BASE = filasBase();
 ok("la base son 200 filas", BASE === 200);
