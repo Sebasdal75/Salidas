@@ -150,6 +150,37 @@ function esHojaMS(nombreHoja) {
 // El tipo de una M-S lo decide el operador al elegir la pestaña. No se
 // puede deducir de las guías: con guías cortas no hay nada que distinga un T1
 // de un global, y con guías 1Z el prefijo del embarcador tampoco lo dice.
+// Cómo clasifica el sistema una pestaña. Solo para el diagnóstico: ver esto
+// escrito al lado de cada nombre convierte un fallo invisible en obvio.
+function tipoDePestana(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    if (esHojaInterna(n)) return "interna";
+    if (esHojaSistema(n)) return "MACHO / plantilla";
+    if (esHojaInventario(n)) return "inventario";
+    if (esHojaMS(n)) return "M-S (registro previo)";
+    return "GLOBAL (hoja de unidad)";
+}
+
+// ¿Este nombre PARECE una M-S pero el sistema no la reconoce como tal?
+//
+// `esHojaMS` exige que empiece por «M-S » — con guion Y con espacio. Una pestaña
+// llamada «MS CUENTAS ESPECIALES» o «M-SCUENTAS ESPECIALES» cae en el cajón de
+// las GLOBALES, y eso rompe dos cosas a la vez sin decir nada:
+//
+//   · Sus guías dejan de contar como registro previo. Al escanearlas en la hoja
+//     de la unidad salen «⚠️ Sobra (Ajena)» o «Sin registrar en M-S», aunque
+//     estén ahí delante.
+//   · Y encima chocan: dos GLOBALES sí se cruzan entre sí, así que la misma
+//     guía en las dos sale «⛔ DUPLICADO».
+//
+// Es el fallo más silencioso del sistema, porque el nombre se LEE bien.
+function pareceMSMalEscrita(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    if (esHojaMS(n)) return false;
+    if (esHojaSistema(n) || esHojaInventario(n)) return false;
+    return /^M-?S/.test(n);
+}
+
 function tipoMS(nombreHoja) {
     let n = claveHoja(nombreHoja);
     // Solo abreviatura para que la celda no se alargue. NO lleva ninguna regla
@@ -3980,12 +4011,17 @@ function diagnosticoSistema() {
   // --- Estado de las pestañas de trabajo ---
   L.push("");
   L.push("── PESTAÑAS ──");
+  L.push("(entre paréntesis, cómo la clasifica el sistema POR SU NOMBRE)");
+
+  let sospechosas = [];
   ss.getSheets().forEach(hoja => {
       let n = claveHoja(hoja.getName());
+      if (pareceMSMalEscrita(n)) sospechosas.push(n);
       if (esHojaSistema(n)) return;
 
+      let tipo = tipoDePestana(n);
       let lr = hoja.getLastRow();
-      if (lr < 1) { L.push("· " + n + ": vacía"); return; }
+      if (lr < 1) { L.push("· " + n + "  (" + tipo + "): vacía"); return; }
 
       let datos = hoja.getRange(1, 1, lr, 2).getValues();
       let conDato = 0, pendientes = 0, duplicados = 0, invalidas = 0;
@@ -4000,13 +4036,29 @@ function diagnosticoSistema() {
           if (b.startsWith("❌ Guía Inválida")) invalidas++;
       });
 
-      let linea = "· " + n + ": " + conDato + " filas";
+      let linea = "· " + n + "  (" + tipo + "): " + conDato + " filas";
       if (pendientes > 0) linea += " | ⏳ " + pendientes + " sin validar";
       if (duplicados > 0) linea += " | ⛔ " + duplicados + " duplicadas";
       if (invalidas > 0) linea += " | ❌ " + invalidas + " inválidas";
       if (pendientes === 0 && duplicados === 0 && invalidas === 0) linea += " | ✅ limpia";
       L.push(linea);
   });
+
+  if (sospechosas.length > 0) {
+      L.push("");
+      L.push("🛑 NOMBRE MAL ESCRITO: " + sospechosas.join(", "));
+      L.push("   Parece una M-S pero el sistema la trata como GLOBAL. Para que");
+      L.push("   cuente como registro previo, el nombre tiene que empezar por");
+      L.push("   «M-S » exactamente: con guion Y con espacio detrás.");
+      L.push("");
+      L.push("   Mientras siga así pasan DOS cosas, y las dos sin avisar:");
+      L.push("   · Sus guías salen «⚠️ Sobra (Ajena)» o «Sin registrar en M-S»");
+      L.push("     al escanearlas en la hoja de la unidad, aunque estén ahí.");
+      L.push("   · Y salen «⛔ DUPLICADO» entre las dos hojas, porque dos");
+      L.push("     GLOBALES sí se cruzan entre sí.");
+      L.push("");
+      L.push("   Arreglo: renombra la pestaña y corre «Reconstruir caché completo».");
+  }
 
   // --- Disparadores ---
   L.push("");

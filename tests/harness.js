@@ -1063,6 +1063,38 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y4. Pestañas M-S mal escritas ===");
+// esHojaMS exige que el nombre empiece por "M-S " —con guion Y con espacio—.
+// Una pestaña llamada "MS CUENTAS ESPECIALES" cae en el cajón de las GLOBALES
+// y rompe dos cosas a la vez sin decir nada: sus guías salen "Sobra (Ajena)" al
+// escanearlas en la hoja de la unidad, y además chocan como duplicado, porque
+// dos GLOBALES sí se cruzan entre sí.
+ok("M-S T1 se reconoce", esHojaMS("M-S T1") === true);
+ok("M-S CUENTAS ESPECIALES se reconoce", esHojaMS("M-S CUENTAS ESPECIALES") === true);
+ok("SIMPLES y MULTIPLES también", esHojaMS("SIMPLES") && esHojaMS("MULTIPLES A"));
+
+ok("sin el guion NO se reconoce", esHojaMS("MS CUENTAS ESPECIALES") === false);
+ok("sin el espacio NO se reconoce", esHojaMS("M-SCUENTAS ESPECIALES") === false);
+ok("y por eso se cuela como GLOBAL", esHojaPrincipal("MS CUENTAS ESPECIALES") === true);
+
+// El aviso del diagnóstico es lo que convierte ese fallo invisible en obvio.
+ok("«MS CUENTAS ESPECIALES» se marca como sospechosa",
+   pareceMSMalEscrita("MS CUENTAS ESPECIALES") === true);
+ok("«M-SCUENTAS» también", pareceMSMalEscrita("M-SCUENTAS ESPECIALES") === true);
+ok("una M-S bien escrita NO se marca", pareceMSMalEscrita("M-S CUENTAS ESPECIALES") === false);
+ok("una Global normal NO se marca", pareceMSMalEscrita("A1 77-14-ZP") === false);
+ok("GLOBAL 4 tampoco", pareceMSMalEscrita("GLOBAL 4") === false);
+ok("un inventario tampoco", pareceMSMalEscrita("INVENTARIO A") === false);
+ok("las hojas del sistema tampoco", pareceMSMalEscrita("CACHE_SISTEMA") === false);
+
+// La etiqueta que se enseña al lado de cada nombre en el diagnóstico.
+ok("A1 77-14-ZP es una GLOBAL", tipoDePestana("A1 77-14-ZP").indexOf("GLOBAL") === 0);
+ok("M-S CUENTAS ESPECIALES es M-S", tipoDePestana("M-S CUENTAS ESPECIALES").indexOf("M-S") === 0);
+ok("MS CUENTAS ESPECIALES sale como GLOBAL (el fallo, visible)",
+   tipoDePestana("MS CUENTAS ESPECIALES").indexOf("GLOBAL") === 0);
+ok("INVENTARIO A es inventario", tipoDePestana("INVENTARIO A") === "inventario");
+ok("CACHE_SISTEMA es interna", tipoDePestana("CACHE_SISTEMA") === "interna");
+
 console.log("\n=== 5y3. Cambios de estructura (borrar filas) ===");
 // onEdit NO se dispara al borrar una fila entera: es una limitación de Apps
 // Script. Y borrar una fila sube todas las de abajo, así que el caché queda
