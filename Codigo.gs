@@ -848,6 +848,30 @@ function instalarTriggerDeEstructura(ss) {
     ScriptApp.newTrigger('alCambiarEstructura').forSpreadsheet(ss).onChange().create();
 }
 
+// Interruptor para descartarlo como sospechoso sin tocar nada más.
+//
+// El vigilante no escribe en la columna A —solo copia la hoja al caché y
+// repinta la columna B—, pero eso es una lectura mía del código, no una prueba.
+// Si algo raro empezó justo al instalarlo, apágalo, trabaja un rato y compara.
+// Lo único que se pierde mientras está apagado es que el caché vuelve a no
+// enterarse de las filas borradas, que se cura con «Forzar Actualización».
+function quitarVigilanteDeEstructura() {
+    const ss = obtenerArchivo();
+    let quitados = 0;
+    ScriptApp.getProjectTriggers().forEach(t => {
+        if (t.getHandlerFunction() === 'alCambiarEstructura') { ScriptApp.deleteTrigger(t); quitados++; }
+    });
+    ss.toast(quitados > 0
+        ? '🛑 Vigilante de estructura APAGADO. El caché dejará de enterarse de las filas borradas: si eso te da duplicados fantasma, usa «Forzar Actualización».'
+        : 'ℹ️ No estaba instalado.', 'Listo', 10);
+}
+
+function ponerVigilanteDeEstructura() {
+    const ss = obtenerArchivo();
+    instalarTriggerDeEstructura(ss);
+    ss.toast('✅ Vigilante de estructura encendido.', 'Listo', 6);
+}
+
 function desinstalarTriggerAvanzado() {
     const ss = obtenerArchivo();
     ScriptApp.getProjectTriggers().forEach(t => {
@@ -2157,7 +2181,23 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
         }
 
         if (modificados) {
-            perf("M-S: escribir A:B", lr * 2, () => rangoStatus.setValues(vals));
+            // SOLO la columna B. Antes se reescribía el rango A:B entero con lo
+            // que se había leído unos milisegundos antes, aunque de la columna A
+            // no se cambiara nunca ni una celda.
+            //
+            // Eso era una forma silenciosa de perder guías. El onEdit simple
+            // pide el lock con waitLock(10s) y, si no lo consigue, escanea
+            // IGUAL sin lock — para eso existe «⏳ Pendiente». Así que la
+            // secuencia era posible: este barrido toma el lock y lee A:B, un
+            // operador escanea una guía nueva sin lock, y al escribir de vuelta
+            // se le pasaba por encima la copia vieja de la columna A. La guía
+            // desaparecía sin quedar en el historial, porque el historial
+            // registra vaciados de celda hechos por una persona, no esto.
+            //
+            // Escribiendo solo la B, esta función no puede tocar una guía
+            // aunque el resto falle.
+            let soloB = vals.map(f => [f[1]]);
+            perf("M-S: escribir B", lr, () => hojaMS.getRange(1, 2, lr, 1).setValues(soloB));
             msModificadas.push({ hoja: hojaMS, lr: lr });
         }
     }
@@ -3388,6 +3428,9 @@ function onOpen() {
     .addSubMenu(ui.createMenu('⚙️ Disparadores')
         .addItem('Trigger avanzado (6 min, sin usuario)', 'instalarTriggerAvanzado')
         .addItem('Trigger simple + usuario en el historial', 'instalarTriggerConUsuario')
+        .addSeparator()
+        .addItem('🛑 Apagar vigilante de filas borradas', 'quitarVigilanteDeEstructura')
+        .addItem('Encender vigilante de filas borradas', 'ponerVigilanteDeEstructura')
         .addSeparator()
         .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado'))
 
