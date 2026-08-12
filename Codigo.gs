@@ -202,6 +202,68 @@ function asegurarFilas(hoja, minimo) {
     if (max < minimo) hoja.insertRowsAfter(max, (minimo - max) + 100);
 }
 
+// -------------------------------------------------------------------------
+// CRECIMIENTO DE LAS HOJAS DE ESCANEO
+//
+// Antes había que reservar miles de filas «por si acaso». Esas filas vacías no
+// cuestan al recalcular —getLastRow devuelve la última fila CON datos— pero
+// engordan el archivo, y el peso del archivo fija el precio de CADA ida y
+// vuelta a la API: medido, se movió de 87 ms a 53 ms según adelgazaba, y en un
+// escaneo hay catorce llamadas.
+//
+// Con esto la hoja se estira sola al acercarse el escaneo al final, así que ya
+// no hace falta reservar de más.
+//
+// OJO con el suelo: sincronizarMacho vuelca la lista FEMAD de la columna M en
+// todas las hojas y agranda la que se le quede corta, así que ninguna hoja baja
+// de la longitud de esa lista por mucho que se recorte.
+const MARGEN_FILAS = 50;   // a cuántas filas del final se empieza a crecer
+const BLOQUE_FILAS = 50;   // mínimo que se añade de una vez
+
+// Accesores, para poder comprobarlos desde el banco de pruebas: las constantes
+// con `const` no salen del eval con el que el banco carga este archivo.
+function margenFilas() { return MARGEN_FILAS; }
+function bloqueFilas() { return BLOQUE_FILAS; }
+
+// ¿Hasta qué tamaño hay que dejar la hoja? Devuelve 0 si no hay que tocarla.
+//
+// Se calcula el DESTINO, no un bloque fijo: si alguien pega 300 filas de golpe
+// cerca del final, sumar 50 dejaría las últimas fuera de la hoja y el escaneo
+// se perdería sin avisar. El bloque es solo un mínimo, para no crecer de tres
+// en tres filas y pagar una llamada cada vez.
+function filasNecesarias(filaTocada, maxActual) {
+    if (!filaTocada || filaTocada < 1) return 0;
+    let necesarias = filaTocada + MARGEN_FILAS;
+    if (necesarias <= maxActual) return 0;
+    return Math.max(necesarias, maxActual + BLOQUE_FILAS);
+}
+
+// Estira la hoja si el escaneo se está acercando al final. Devuelve cuántas
+// filas se añadieron (0 si no hizo falta), que es lo que mira la medición.
+function asegurarFilasDeEscaneo(hoja, filaTocada) {
+    let max = hoja.getMaxRows();
+    let destino = filasNecesarias(filaTocada, max);
+    if (destino === 0) return 0;
+
+    let aAnadir = destino - max;
+    hoja.insertRowsAfter(max, aAnadir);
+
+    // Las filas nuevas nacen SIN validación de datos, y esa validación es la
+    // que hace sonar el escáner Zebra. Sin esto, el operador cruzaría la
+    // frontera de la hoja y el escáner se quedaría mudo sin que nada lo avise.
+    //
+    // Se copia solo la validación, NO el formato: si el operador está
+    // escaneando justo en la última fila, esa fila puede llevar el color de una
+    // alerta y no queremos clonarlo cincuenta veces. Los colores los repinta el
+    // recálculo de todas formas.
+    let cols = hoja.getMaxColumns();
+    hoja.getRange(max, 1, 1, cols).copyTo(
+        hoja.getRange(max + 1, 1, aAnadir, cols),
+        SpreadsheetApp.CopyPasteType.PASTE_DATA_VALIDATION, false);
+
+    return aAnadir;
+}
+
 function invalidarCacheRAM() {
     globalCacheData = null;
     globalCacheHeaders = null;
@@ -630,6 +692,13 @@ function procesarEdicion(e) {
     registrarEnHistorialLote(e.source, filasHistorial);
 
     if (!huboCambiosRelevantes) return;
+
+    // Si el escaneo se está acercando al final de la hoja, se estira sola. Va
+    // aquí, con el lock ya tomado y antes de recalcular, para que el recálculo
+    // se encuentre la hoja ya del tamaño bueno. Solo cuesta un getMaxRows por
+    // escaneo (2-5 ms medidos); el insertRowsAfter cae una vez cada 50.
+    perf("estirar la hoja si hace falta", 0, () =>
+        asegurarFilasDeEscaneo(hoja, filaInicial + numRows - 1));
 
     // El caché se actualiza ANTES de recalcular: así los recálculos ven la
     // realidad y pueden reevaluar duplicados desde cero.

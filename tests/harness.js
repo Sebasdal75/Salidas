@@ -1021,5 +1021,38 @@ ok("y el mensaje nombra el pedimento y la fila",
 ok("una alerta produce nota", notaConAlerta(1) === "⚠️ 1 con alerta");
 ok("sin alertas no hay nota", notaConAlerta(0) === "");
 
+console.log("\n=== 5y. La hoja se estira sola al acercarse el final ===");
+const MARGEN = margenFilas();
+const BLOQUE = bloqueFilas();
+ok("el margen y el bloque son 50", MARGEN === 50 && BLOQUE === 50);
+
+// Con sitio de sobra no se toca nada: crecer cuesta una llamada a la API y no
+// se paga por gusto.
+ok("fila 100 en una hoja de 1200: no crece", filasNecesarias(100, 1200) === 0);
+ok("justo en el límite del margen: todavía no crece", filasNecesarias(1150, 1200) === 0);
+ok("una fila más allá: crece", filasNecesarias(1151, 1200) > 0);
+
+// Crece al menos un bloque, para no ir estirando de tres en tres filas y pagar
+// una llamada cada vez.
+ok("crece un bloque entero, no lo justo", filasNecesarias(1151, 1200) === 1250);
+ok("escanear en la última fila también crece", filasNecesarias(1200, 1200) === 1250);
+
+// EL CASO QUE JUSTIFICA CALCULAR EL DESTINO Y NO SUMAR UN BLOQUE FIJO: un
+// pegado grande cerca del final. Con "maxActual + 50" las últimas filas
+// caerían fuera de la hoja y el escaneo se perdería sin avisar.
+ok("un pegado de 300 filas cabe entero",
+   filasNecesarias(1400, 1200) === 1450);
+ok("y el margen queda por delante del pegado",
+   filasNecesarias(1400, 1200) - 1400 === MARGEN);
+
+// Hojas recién creadas y valores raros: nunca debe devolver algo menor que el
+// tamaño actual, o se intentaría insertar un número negativo de filas.
+ok("hoja pequeña: crece hasta cubrir margen", filasNecesarias(10, 50) === 100);
+ok("fila 0 no hace crecer nada", filasNecesarias(0, 1200) === 0);
+ok("fila negativa no hace crecer nada", filasNecesarias(-5, 1200) === 0);
+let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesarias(3000, 1200)];
+ok("el destino nunca queda por debajo del tamaño actual",
+   destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
