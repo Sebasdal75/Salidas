@@ -230,6 +230,39 @@ const BLOQUE_FILAS = 50;   // mínimo que se añade de una vez
 function margenFilas() { return MARGEN_FILAS; }
 function bloqueFilas() { return BLOQUE_FILAS; }
 
+// A cuánta altura vuelve una hoja en el cierre del día. Es el tamaño de
+// arranque: a partir de ahí crece sola con el trabajo de la jornada.
+const FILAS_BASE = 200;
+function filasBase() { return FILAS_BASE; }
+
+// ¿A qué altura hay que dejar la hoja al recortarla? Devuelve 0 si no se toca.
+//
+// Manda el más alto de tres suelos:
+//   · FILAS_BASE, para que una hoja vacía no se quede en cuatro filas.
+//   · La última fila CON DATOS más el margen, que es la MISMA regla con la que
+//     la hoja crece. Recortar por debajo de eso la dejaría pidiendo crecer en
+//     el primer escaneo del día siguiente: un tirón garantizado cada mañana.
+//   · Lo que ya tiene. Esto recorta; estirar es cosa de filasNecesarias.
+//
+// La lista FEMAD de la columna M no necesita suelo propio: getLastRow mira
+// TODAS las columnas, así que la M ya entra en `ultimaConDatos`. Sin eso,
+// recortar por debajo de la lista haría que sincronizarMacho volviera a estirar
+// la hoja y el recorte no serviría de nada.
+function filasTrasRecorte(ultimaConDatos, maxActual) {
+    let destino = Math.max(FILAS_BASE, (ultimaConDatos || 0) + MARGEN_FILAS);
+    if (destino >= maxActual) return 0;
+    return destino;
+}
+
+// Devuelve cuántas filas se quitaron (0 si no hacía falta).
+function recortarFilasSobrantes(hoja) {
+    let max = hoja.getMaxRows();
+    let destino = filasTrasRecorte(hoja.getLastRow(), max);
+    if (destino === 0) return 0;
+    hoja.deleteRows(destino + 1, max - destino);
+    return max - destino;
+}
+
 // ¿Hasta qué tamaño hay que dejar la hoja? Devuelve 0 si no hay que tocarla.
 //
 // Se calcula el DESTINO, no un bloque fijo: si alguien pega 300 filas de golpe
@@ -322,6 +355,44 @@ function columnasValidables(nombreHoja, maxColumnas) {
     return cols;
 }
 
+// Repone la validación en UNA pestaña, en toda su altura. Devuelve las celdas
+// tocadas, o 0 si la pestaña es interna y no le toca. Lo comparten el botón de
+// «todas» y el de «solo esta».
+function reponerValidacionEnHoja(hoja) {
+    let n = claveHoja(hoja.getName());
+    if (esHojaInterna(n)) return 0;
+    let filas = hoja.getMaxRows();
+    let total = 0;
+    columnasValidables(n, hoja.getMaxColumns()).forEach(c => {
+        total += aplicarValidacionRetenida(hoja, c, 1, filas);
+    });
+    return total;
+}
+
+// Botón de menú: solo la pestaña activa. Es el arreglo rápido para cuando
+// alguien pega encima y se lleva la validación por delante — pegar una celda
+// sin regla borra la que hubiera debajo, y eso deja al escáner mudo en esas
+// filas sin ningún aviso.
+function aplicarValidacionHojaActiva() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+  const hoja = ss.getActiveSheet();
+  const nombre = claveHoja(hoja.getName());
+
+  if (esHojaInterna(nombre)) {
+      ui.alert("🛡️ Validación",
+               "Esta pestaña es interna y no lleva la validación.\n" +
+               "Colócate en una hoja de escaneo o en la MACHO.", ui.ButtonSet.OK);
+      return;
+  }
+
+  let celdas = 0;
+  conLock(() => { celdas = reponerValidacionEnHoja(hoja); });
+
+  ss.toast("🛡️ Validación repuesta en " + hoja.getName() + ": " +
+           celdas.toLocaleString() + " celdas.", "Listo", 6);
+}
+
 // Botón de menú: repone la validación en todas las pestañas de escaneo, en toda
 // su altura. Incluye la MACHO, que también la lleva.
 function aplicarValidacionEnTodas() {
@@ -358,11 +429,9 @@ function aplicarValidacionEnTodas() {
   if (resp !== ui.Button.YES) return;
 
   let hechas = 0; let filasTotales = 0;
-  conLock(archivo => {
+  conLock(() => {
       objetivos.forEach(o => {
-          o.cols.forEach(c => {
-              filasTotales += aplicarValidacionRetenida(o.hoja, c, 1, o.filas);
-          });
+          filasTotales += reponerValidacionEnHoja(o.hoja);
           hechas++;
       });
   });
@@ -478,15 +547,27 @@ function cierreDelDia() {
   let resp = ui.alert("🌙 Cierre del día",
       "Se va a hacer el mantenimiento del cierre:\n\n" +
       "   · Vaciar HISTORIAL_BORRADOS  (" + filasHist + " registros)\n" +
+      "   · Devolver las hojas a " + FILAS_BASE + " filas\n" +
       "   · Podar del caché las pestañas renombradas o borradas\n" +
       "   · Reconstruir el caché desde cero\n\n" +
-      "Las hojas de escaneo NO se tocan: eso lo vacías tú a mano.\n\n" +
+      "El CONTENIDO de las hojas de escaneo NO se toca: eso lo vacías tú\n" +
+      "a mano. El recorte solo quita filas vacías del final, y nunca deja\n" +
+      "menos de " + MARGEN_FILAS + " libres por debajo del último dato.\n\n" +
       "¿Continuar?", ui.ButtonSet.YES_NO);
   if (resp !== ui.Button.YES) return;
 
-  let podadas = 0;
+  let podadas = 0; let filasQuitadas = 0; let hojasRecortadas = 0;
   conLock(archivo => {
       limpiarHistorialDiario();
+
+      // El recorte va ANTES de rehacer la fotografía: así el caché se construye
+      // sobre las hojas ya recortadas y no se queda con filas que ya no existen.
+      archivo.getSheets().forEach(h => {
+          if (esHojaInterna(claveHoja(h.getName()))) return;
+          let quitadas = recortarFilasSobrantes(h);
+          if (quitadas > 0) { filasQuitadas += quitadas; hojasRecortadas++; }
+      });
+
       podadas = podarCacheHuerfano(archivo);
       archivo.getSheets().forEach(h => {
           let n = claveHoja(h.getName());
@@ -499,9 +580,10 @@ function cierreDelDia() {
   ui.alert("🌙 Cierre del día",
       "Listo.\n\n" +
       "   · " + filasHist + " registros de historial borrados\n" +
+      "   · " + filasQuitadas.toLocaleString() + " filas vacías quitadas de " + hojasRecortadas + " pestañas\n" +
       "   · " + podadas + " columnas huérfanas podadas del caché\n" +
       "   · Caché reconstruido\n\n" +
-      "Las hojas de escaneo siguen como estaban.", ui.ButtonSet.OK);
+      "El contenido de las hojas de escaneo sigue como estaba.", ui.ButtonSet.OK);
 }
 
 // =========================================================================
@@ -3144,7 +3226,8 @@ function onOpen() {
 
     .addSubMenu(ui.createMenu('🔧 Mantenimiento')
         .addItem('Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
-        .addItem('Reponer validación «GUIA RETENIDA»', 'aplicarValidacionEnTodas')
+        .addItem('Reponer validación (solo esta pestaña)', 'aplicarValidacionHojaActiva')
+        .addItem('Reponer validación (todas las pestañas)', 'aplicarValidacionEnTodas')
         .addItem('Proteger hojas del sistema', 'protegerHojasSistema'))
 
     .addToUi();

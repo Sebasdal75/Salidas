@@ -1063,6 +1063,33 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y2. El recorte del cierre del día ===");
+const BASE = filasBase();
+ok("la base son 200 filas", BASE === 200);
+
+// Hoja vacía tras el día: vuelve a la base.
+ok("hoja vacía de 1200 -> 200", filasTrasRecorte(0, 1200) === 200);
+ok("hoja con 50 filas de datos -> 200", filasTrasRecorte(50, 1200) === 200);
+
+// EL PUNTO DE LA REGLA DE LOS 20: por debajo de «último dato + margen» no se
+// recorta. Si no, la hoja quedaría pidiendo crecer en el primer escaneo del
+// día siguiente y el tirón estaría garantizado cada mañana.
+ok("con datos hasta la 190, deja 210 y no 200", filasTrasRecorte(190, 1200) === 210);
+ok("con datos hasta la 800, deja 820", filasTrasRecorte(800, 1200) === 820);
+ok("y el hueco libre es siempre el margen",
+   filasTrasRecorte(800, 1200) - 800 === MARGEN);
+
+// Nunca estira: esto recorta y nada más.
+ok("si ya está en la base, no toca nada", filasTrasRecorte(0, 200) === 0);
+ok("si es más pequeña que la base, no la estira", filasTrasRecorte(0, 120) === 0);
+ok("si los datos ya llenan la hoja, no toca nada", filasTrasRecorte(1190, 1200) === 0);
+
+// Recortar y volver a crecer tienen que ser coherentes: justo después de un
+// recorte, la hoja NO puede estar pidiendo crecer.
+let trasRecorte = filasTrasRecorte(800, 1200);
+ok("recién recortada no pide crecer de inmediato",
+   filasNecesarias(800, trasRecorte) === 0);
+
 console.log("\n=== 5z. La validación «GUIA RETENIDA» ===");
 // Es la que hace sonar el escáner. Se construye fila a fila en vez de dejar una
 // sola regla con referencia relativa: desde Apps Script el ajuste automático de
