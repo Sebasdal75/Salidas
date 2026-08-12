@@ -1024,30 +1024,39 @@ ok("sin alertas no hay nota", notaConAlerta(0) === "");
 console.log("\n=== 5y. La hoja se estira sola al acercarse el final ===");
 const MARGEN = margenFilas();
 const BLOQUE = bloqueFilas();
-ok("el margen y el bloque son 50", MARGEN === 50 && BLOQUE === 50);
+// Margen y bloque son independientes: el margen decide CUÁNDO crecer y el
+// bloque CUÁNTO. Crecer cuesta dos llamadas a la API, y eso vale igual para 20
+// filas que para 50, así que el bloque grande hace que el tirón caiga una vez
+// cada 50 escaneos aunque el aviso salte con solo 20 filas de margen.
+ok("margen 20, bloque 50", MARGEN === 20 && BLOQUE === 50);
 
-// Con sitio de sobra no se toca nada: crecer cuesta una llamada a la API y no
-// se paga por gusto.
+// Con sitio de sobra no se toca nada: crecer cuesta llamadas a la API y no se
+// pagan por gusto.
 ok("fila 100 en una hoja de 1200: no crece", filasNecesarias(100, 1200) === 0);
-ok("justo en el límite del margen: todavía no crece", filasNecesarias(1150, 1200) === 0);
-ok("una fila más allá: crece", filasNecesarias(1151, 1200) > 0);
+ok("con 20 filas por delante todavía no crece", filasNecesarias(1180, 1200) === 0);
+ok("cuando quedan 19 ya crece", filasNecesarias(1181, 1200) > 0);
 
-// Crece al menos un bloque, para no ir estirando de tres en tres filas y pagar
-// una llamada cada vez.
-ok("crece un bloque entero, no lo justo", filasNecesarias(1151, 1200) === 1250);
+// Crece un bloque entero, para no ir estirando de tres en tres filas y pagar
+// dos llamadas cada vez.
+ok("crece un bloque entero, no lo justo", filasNecesarias(1181, 1200) === 1250);
 ok("escanear en la última fila también crece", filasNecesarias(1200, 1200) === 1250);
+
+// El tirón tiene que caer cada 50 escaneos, no cada 20: tras crecer a 1250, el
+// siguiente estirón no llega hasta la fila 1231.
+ok("tras crecer, aguanta hasta 50 filas más", filasNecesarias(1230, 1250) === 0);
+ok("y a la 1231 vuelve a crecer", filasNecesarias(1231, 1250) === 1300);
 
 // EL CASO QUE JUSTIFICA CALCULAR EL DESTINO Y NO SUMAR UN BLOQUE FIJO: un
 // pegado grande cerca del final. Con "maxActual + 50" las últimas filas
 // caerían fuera de la hoja y el escaneo se perdería sin avisar.
 ok("un pegado de 300 filas cabe entero",
-   filasNecesarias(1400, 1200) === 1450);
+   filasNecesarias(1400, 1200) === 1420);
 ok("y el margen queda por delante del pegado",
    filasNecesarias(1400, 1200) - 1400 === MARGEN);
 
 // Hojas recién creadas y valores raros: nunca debe devolver algo menor que el
 // tamaño actual, o se intentaría insertar un número negativo de filas.
-ok("hoja pequeña: crece hasta cubrir margen", filasNecesarias(10, 50) === 100);
+ok("hoja pequeña: crece un bloque entero", filasNecesarias(45, 50) === 100);
 ok("fila 0 no hace crecer nada", filasNecesarias(0, 1200) === 0);
 ok("fila negativa no hace crecer nada", filasNecesarias(-5, 1200) === 0);
 let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesarias(3000, 1200)];

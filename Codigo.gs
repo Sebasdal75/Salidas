@@ -217,7 +217,12 @@ function asegurarFilas(hoja, minimo) {
 // OJO con el suelo: sincronizarMacho vuelca la lista FEMAD de la columna M en
 // todas las hojas y agranda la que se le quede corta, así que ninguna hoja baja
 // de la longitud de esa lista por mucho que se recorte.
-const MARGEN_FILAS = 50;   // a cuántas filas del final se empieza a crecer
+// El margen y el bloque son independientes a propósito. El margen decide
+// CUÁNDO se crece y el bloque CUÁNTO, y lo que cuesta crecer son las dos
+// llamadas a la API (~110 ms), no las filas que se añadan: añadir 20 cuesta lo
+// mismo que añadir 50. Por eso el bloque se mantiene en 50 aunque el margen sea
+// corto — así el tirón cae una vez cada 50 escaneos y no cada 20.
+const MARGEN_FILAS = 20;   // a cuántas filas del final se empieza a crecer
 const BLOQUE_FILAS = 50;   // mínimo que se añade de una vez
 
 // Accesores, para poder comprobarlos desde el banco de pruebas: las constantes
