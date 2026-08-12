@@ -4192,7 +4192,41 @@ function actualizadorAutomaticoGlobal() {
   }
 }
 
+// OJO: esta función REESCRIBE LA COLUMNA A ENTERA. No borra nada, pero mueve
+// todas las filas de sitio, y en el historial de Google eso se ve como cientos
+// de «se reemplazó X con Y» — un pedimento apareciendo donde antes había otro.
+//
+// Iba suelta como primer elemento del menú y sin ninguna confirmación: un clic
+// de más reordenaba la hoja entera de un operador, con un toast de «✅ Guías
+// agrupadas correctamente» que no dejaba claro lo que acababa de pasar. Y no
+// quedaba rastro en ningún sitio de que se hubiera ejecutado.
+//
+// Ahora pregunta antes y deja constancia en HISTORIAL_BORRADOS.
 function agruparPorPedimento() {
+  const ssPrevia = obtenerArchivo();
+  const uiPrevia = SpreadsheetApp.getUi();
+  const hojaPrevia = ssPrevia.getActiveSheet();
+  const nombrePrevio = claveHoja(hojaPrevia.getName());
+
+  if (esHojaSistema(nombrePrevio)) {
+      ssPrevia.toast('ℹ️ Esta pestaña es del sistema.', 'Sin Acción', 4);
+      return;
+  }
+  const filasPrevias = hojaPrevia.getLastRow();
+  if (filasPrevias < 1) return;
+
+  // La confirmación va FUERA del lock: preguntar con el lock tomado dejaría a
+  // los demás operadores esperando mientras alguien lee el diálogo.
+  let confirmar = uiPrevia.alert("📋 Agrupar guías por pedimento",
+      "Esto va a REORDENAR la columna A entera de «" + hojaPrevia.getName() + "»\n" +
+      "(" + filasPrevias + " filas): cada guía se moverá debajo de su pedimento y\n" +
+      "los bloques subirán arriba, sin huecos.\n\n" +
+      "No borra ninguna guía, pero SÍ cambia de sitio todas las filas.\n" +
+      "Si no era lo que querías, se deshace con Ctrl+Z o desde el\n" +
+      "historial de versiones de Google.\n\n" +
+      "¿Reordenar esta pestaña?", uiPrevia.ButtonSet.YES_NO);
+  if (confirmar !== uiPrevia.Button.YES) return;
+
   conLock(ss => {
     const hoja = ss.getActiveSheet();
     let lr = hoja.getLastRow();
@@ -4288,6 +4322,15 @@ function agruparPorPedimento() {
     if (newVals.length > 0) {
         hoja.getRange(1, 1, newVals.length, colsToMove).setValues(newVals);
     }
+
+    // Queda constancia de que se reordenó. Sin esto, en el historial de Google
+    // se ven cientos de celdas cambiadas y no hay forma de saber si fue una
+    // persona escribiendo o esta función: exactamente la duda que hubo cuando
+    // apareció un pedimento distinto en una fila y nadie sabía por qué.
+    registrarEnHistorialLote(ss, [eventoHistorial(
+        nombreHoja, 1, "Físico (Col A)",
+        lr + " filas", "reordenadas en " + newVals.length + " filas",
+        "AGRUPAR POR PEDIMENTO (reordena la columna A entera)")]);
 
     // Las filas se movieron: la fotografía anterior ya no vale.
     actualizarFotografiaMental(hoja, ss);
