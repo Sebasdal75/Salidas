@@ -160,8 +160,11 @@ preforma se pinta de otro color. Sirve para distinguir grupos de un vistazo.
 
 ## 8. El menú `📦 Opciones Avanzadas`
 
-El menú está arriba, a la derecha de **Ayuda / Help**. Aquí va cada opción con
-detalle: qué hace, cuándo usarla y qué esperar.
+El menú está arriba, a la derecha de **Ayuda / Help**. Las tres del día a día
+están sueltas al principio; el resto va agrupado en cuatro submenús:
+`🔍 Revisar`, `🌙 Cierre y limpieza`, `⚙️ Disparadores` y `🔧 Mantenimiento`.
+
+Aquí va cada opción con detalle: qué hace, cuándo usarla y qué esperar.
 
 ### 📋 Agrupar Guías por Pedimento (Col A)
 
@@ -259,7 +262,33 @@ descartar que sea la causa.
 2. Si los duplicados no salen o salen de más: **♻️ Reconstruir caché completo**.
 3. Si una guía marca `⛔ DUPLICADO` de una fila que ya está vacía: reconstruye el
    caché. No debería pasar, pero se arregla así.
-4. Si el archivo va lento, cierra pestañas del navegador. Sheets es pesado.
+4. Si una alerta grave sigue puesta después de arreglar el problema: **🔄 Forzar
+   Actualización**. Las alertas graves aguantan a propósito (ver abajo), y esa es
+   la forma de retirarlas.
+5. Si la pistola dejó de avisar de una guía retenida: **🛡️ Reponer validación
+   (solo esta pestaña)**. Casi siempre es que alguien pegó encima.
+6. Si el archivo va lento, cierra pestañas del navegador. Sheets es pesado.
+
+---
+
+## 9 bis. Tres cosas que cambiaron
+
+**Las alertas graves ya no se borran solas.** Un `⛔` o un `🛑` se quedan puestos
+hasta que se arregle lo que los provocó. Antes se podían caer en un recálculo y
+la fila aparecía en verde sin que nadie hubiera hecho nada. Se quitan vaciando
+la celda, corrigiendo esa misma fila, o con `🔄 Forzar Actualización`.
+
+> Si resolviste el problema borrando **la otra** fila del par, esta no se
+> enteró: dale a Forzar Actualización y se limpia.
+
+**Un pedimento con alertas sin resolver ya no dice `✅ COMPLETO`.** Se queda en
+ámbar con `⚠️ 1 con alerta`. Antes podía firmarse en verde teniendo un duplicado
+dos filas más abajo, y eso invitaba a cerrarlo sin mirar.
+
+**Las hojas crecen solas.** Ya no hace falta reservar filas de más: cuando el
+escaneo llega a menos de 20 filas del final, se añaden 50 más, con su validación
+puesta. El cierre del día las devuelve a 200, sin bajar nunca de 20 filas libres
+por debajo del último dato.
 
 ---
 
@@ -269,7 +298,9 @@ descartar que sea la causa.
 - ❌ **No borres ni edites `CACHE_SISTEMA` ni `HISTORIAL_BORRADOS`.**
 - ❌ **No borres la columna M.** Es la lista de la Guardia Nacional.
 - ❌ **No pegues guías con formato** desde otro lado. Pega solo valores
-  (`Ctrl+Shift+V`).
+  (`Ctrl+Shift+V`). Pegar una celda sin validación **borra la validación que
+  hubiera debajo**, y desde ahí la pistola deja de avisar de las guías retenidas
+  sin decir nada. Si ya pasó: `🔧 Mantenimiento → 🛡️ Reponer validación`.
 - ❌ **No renombres las pestañas** sin avisar. El sistema las reconoce por su
   nombre: `M-S ...` son de registro previo, las que dicen `INVENTARIO` son inventarios.
 

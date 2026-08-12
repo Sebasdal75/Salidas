@@ -275,6 +275,33 @@ para que las copias que salgan de ellas nazcan con la validación puesta.
   Recoge filas con dato pero sin estado (`filaSinValidar`, que incluye el
   marcador `⏳ Pendiente`), poda el caché y sincroniza salidas. Dos pasadas con
   **una sola** recarga de caché (antes era O(n²)).
+- **`alCambiarEstructura`** (instalable, `onChange`): **`onEdit` NO se dispara al
+  borrar o insertar filas.** Es una limitación de Apps Script, y es el caso que
+  más daño hace al caché: borrar una fila sube todas las de abajo, así que la
+  correspondencia «guía → fila N» se rompe para TODAS las filas por debajo, no
+  solo para la que se fue. La red de 5 minutos tampoco lo recoge, porque las
+  columnas A y B suben juntas y ninguna fila queda «sin validar».
+
+  Reacciona a `REMOVE_ROW`, `INSERT_ROW`, `REMOVE_COLUMN`, `INSERT_COLUMN` y
+  `REMOVE_GRID` (`cambioAfectaAlCache()`): re-fotografía la hoja activa,
+  invalida el caché y recalcula **sin `repintarTodo`**, para no llevarse por
+  delante las alertas graves que sigan en pie. Con `REMOVE_GRID` además poda.
+
+  No existe versión simple de `onChange`, así que lo instalan los dos modos del
+  menú. **Al cambiar de modo hay que reinstalarlo.**
+
+### La marca de mantenimiento
+
+`PROP_MANTENIMIENTO` (`marcarMantenimiento` / `quitarMantenimiento` /
+`hayMantenimientoEnCurso`) silencia `alCambiarEstructura` mientras el propio
+sistema mueve filas. Solo la usa `cierreDelDia`: su recorte borra filas en cada
+pestaña y dispararía una avalancha de ejecuciones rehaciendo el caché una vez
+por hoja, cuando el cierre ya lo reconstruye entero al final. Caduca sola a los
+2 minutos por si una ejecución se corta a medias.
+
+El crecimiento automático **no** la usa, a propósito: marcarla ahí abriría una
+ventana ciega en la que un borrado de fila real se perdería. Se prefiere repetir
+un trabajo de un segundo una vez cada cincuenta escaneos.
 
 Lock: `LockService.getDocumentLock()`. El `onEdit` intenta 10 s; si falla,
 `marcarPendiente()` escribe `⏳ Pendiente (reintenta)` en col B para que no se
@@ -325,6 +352,32 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
    corre `TEST_guias()` desde el editor.
 7. **El tipo de M-S y la M-S real salen del nombre/caché, no de las guías.**
    No reintroduzcas heurísticas de prefijo.
+8. **La columna B lleva DOS cosas: el estado y el resumen del bloque**, pegados
+   con `SEP_RESUMEN` (`"   ►   "`). Sepáralas siempre con `cabezaEstado()` /
+   `colaResumen()`. Comparar la celda entera contra un estado esperado causó un
+   bucle infinito: el barrido de M-S reescribía la celda sin la cola y
+   `actualizarMS` se la volvía a pegar, en cada pasada del disparador. Y al
+   colgar el resumen hay que quitar el anterior, o la celda crece sin fin.
+9. **No leas el caché con `getDataRange()`.** Medido: 682 ms para 236 filas, y
+   **en caliente**. `getDataRange` averigua por dentro dónde acaban los datos, y
+   eso lleva el mismo `getLastRow` que es la llamada más cara del sistema. Con
+   un rango de límites conocidos (`getMaxRows()` × `getMaxColumns()`, 5 ms cada
+   metadato) baja a ~240 ms leyendo cuatro veces más celdas. Por eso `cacheVacio`
+   mira la fila de encabezados y no cuántas filas vienen.
+10. **Una alerta grave no la pisa un recálculo** (`conservarAlertasGraves`). Los
+    tres cerebros reconstruyen la columna B entera, así que una alerta sobrevive
+    solo mientras su condición se siga detectando — y esa condición se mira
+    contra el caché, que cambia con cada escaneo de cualquiera. Se protege de
+    `NIVEL_ALTO` para arriba: `⛔` y `🛑` hablan de una relación con otra fila,
+    `❌ Guía Inválida` sale del propio contenido y se recalcula bien siempre.
+11. **`conAlerta` se cuenta al armar los bloques, ANTES de detectar duplicados.**
+    Si añades una alerta nueva dentro del recorrido, súmala tú
+    (`duplicadoBloqueaCierre`). Sin eso el bloque se firma `✅ COMPLETO` con un
+    `⛔` sin resolver dos filas más abajo.
+12. **Las filas nuevas nacen sin validación de datos**, y esa validación es la
+    que hace sonar el escáner. `asegurarFilasDeEscaneo` la **construye** en vez
+    de copiarla de la fila de arriba: copiarla solo funciona si esa fila la
+    tiene, y las reglas puestas a mano cubren un rango fijo.
 
 ---
 
@@ -359,10 +412,25 @@ duplicado → borrado → costales → agrupar → limpiar.
 `marcarPendiente` · `conLock`
 
 ### Caché
-`getCacheData` · `mapaColumnasFisico` · `hojaContieneAlgunaGuia` ·
-`verificarDuplicadoConCache` · `calcularDuplicadosExternos` ·
-`actualizarBloqueEnCache` · `columnaDeHeader` · `actualizarFotografiaMental` ·
-`podarCacheHuerfano` · `RECONSTRUIR_CACHE_TOTAL`
+`getCacheData` · `construirIndiceCache` · `cacheVacio` · `mapaColumnasFisico` ·
+`hojaContieneAlgunaGuia` · `verificarDuplicadoConCache` ·
+`calcularDuplicadosExternos` · `actualizarBloqueEnCache` · `columnaDeHeader` ·
+`actualizarFotografiaMental` · `ultimaFilaEnCache` · `filaFinalDesdeCache` ·
+`podarCacheHuerfano` · `columnasHuerfanas` · `RECONSTRUIR_CACHE_TOTAL`
+
+### Filas: crecer y recortar
+`asegurarFilas` · `asegurarFilasDeEscaneo` · `filasNecesarias` ·
+`recortarFilasSobrantes` · `filasTrasRecorte`
+
+### Alertas: nivel, prioridad y permanencia
+`nivelAlerta` · `puedePisar` · `conservarAlertaGrave` ·
+`conservarAlertasGraves` · `colorDeAlerta` · `duplicadoBloqueaCierre` ·
+`notaConAlerta` · `duplicadoLocal` · `cabezaEstado` · `colaResumen`
+
+### Validación «GUIA RETENIDA»
+`formulaGuiaRetenida` · `reglaGuiaRetenida` · `aplicarValidacionRetenida` ·
+`columnasValidables` · `reponerValidacionEnHoja` ·
+`aplicarValidacionHojaActiva` · `aplicarValidacionEnTodas`
 
 ### Cerebros y escritura
 `recalcularHoja` · `actualizarGlobalPreforma` · `actualizarMS` ·
@@ -381,7 +449,17 @@ duplicado → borrado → costales → agrupar → limpiar.
 ### Menú
 `onOpen` · `forzarActualizacionHojaActiva` · `actualizadorAutomaticoGlobal` ·
 `agruparPorPedimento` · `limpiarGuiasMovidasSeleccion` · `diagnosticoSistema` ·
-`protegerHojasSistema`
+`diagnosticarGuia` · `medirRendimiento` · `probarCosteCache` · `cierreDelDia` ·
+`limpiarHistorialAhora` · `instalarLimpiezaHistorial` · `protegerHojasSistema`
+
+### Estructura y disparadores
+`alCambiarEstructura` · `cambioAfectaAlCache` · `instalarTriggerDeEstructura` ·
+`marcarMantenimiento` · `quitarMantenimiento` · `hayMantenimientoEnCurso` ·
+`instalarTriggerAvanzado` · `instalarTriggerConUsuario` ·
+`desinstalarTriggerAvanzado`
+
+### Medición
+`perf` · `perfIniciar` · `perfFin` · `perfLineas`
 
 ---
 
@@ -395,5 +473,11 @@ duplicado → borrado → costales → agrupar → limpiar.
 | `PROP_TRIGGER` | `'TRIGGER_EDICION_INSTALADO'` | Flag del trigger instalable en ScriptProperties |
 | `TXT_SALIO` | `"➡ Salió en "` | Prefijo del estado de salida de M-S |
 | `TXT_PENDIENTE` | `"⏳ Pendiente (reintenta)"` | Marca de escaneo no validado |
+| `SEP_RESUMEN` | `"   ►   "` | Separa el estado de la guía del resumen del bloque, en la misma celda |
+| `MARGEN_FILAS` | `20` | A cuántas filas del final se empieza a estirar la hoja |
+| `BLOQUE_FILAS` | `50` | Mínimo que se añade de una vez. Independiente del margen: crecer cuesta lo mismo para 20 filas que para 50, así el tirón cae una vez cada 50 escaneos |
+| `FILAS_BASE` | `200` | Altura a la que vuelven las hojas en el cierre del día |
+| `TXT_GUIA_RETENIDA` | `"GUIA RETENIDA"` | Texto de ayuda de la validación que rechaza guías de la lista FEMAD |
+| `PROP_MANTENIMIENTO` | `'MANTENIMIENTO_EN_CURSO'` | Silencia `alCambiarEstructura` mientras el cierre mueve filas |
 | `DESC_PROTECCION` | `"Hoja interna…"` | Descripción de la protección de solo aviso |
 | `HIST_ORDEN_DEFECTO` | `[FECHA,USUARIO,…]` | Orden de columnas al crear el historial de cero |

@@ -1,3 +1,158 @@
+# Correcciones aplicadas
+
+Este documento crece por arriba: lo más reciente primero. Lo de 2026-08-09 en
+adelante es el registro original de la revisión inicial.
+
+---
+
+# 2026-08-12 — Bucle de recálculo, alertas que se caían, y filas bajo demanda
+
+Diez cambios sobre el archivo en producción, todos medidos o reproducidos antes
+de tocar nada. El banco de pruebas pasó de 289 a 378 asserts.
+
+## El caché se leía de la forma más cara posible
+
+`getDataRange().getValues()` sobre `CACHE_SISTEMA`: **682 ms para 236 filas, y en
+caliente**. La hipótesis de partida (que lo caro era abrir la pestaña por primera
+vez) quedó desmentida por esa medición: en caliente era más lento que en frío.
+
+Lo caro es que `getDataRange` averigua por dentro dónde acaban los datos, y eso
+lleva el mismo `getLastRow` que ya estaba documentado como la llamada más cara
+del sistema. Con un rango de límites conocidos —`getMaxRows()` × `getMaxColumns()`,
+5 ms cada metadato— la misma lectura baja a **242 ms leyendo cuatro veces más
+celdas**. Carga del caché: 571 ms → 165 ms, con 2.370 guías indexadas frente a
+192 antes.
+
+`cacheVacio` tuvo que cambiar con ello: ya no basta «más de una fila», porque
+leyendo la rejilla entera una hoja en blanco llega como miles de filas vacías. Lo
+decide la fila de encabezados.
+
+**Descartado con datos:** mover el índice a `CacheService`. Recuperarlo son 39 ms,
+pero guardarlo son 123 y hay que guardarlo en cada escaneo. 162 ms frente a 242
+no compensa tener el índice en dos sitios que se pueden desincronizar.
+
+## Bucle infinito de recálculo en las M-S
+
+La hoja se reescribía sola en cada pasada del disparador sin que nadie escaneara.
+
+La última guía de cada bloque lleva **dos cosas en la misma celda**: su estado y
+el resumen del pedimento, pegados con `   ►   `. El barrido de M-S comparaba la
+celda **entera** contra el estado esperado — `"➡ Salió en GLOBAL 1   ►   Bultos:
+1 | ✅ TODO SALIÓ"` nunca es igual a `"➡ Salió en GLOBAL 1"` — la reescribía sin
+la cola, y `actualizarMS` se la volvía a pegar.
+
+En M-S T1 afectaba a todas las filas, porque cada pedimento tenía un solo bulto y
+esa guía única es siempre «la última del bloque».
+
+Debajo había un segundo bug que el primero tapaba: al colgar el resumen no se
+quitaba el anterior, así que la celda habría crecido sin fin al arreglar el
+primero. Ese también estaba en las Globales, donde nada borraba la cola.
+
+`SEP_RESUMEN`, `cabezaEstado()` y `colaResumen()` sustituyen al separador escrito
+a mano en cinco sitios.
+
+## Las alertas graves se caían solas
+
+`puedePisar` protegía los pases parciales, pero no el recálculo completo — que es
+donde de verdad se perdían. Los tres cerebros reconstruyen la columna B entera,
+así que una alerta sobrevive solo mientras su condición se siga detectando, y esa
+condición se mira contra el caché, que cambia cada vez que cualquiera escanea en
+cualquier pestaña.
+
+`conservarAlertasGraves()` aplica la misma regla en el recálculo. Se protege de
+`NIVEL_ALTO` para arriba y no más abajo, a propósito: `⛔` y `🛑` hablan de una
+relación con otra fila o pestaña, mientras que `❌ Guía Inválida` sale del propio
+contenido de la columna A y protegerla dejaría el error pegado tras corregir la
+guía.
+
+Tres salidas: columna A vacía, fila recién editada (`procesarEdicion` pasa ahora
+el conjunto de filas tocadas) y `repintarTodo`.
+
+**Contrapartida conocida:** si resuelves el duplicado borrando *la otra* fila del
+par, esta no se enteró y conserva su `⛔` hasta un Forzar Actualización.
+
+## Un bloque con duplicados se declaraba COMPLETO
+
+`conAlerta` se cuenta al armar los bloques, **antes** de recorrerlos, y el
+duplicado local se detecta después. El contador nunca se enteraba. El conteo
+tampoco lo delataba: la guía duplicada no entra en `guiasUnicas` ni en `sobran`,
+así que `faltan=0` y `sobran=0` y el pedimento se firmaba en verde con el `⛔` dos
+filas más abajo.
+
+`duplicadoBloqueaCierre()` decide qué duplicado bloquea: el del **mismo**
+pedimento se pinta gris y no bloquea (misma guía leída dos veces, el conteo ya la
+cuenta una); el de otro pedimento u otra pestaña sí. Con alertas sin resolver no
+se emite `COMPLETO`, `TODO SALIÓ`, `A1 COMPLETO` ni `Escaneado`.
+
+## Filas bajo demanda
+
+Ya no hace falta reservar miles de filas. `asegurarFilasDeEscaneo` estira la hoja
+cuando el escaneo llega a menos de `MARGEN_FILAS` (20) del final, añadiendo
+`BLOQUE_FILAS` (50). Son independientes a propósito: crecer cuesta lo mismo para
+20 filas que para 50 —son las dos llamadas a la API—, así que el bloque grande
+hace que el tirón caiga una vez cada 50 escaneos.
+
+`filasNecesarias()` calcula el **destino**, no suma un bloque fijo: con un pegado
+de 300 filas cerca del final, sumar 50 dejaría las últimas fuera de la hoja.
+
+El cierre del día las devuelve a `FILAS_BASE` (200) con `filasTrasRecorte()`, que
+respeta la **misma** regla de los 20: con datos hasta la fila 190 deja 210, no
+200, o la hoja quedaría pidiendo crecer en el primer escaneo del día siguiente.
+Solo quita filas vacías del final; el contenido no se toca.
+
+## La validación que hace sonar el escáner
+
+Estaba puesta a mano, pestaña por pestaña, cubriendo un rango fijo de 200 filas.
+Al pasar las hojas a más de 200 filas, todo lo de abajo se quedó sin regla.
+
+Botones nuevos en `🔧 Mantenimiento`: reponerla en una pestaña (el arreglo rápido
+cuando alguien pega encima y se la lleva por delante) o en todas.
+
+La fórmula se construye **fila a fila**, nombrando cada una su propia fila. En la
+interfaz de Sheets la referencia relativa se ajusta sola, pero desde Apps Script
+ese ajuste no está garantizado, y si no se ajustara todas las filas comprobarían
+la fila 1 y el escáner dejaría de avisar sin decir nada. El rango de la columna M
+pasa a ser `$M:$M` entero.
+
+Por lo mismo, `asegurarFilasDeEscaneo` **construye** la validación de las filas
+nuevas en vez de copiarla de la fila de arriba: copiarla solo funciona si esa fila
+la tiene, y con el tope de 200 no la tenía.
+
+## Borrar una fila no llegaba al caché
+
+`onEdit` **no se dispara al borrar o insertar filas**. Limitación de Apps Script,
+y el caso que más daño hace: borrar una fila sube todas las de abajo, así que la
+correspondencia «guía → fila N» se rompe para todas ellas, no solo para la que se
+fue. La red de 5 minutos tampoco lo recogía, porque las columnas A y B suben
+juntas y ninguna fila queda «sin validar».
+
+`alCambiarEstructura` (disparador `onChange`) re-fotografía la hoja, invalida el
+caché y recalcula. **Hay que reinstalar los disparadores** para que se active: no
+existe versión simple de `onChange`.
+
+El crecimiento automático no silencia el aviso, a propósito: hacerlo abriría una
+ventana ciega en la que un borrado real se perdería. Solo lo silencia el cierre
+del día, cuyo recorte lanzaría una avalancha de una ejecución por pestaña.
+
+## Medición
+
+`medirRendimiento` pasaba `filaFinalSugerida` sin querer: medía el camino del
+menú y por eso `getLastRow` seguía apareciendo con 178 ms. Y avisa en grande
+cuando la columna A está vacía, porque entonces el filtro de M-S se desactiva y
+el número es el peor caso, no un escaneo normal.
+
+`probarCosteCache` compara las dos formas de leer el caché en la misma ejecución.
+
+## Lo que sigue abierto
+
+`M-S: leer A:B` es ahora el **88 % del escaneo** (645 ms en una llamada). Los
+números no cuadran con un modelo de coste por llamadas ni por celdas: en el
+barrido, 5 llamadas con casi el triple de celdas cuestan lo mismo que esa sola.
+Hace falta una medición que separe «abrir la pestaña» de «leer las filas» antes
+de tocarlo.
+
+---
+
 # Correcciones aplicadas — 2026-08-09
 
 Se aplicaron los 23 hallazgos de `REVISION-CODIGO.md` más 2 bugs que aparecieron

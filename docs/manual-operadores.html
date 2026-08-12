@@ -355,6 +355,10 @@
       </div>
     </div>
   </div>
+
+  <p style="margin-top:1.25rem"><strong>Las alertas graves ya no se borran solas.</strong> Un <span class="lit">⛔</span> o un <span class="lit">🛑</span> se quedan puestos hasta que se arregle lo que los provocó. Antes se podían caer al recalcular y la fila aparecía en verde sin que nadie hubiera hecho nada.</p>
+  <p>Se quitan de tres formas: <b>vaciando la celda</b>, <b>corrigiendo esa misma fila</b>, o con <span class="lit">🔄 Forzar Actualización</span>. Si resolviste el problema borrando <em>la otra</em> fila del par, esta no se enteró — dale a Forzar Actualización y se limpia.</p>
+  <p><strong>Y un pedimento con alertas sin resolver ya no dice <span class="lit">✅ COMPLETO</span>.</strong> Se queda en ámbar con <span class="lit">⚠️ 1 con alerta</span>. Antes podía firmarse en verde teniendo un duplicado dos filas más abajo, y eso invitaba a cerrarlo sin mirar.</p>
 </section>
 
 <section>
@@ -651,7 +655,12 @@
     <div class="item">
       <div class="nombre">⏱️ Medir velocidad de escaneo</div>
       <span class="cuando">Si notas lentitud</span>
-      <p>Mide un escaneo real y desglosa <b>en qué se va cada milisegundo</b>, llamada por llamada. Al final estima cuántos escaneos por minuto aguanta el archivo entre todos los operadores.</p>
+      <p>Mide un escaneo real y desglosa <b>en qué se va cada milisegundo</b>, llamada por llamada. Al final estima cuántos escaneos por minuto aguanta el archivo entre todos los operadores. Hazlo en una hoja <b>con guías ya escaneadas en la columna A</b>: en una hoja vacía mide el peor caso y el número sale inflado.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🧪 Prueba: ¿qué cuesta abrir el caché?</div>
+      <span class="cuando">Solo si estamos afinando velocidad</span>
+      <p>Compara las dos formas de leer el caché y dice cuál es más rápida en tu archivo. <b>No cambia nada</b>, solo mide. Córrela nada más abrir el archivo, sin tocar otra cosa antes.</p>
     </div>
     <div class="item">
       <div class="nombre">♻️ Reconstruir caché completo</div>
@@ -661,7 +670,17 @@
     <div class="item">
       <div class="nombre">🌙 Cierre del día (historial + caché)</div>
       <span class="cuando">Al terminar la jornada</span>
-      <p>Vacía el historial, poda del caché las pestañas renombradas o borradas, y lo reconstruye. Te enseña qué va a hacer y espera un sí. <b>No toca las hojas de escaneo</b>: eso lo vacías tú a mano.</p>
+      <p>Vacía el historial, devuelve las hojas a 200 filas, poda del caché las pestañas renombradas o borradas, y lo reconstruye. Te enseña qué va a hacer y espera un sí. <b>El contenido de las hojas de escaneo NO se toca</b>: eso lo vacías tú a mano. El recorte solo quita filas vacías del final, y nunca deja menos de 20 libres por debajo del último dato.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🛡️ Reponer validación (solo esta pestaña)</div>
+      <span class="cuando">Si alguien pegó encima y la pistola dejó de avisar</span>
+      <p>Pegar una celda sin regla <b>borra la validación que hubiera debajo</b>, y a partir de ahí el escáner deja de rechazar las guías retenidas sin decir nada. Ponte en la pestaña afectada y córrelo: vuelve a poner la regla en toda su altura.</p>
+    </div>
+    <div class="item">
+      <div class="nombre">🛡️ Reponer validación (todas las pestañas)</div>
+      <span class="cuando">Tras añadir una pestaña o cambiar la lista de retenidas</span>
+      <p>Lo mismo pero en todo el archivo, incluida la MACHO. Antes de tocar nada te enseña qué pestañas y cuántas filas va a cubrir. <b>Sustituye las reglas puestas a mano</b> en las columnas A y O.</p>
     </div>
     <div class="item">
       <div class="nombre">🧾 Historial: vaciarlo ahora · solo cada día · dejar de vaciarlo</div>
@@ -677,6 +696,7 @@
       <div class="nombre">⚙️ Instalar trigger avanzado (6 min, sin usuario)</div>
       <span class="cuando">Elige uno de los dos</span>
       <p>Sube el límite de cada operación de 30 s a 6 min y enciende el repaso automático cada 5 min. <b>Con este modo el historial NO puede decir quién borró:</b> Google no deja identificar al editor, y el respaldo diría siempre el nombre de quien instaló el trigger.</p>
+      <p>Instala además el vigilante de filas borradas. <b>Si borras una fila entera, Google no avisa al sistema</b> — solo avisa cuando se escribe en una celda. Sin este vigilante, la guía borrada seguiría contando como presente y los duplicados señalarían filas equivocadas. Si cambias de modo de disparador, reinstálalo.</p>
     </div>
     <div class="item">
       <div class="nombre">🙋 Trigger simple + usuario en el historial</div>
@@ -692,8 +712,11 @@
     <li>Menú → <strong>🔄 Forzar Actualización</strong>. Resuelve casi todo.</li>
     <li>Si los duplicados no salen o salen de más: <strong>♻️ Reconstruir caché completo</strong>.</li>
     <li>Si una guía marca duplicado contra una fila que ya está vacía: reconstruye el caché. No debería pasar, pero se arregla así.</li>
+    <li>Si una alerta grave se quedó puesta después de arreglar el problema: <strong>🔄 Forzar Actualización</strong>. Las alertas graves aguantan a propósito, y esa es la forma de retirarlas.</li>
+    <li>Si la pistola dejó de avisar de una guía retenida: <strong>🛡️ Reponer validación (solo esta pestaña)</strong>. Casi siempre es que alguien pegó encima.</li>
     <li>Si el archivo va lento, cierra pestañas del navegador. Sheets es pesado.</li>
   </ol>
+  <p>No hace falta reservar filas de más: <strong>la hoja se estira sola</strong> cuando el escaneo llega a menos de 20 filas del final, y el cierre del día la devuelve a 200.</p>
 </section>
 
 <section>
