@@ -1635,11 +1635,34 @@ function calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, claveEst
 // Escribe el aviso de pedimento repetido en otra pestaña. No pisa un aviso
 // crítico que ya estuviera puesto (por ejemplo, el repetido dentro de la
 // propia hoja, que es más urgente de resolver).
-function marcarPedimentosRepetidosFuera(resultadosB, coloresB, mapa) {
+// El mismo pedimento dos veces en ESTA hoja. Se marcan LAS DOS filas, no solo
+// la segunda: con una sola marcada el operador ve el aviso y tiene que ponerse
+// a buscar a mano dónde está la otra.
+//
+// `filasDuplicadas` es un Map fila -> fila de la pareja (1-based, para poder
+// nombrarla en el mensaje).
+function marcarPedimentosRepetidosDentro(resultadosB, coloresB, filasDuplicadas, filasParejaDuplicada) {
+    filasDuplicadas.forEach((otraFila, fila) => {
+        // Un ⛔ manda: habla de una guía concreta y es más accionable que el
+        // aviso del pedimento.
+        if (String(resultadosB[fila][0]).startsWith("⛔")) return;
+        resultadosB[fila][0] = "🛑 PEDIMENTO REPETIDO (también en la fila " + otraFila + ")";
+        coloresB[fila][0] = "#dc3545";
+        // Y la columna A de las dos, igual que con las guías duplicadas: es lo
+        // que deja ver la pareja de un vistazo sin leer la columna B.
+        if (filasParejaDuplicada) filasParejaDuplicada.add(fila);
+    });
+}
+
+function marcarPedimentosRepetidosFuera(resultadosB, coloresB, mapa, filasParejaDuplicada) {
     mapa.forEach((match, fila) => {
         if (nivelAlerta(resultadosB[fila][0]) >= NIVEL_CRITICO) return;
         resultadosB[fila][0] = "🛑 PEDIMENTO REPETIDO (En: " + match.hoja + " Fila " + match.fila + ")";
         coloresB[fila][0] = "#dc3545";
+        // La pareja está en otra pestaña y no se puede pintar desde aquí, pero
+        // esta fila sí: si no, el mismo aviso se vería rojo unas veces y no
+        // otras según dónde estuviera el repetido.
+        if (filasParejaDuplicada) filasParejaDuplicada.add(fila);
     });
 }
 
@@ -2803,7 +2826,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
      escaneadasEnA.add(v); guiasGlobales.add(v);
   }
 
-  let bloquesFisicos = []; let pedimentosVistosFisico = new Set(); let filasDuplicadasFisico = new Set();
+  let bloquesFisicos = []; let pedimentosVistosFisico = new Map(); let filasDuplicadasFisico = new Map();
   let bAAct = null;
 
   for (let i = 0; i < ultimaFila; i++) {
@@ -2816,7 +2839,17 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           let esPedimento = /^\d{7}$/.test(v);
           if (esPedimento) {
               if (!esErr) totalPedimentos++;
-              if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
+              // Se marcan LAS DOS filas del pedimento repetido, no solo la
+              // segunda. Con una sola marcada, el operador ve el aviso y tiene
+              // que ponerse a buscar a mano dónde está la otra. El valor que se
+              // guarda es la fila de la pareja, para poder nombrarla.
+              if (pedimentosVistosFisico.has(v)) {
+                  let primera = pedimentosVistosFisico.get(v);
+                  filasDuplicadasFisico.set(i, primera + 1);
+                  filasDuplicadasFisico.set(primera, i + 1);
+              } else {
+                  pedimentosVistosFisico.set(v, i);
+              }
           }
           if (bAAct) bloquesFisicos.push(bAAct);
           bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErr, conAlerta: 0 };
@@ -3011,17 +3044,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       coloresB[idx][0] = "#ff9800";
   });
 
-  filasDuplicadasFisico.forEach(fila => {
-      if (!resultadosB[fila][0].startsWith("⛔")) {
-          resultadosB[fila][0] = "🛑 PEDIMENTO REPETIDO";
-          coloresB[fila][0] = "#dc3545";
-      }
-  });
+  marcarPedimentosRepetidosDentro(resultadosB, coloresB, filasDuplicadasFisico, filasParejaDuplicada);
 
   // El mismo pedimento en otra pestaña del mismo tipo. Va después del repetido
   // dentro de la propia hoja, que es el aviso que manda si se dan los dos.
   marcarPedimentosRepetidosFuera(resultadosB, coloresB,
-      calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHoja, cacheInfo));
+      calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHoja, cacheInfo),
+      filasParejaDuplicada);
 
   if (esRezago) {
       bloquesPreforma.forEach(bloque => {
@@ -3129,7 +3158,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
     fontColorsA.push([esMovido ? '#9e9e9e' : '#000000']);
   }
 
-  let bloquesFisicos = []; let pedimentosVistosFisico = new Set(); let filasDuplicadasFisico = new Set();
+  let bloquesFisicos = []; let pedimentosVistosFisico = new Map(); let filasDuplicadasFisico = new Map();
   let bAAct = null; let guiasGlobales = new Set(); let totalPedimentos = 0;
 
   for (let i = 0; i < ultimaFila; i++) {
@@ -3140,7 +3169,17 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
           let esPedimento = /^\d{7}$/.test(v);
           if (esPedimento) {
               if (!esErr) totalPedimentos++;
-              if (pedimentosVistosFisico.has(v)) filasDuplicadasFisico.add(i); else pedimentosVistosFisico.add(v);
+              // Se marcan LAS DOS filas del pedimento repetido, no solo la
+              // segunda. Con una sola marcada, el operador ve el aviso y tiene
+              // que ponerse a buscar a mano dónde está la otra. El valor que se
+              // guarda es la fila de la pareja, para poder nombrarla.
+              if (pedimentosVistosFisico.has(v)) {
+                  let primera = pedimentosVistosFisico.get(v);
+                  filasDuplicadasFisico.set(i, primera + 1);
+                  filasDuplicadasFisico.set(primera, i + 1);
+              } else {
+                  pedimentosVistosFisico.set(v, i);
+              }
           }
           if (bAAct) bloquesFisicos.push(bAAct);
           bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErr, conAlerta: 0 };
@@ -3255,15 +3294,11 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
       coloresB[idx][0] = "#ff9800";
   });
 
-  filasDuplicadasFisico.forEach(fila => {
-      if (!resultadosB[fila][0].startsWith("⛔")) {
-          resultadosB[fila][0] = "🛑 PEDIMENTO REPETIDO";
-          coloresB[fila][0] = "#dc3545";
-      }
-  });
+  marcarPedimentosRepetidosDentro(resultadosB, coloresB, filasDuplicadasFisico, filasParejaDuplicada);
 
   marcarPedimentosRepetidosFuera(resultadosB, coloresB,
-      calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo));
+      calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo),
+      filasParejaDuplicada);
 
   // Una alerta grave no se cae sola: si lo recalculado es menos grave que
   // lo que ya había, se conserva lo que había. Ver conservarAlertasGraves.

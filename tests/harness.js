@@ -1063,6 +1063,41 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y7. Pedimento repetido: se marcan LAS DOS filas ===");
+// Antes solo se marcaba la segunda aparición. El operador veía el aviso en una
+// fila y tenía que buscar a mano dónde estaba la otra.
+function escenarioPedRepetido(estadoPrevio) {
+    let res = [["Bultos: 1 (M-S T1) | ⚠️ Faltan 1 por mover"], ["✅ Guía"], [estadoPrevio || ""]];
+    let col = [["#ffc107"], ["#71b3e6"], ["#FFFFFF"]];
+    // fila 0 y fila 2 son el mismo pedimento; el valor es la fila (1-based) de la pareja
+    let dups = new Map([[0, 3], [2, 1]]);
+    let pareja = new Set();
+    marcarPedimentosRepetidosDentro(res, col, dups, pareja);
+    return { res: res, col: col, pareja: pareja };
+}
+
+let pr = escenarioPedRepetido("");
+ok("la segunda aparición se marca", pr.res[2][0].indexOf("🛑 PEDIMENTO REPETIDO") === 0);
+ok("y la PRIMERA también", pr.res[0][0].indexOf("🛑 PEDIMENTO REPETIDO") === 0);
+ok("las dos en rojo", pr.col[0][0] === "#dc3545" && pr.col[2][0] === "#dc3545");
+ok("cada una nombra la fila de la otra",
+   pr.res[0][0].indexOf("fila 3") !== -1 && pr.res[2][0].indexOf("fila 1") !== -1);
+
+// La columna A de las dos también, igual que con las guías duplicadas: es lo
+// que deja ver la pareja de un vistazo sin leer la columna B.
+ok("las dos filas entran en la pareja para el rojo de la columna A",
+   pr.pareja.has(0) && pr.pareja.has(2));
+ok("y no arrastra a la guía de en medio", !pr.pareja.has(1));
+
+// La fila que no es del pedimento no se toca.
+ok("la guía de en medio conserva su estado", pr.res[1][0] === "✅ Guía");
+
+// Un ⛔ manda: habla de una guía concreta y es más accionable.
+let prDup = escenarioPedRepetido("⛔ DUPLICADO (En: M-S GLOBALES Fila 9)");
+ok("un ⛔ no lo pisa el aviso de pedimento",
+   prDup.res[2][0].indexOf("⛔") === 0);
+ok("y esa fila no se pinta de rojo de pedimento", prDup.col[2][0] === "#FFFFFF");
+
 console.log("\n=== 5y6. Sobrescribir una guía deja constancia ===");
 // El caso real: la app del escáner lleva rato abierta, la vista se queda
 // desactualizada, y el operador escanea en una fila que él ve vacía pero que en
