@@ -367,9 +367,24 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
 10. **Una alerta grave no la pisa un recálculo** (`conservarAlertasGraves`). Los
     tres cerebros reconstruyen la columna B entera, así que una alerta sobrevive
     solo mientras su condición se siga detectando — y esa condición se mira
-    contra el caché, que cambia con cada escaneo de cualquiera. Se protege de
-    `NIVEL_ALTO` para arriba: `⛔` y `🛑` hablan de una relación con otra fila,
-    `❌ Guía Inválida` sale del propio contenido y se recalcula bien siempre.
+    contra el caché, que cambia con cada escaneo de cualquiera.
+
+    Se protege lo que dice `mereceConservarse`: de `NIVEL_ALTO` para arriba,
+    **y además cualquier aviso de duplicado sea del nivel que sea**
+    (`esAlertaDeDuplicado`). Lo segundo no es un añadido: los duplicados están
+    repartidos por tres niveles a propósito —el `⛔` alarma, el `🔄` gris del
+    mismo pedimento no— así que filtrar solo por nivel dejaba fuera justo los
+    discretos. El caso que lo delataba: en una pareja duplicada la segunda fila
+    lleva `⛔` y aguantaba, pero la primera lleva
+    `⚠️ DUPLICADO (repetida en la fila N)`, de nivel aviso, y se caía sola.
+
+    No se protege lo que cambia solo según avanza el trabajo o según el
+    contenido de la propia celda: `⚠️ Sobra (Ajena)`, `Sin registrar en M-S`,
+    `Faltan N por mover`, `❌ Va en: …`, `❌ Guía Inválida`.
+
+    Si añades una alerta conservable, `colorDeAlerta` tiene que saber devolver
+    su color: conservar el texto y dejar la celda en blanco es peor que no
+    conservarlo, porque el aviso queda invisible.
 11. **`conAlerta` se cuenta al armar los bloques, ANTES de detectar duplicados.**
     Si añades una alerta nueva dentro del recorrido, súmala tú
     (`duplicadoBloqueaCierre`). Sin eso el bloque se firma `✅ COMPLETO` con un

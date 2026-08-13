@@ -966,6 +966,53 @@ ok("se conserva la alerta pero con el resumen nuevo",
                         "✅ Guía" + SEP_RESUMEN + "Bultos: 5 | ✅ TODO SALIÓ")
    === "⛔ DUPLICADO (En: M-S T1 Fila 9)" + SEP_RESUMEN + "Bultos: 5 | ✅ TODO SALIÓ");
 
+// --- TODOS los avisos de duplicado aguantan, no solo los de nivel alto ---
+// Están repartidos por tres niveles a propósito (el ⛔ alarma, el 🔄 gris del
+// mismo pedimento no), y por nivel se quedaban fuera justo los discretos.
+ok("el 🔄 gris del mismo pedimento aguanta",
+   conservarAlertaGrave("🔄 Duplicado local", "✅ Guía") === "🔄 Duplicado local");
+ok("la guía repetida local de la preforma aguanta",
+   conservarAlertaGrave("🔄 Guía repetida local", "") === "🔄 Guía repetida local");
+
+// EL CASO QUE LO DELATABA: en una pareja, la segunda fila lleva ⛔ y aguantaba,
+// pero la PRIMERA lleva «⚠️ DUPLICADO (repetida...)», de nivel aviso, y se caía
+// sola. De la pareja que se pintó entera sobrevivía media.
+ok("la PRIMERA de la pareja aguanta igual que la segunda",
+   conservarAlertaGrave("⚠️ DUPLICADO (repetida en la fila 41)", "✅ Ok")
+   === "⚠️ DUPLICADO (repetida en la fila 41)");
+ok("el pedimento repetido de la preforma aguanta",
+   conservarAlertaGrave("⚠️ PEDIMENTO REPETIDO", "12 bultos") === "⚠️ PEDIMENTO REPETIDO");
+
+// Y lo que NO debe pegarse: cambia solo según avanza el trabajo.
+ok("«Sobra (Ajena)» no se pega", conservarAlertaGrave("⚠️ Sobra (Ajena)", "✅ Ok") === "✅ Ok");
+ok("«Sin registrar en M-S» no se pega",
+   conservarAlertaGrave("⚠️ Sin registrar en M-S", "✅ Ok") === "✅ Ok");
+ok("«Va en: otro pedimento» no se pega",
+   conservarAlertaGrave("❌ Va en: 6098352", "✅ Ok") === "✅ Ok");
+ok("un resumen con «con alerta» no se pega",
+   conservarAlertaGrave("Bultos: 5 | ⚠️ 1 con alerta", "Bultos: 5 | ✅ COMPLETO")
+   === "Bultos: 5 | ✅ COMPLETO");
+
+// El detector, por separado.
+ok("reconoce el 🔄", esAlertaDeDuplicado("🔄 Duplicado local") === true);
+ok("reconoce el ⛔", esAlertaDeDuplicado("⛔ DUPLICADO (En: M-S T1 Fila 9)") === true);
+ok("reconoce el 🛑 de pedimento", esAlertaDeDuplicado("🛑 PEDIMENTO REPETIDO (también en la fila 3)") === true);
+ok("reconoce la guía repetida", esAlertaDeDuplicado("⛔ GUÍA REPETIDA (ya en Ped: 6100166)") === true);
+ok("NO confunde «Sobra»", esAlertaDeDuplicado("⚠️ Sobra (Ajena)") === false);
+ok("NO confunde «Faltan por mover»", esAlertaDeDuplicado("Bultos: 3 | ⚠️ Faltan 1 por mover") === false);
+ok("mira la cabeza, no la cola del resumen",
+   esAlertaDeDuplicado("✅ Guía" + SEP_RESUMEN + "Bultos: 3 | ✅ TODO SALIÓ") === false);
+ok("y sí la ve cuando está en la cabeza",
+   esAlertaDeDuplicado("🔄 Duplicado local" + SEP_RESUMEN + "Bultos: 3") === true);
+
+// Cada uno recupera SU color: conservar el texto y dejar la celda en blanco
+// sería peor que no conservarlo, porque el aviso quedaría invisible.
+ok("el 🔄 recupera su gris", colorDeAlerta("🔄 Duplicado local") === "#acacac");
+ok("la 1ª de la pareja recupera su naranja",
+   colorDeAlerta("⚠️ DUPLICADO (repetida en la fila 41)") === "#ff9800");
+ok("el pedimento repetido de preforma recupera su ámbar",
+   colorDeAlerta("⚠️ PEDIMENTO REPETIDO") === "#ffc107");
+
 ok("el color se deduce del texto conservado", colorDeAlerta("⛔ DUPLICADO (x)") === "#ff9800");
 ok("🛑 ERROR mantiene su ámbar", colorDeAlerta("🛑 ERROR: pedimento incompleto") === "#ffc107");
 ok("🛑 a secas va en rojo", colorDeAlerta("🛑 PEDIMENTO REPETIDO") === "#dc3545");

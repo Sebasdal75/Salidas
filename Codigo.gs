@@ -2446,8 +2446,41 @@ function puedePisar(previo, nuevo) {
 //   · fila recién editada -> «hasta que se modifique»: si el operador la acaba
 //     de tocar, la alerta vieja ya no habla de lo que hay ahora en la celda
 //   · repintarTodo      -> «Forzar Actualización» reconstruye sin conservar nada
+// ¿Es un aviso de duplicado, del tipo que sea?
+//
+// No basta con mirar el nivel. Los duplicados están repartidos por tres
+// niveles distintos a propósito —el ⛔ alarma, el 🔄 gris del mismo pedimento
+// no— y por nivel se quedaban fuera de la protección justo los discretos.
+//
+// El caso que lo delataba: en una pareja duplicada, la SEGUNDA fila lleva ⛔ y
+// aguantaba, pero la PRIMERA lleva «⚠️ DUPLICADO (repetida en la fila N)», que
+// es de nivel aviso, y se caía sola. O sea que de la pareja que se pintó
+// entera sobrevivía media.
+//
+// Se mira la cabeza, no la celda completa: la cola es el resumen del bloque.
+function esAlertaDeDuplicado(texto) {
+    let t = cabezaEstado(texto);
+    if (t.startsWith("🔄")) return true;
+    let u = t.toUpperCase();
+    return u.indexOf("DUPLICAD") !== -1 || u.indexOf("REPETID") !== -1;
+}
+
+// ¿Esta alerta tiene que aguantar hasta que se arregle la fila?
+//
+// De ⛔ para arriba siempre, y ADEMÁS cualquier duplicado aunque sea discreto.
+// Un duplicado sin resolver sigue siéndolo por mucho que se pinte gris, y si
+// se cae solo nadie lo arregla — que es el problema entero.
+//
+// Lo que NO entra: «⚠️ Sobra (Ajena)», «Sin registrar en M-S», «Faltan N por
+// mover», «❌ Va en: …», «❌ Guía Inválida». Esos cambian solos según avanza el
+// trabajo o según lo que haya en la propia celda, y pegarlos estorbaría.
+function mereceConservarse(texto) {
+    if (nivelAlerta(texto) >= NIVEL_ALTO) return true;
+    return esAlertaDeDuplicado(texto);
+}
+
 function conservarAlertaGrave(previo, nuevo) {
-    if (nivelAlerta(previo) < NIVEL_ALTO) return nuevo;
+    if (!mereceConservarse(previo)) return nuevo;
     if (puedePisar(cabezaEstado(previo), cabezaEstado(nuevo))) return nuevo;
     // Se conserva el estado, pero con la cola NUEVA: el resumen del bloque
     // ("Bultos: 3 | ✅ TODO SALIÓ") sí tiene que seguir actualizándose.
@@ -2457,11 +2490,17 @@ function conservarAlertaGrave(previo, nuevo) {
 // Color de fondo que le toca a una alerta conservada. Se deduce del texto
 // porque el color original se perdió: la celda solo guarda las letras.
 function colorDeAlerta(texto) {
-    let t = String(texto).trim();
+    let t = cabezaEstado(texto);
     if (t.startsWith("🛑 ERROR")) return "#ffc107";
     if (t.startsWith("🛑")) return "#dc3545";
     if (t.startsWith("⛔")) return "#ff9800";
     if (t.startsWith("❌")) return "#df5f6b";
+    // Los duplicados discretos tienen su propio color y hay que devolvérselo:
+    // conservar el texto y dejar la celda en blanco sería peor que no
+    // conservarlo, porque el aviso quedaría invisible.
+    if (t.startsWith("🔄")) return "#acacac";                        // duplicado local, gris
+    if (t.toUpperCase().indexOf("DUPLICAD") !== -1) return "#ff9800"; // la 1ª de la pareja
+    if (t.toUpperCase().indexOf("REPETID") !== -1) return "#ffc107";  // pedimento repetido en preforma
     return "#FFFFFF";
 }
 
