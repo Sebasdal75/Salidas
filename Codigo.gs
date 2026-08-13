@@ -3508,7 +3508,8 @@ function onOpen() {
         .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado'))
 
     .addSubMenu(ui.createMenu('🔧 Mantenimiento')
-        .addItem('Reconstruir caché completo', 'RECONSTRUIR_CACHE_TOTAL')
+        .addItem('Reconstruir caché de ESTA pestaña', 'reconstruirCacheDeHojaActiva')
+        .addItem('Reconstruir caché completo (todas)', 'RECONSTRUIR_CACHE_TOTAL')
         .addItem('Reponer validación (solo esta pestaña)', 'aplicarValidacionHojaActiva')
         .addItem('Reponer validación (todas las pestañas)', 'aplicarValidacionEnTodas')
         .addItem('Proteger hojas del sistema', 'protegerHojasSistema'))
@@ -4607,6 +4608,86 @@ function limpiarGuiasMovidasSeleccion() {
 // =========================================================================
 // RECONSTRUCCIÓN TOTAL DEL CACHÉ
 // =========================================================================
+// Cuántas guías distintas tiene esta pestaña dentro del índice. Sirve para
+// enseñar el antes y el después de una reconstrucción y que no haya que
+// creerse que hizo algo.
+function guiasDeHojaEnCache(cacheInfo, clave) {
+    if (!cacheInfo || !cacheInfo.map) return 0;
+    let k = claveHoja(clave);
+    let n = 0;
+    cacheInfo.map.forEach(arr => {
+        for (let i = 0; i < arr.length; i++) {
+            if (arr[i].hoja === k) { n++; return; }
+        }
+    });
+    return n;
+}
+
+// Rehacer el caché de UNA pestaña, cuando ya sabes cuál está mal.
+//
+// «Reconstruir caché completo» borra la hoja entera y re-fotografía las veinte
+// pestañas: es lento y es matar moscas a cañonazos si ya identificaste dónde
+// está el problema.
+//
+// Se diferencia de «Forzar Actualización» en dos cosas: enseña el antes y el
+// después en número de guías, y recalcula SIN repintado total, así que las
+// alertas graves que sigan en pie no se pierden por arreglar el caché.
+function reconstruirCacheDeHojaActiva() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+  const hoja = ss.getActiveSheet();
+  const nombre = claveHoja(hoja.getName());
+
+  if (esHojaSistema(nombre)) {
+      ui.alert("♻️ Caché de una pestaña",
+               "Esta pestaña es del sistema y no se indexa.\n" +
+               "Colócate en una hoja de escaneo.", ui.ButtonSet.OK);
+      return;
+  }
+
+  let antes = 0, despues = 0, filasHoja = 0, podadas = 0, estaba = false;
+
+  conLock(archivo => {
+      invalidarCacheRAM();
+      let previo = getCacheData(archivo);
+      estaba = !!(previo && previo.headers && previo.headers.indexOf(nombre + "_FISICO") !== -1);
+      antes = guiasDeHojaEnCache(previo, nombre);
+
+      // La poda es global, pero solo quita columnas de pestañas que ya no
+      // existen. Sin ella, una hoja renombrada se compara contra su propio
+      // pasado y sale entera duplicada, que es medio de los «errores del caché».
+      podadas = podarCacheHuerfano(archivo);
+
+      actualizarFotografiaMental(hoja, archivo);
+      invalidarCacheRAM();
+      let ahora = getCacheData(archivo);
+      despues = guiasDeHojaEnCache(ahora, nombre);
+      filasHoja = hoja.getLastRow();
+
+      // Sin repintarTodo: lo que se está arreglando es el caché, no los avisos.
+      recalcularHoja(hoja, archivo, ahora, null);
+  });
+
+  let L = [];
+  L.push("Pestaña: " + hoja.getName() + "   (" + filasHoja + " filas)");
+  L.push("");
+  L.push("Guías indexadas antes:   " + antes + (estaba ? "" : "   (no estaba en el caché)"));
+  L.push("Guías indexadas ahora:   " + despues);
+  if (podadas > 0) L.push("Columnas huérfanas podadas: " + podadas);
+  L.push("");
+
+  if (despues === antes && podadas === 0) {
+      L.push("Sin cambios: el caché de esta pestaña ya estaba bien.");
+      L.push("Si el problema sigue, la causa está en otra hoja —usa el");
+      L.push("diagnóstico de la guía para ver dónde más está— o hace falta");
+      L.push("«Reconstruir caché completo».");
+  } else {
+      L.push("✅ Caché de esta pestaña rehecho.");
+  }
+
+  ui.alert("♻️ Caché de esta pestaña", L.join("\n"), ui.ButtonSet.OK);
+}
+
 function RECONSTRUIR_CACHE_TOTAL() {
   conLock(ss => {
     ss.toast('📸 Tomando fotografía de todas las pestañas...', 'Reconstruyendo Caché', 5);

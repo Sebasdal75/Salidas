@@ -1063,6 +1063,26 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y8. Contar las guías de UNA pestaña en el caché ===");
+// Es lo que enseña el antes y el después al rehacer el caché de una sola hoja,
+// para que no haya que creerse que hizo algo.
+const cacheConteo = { map: new Map([
+    ["1Z111", [{ hoja: "M-S T1", fila: 3 }, { hoja: "GLOBAL 4", fila: 9 }]],
+    ["1Z222", [{ hoja: "M-S T1", fila: 4 }]],
+    ["1Z333", [{ hoja: "GLOBAL 4", fila: 10 }]],
+    // La misma guía dos veces en la MISMA hoja cuenta una: son guías
+    // distintas lo que se cuenta, no apariciones.
+    ["1Z444", [{ hoja: "M-S T1", fila: 5 }, { hoja: "M-S T1", fila: 6 }]]
+]) };
+ok("cuenta las guías de la M-S", guiasDeHojaEnCache(cacheConteo, "M-S T1") === 3);
+ok("cuenta las de la Global", guiasDeHojaEnCache(cacheConteo, "GLOBAL 4") === 2);
+ok("una guía repetida en la misma hoja cuenta UNA",
+   guiasDeHojaEnCache({ map: new Map([["1Z444", [{ hoja: "M-S T1", fila: 5 }, { hoja: "M-S T1", fila: 6 }]]]) }, "M-S T1") === 1);
+ok("una pestaña que no está da 0", guiasDeHojaEnCache(cacheConteo, "INVENTARIO A") === 0);
+ok("normaliza el nombre", guiasDeHojaEnCache(cacheConteo, "  m-s t1  ") === 3);
+ok("sin caché da 0", guiasDeHojaEnCache(null, "M-S T1") === 0);
+ok("caché sin índice da 0", guiasDeHojaEnCache({}, "M-S T1") === 0);
+
 console.log("\n=== 5y7. Pedimento repetido: se marcan LAS DOS filas ===");
 // Antes solo se marcaba la segunda aparición. El operador veía el aviso en una
 // fila y tenía que buscar a mano dónde estaba la otra.
