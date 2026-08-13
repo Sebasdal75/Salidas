@@ -271,6 +271,33 @@ descartar que sea la causa.
 
 ---
 
+## 8 bis. ⚠️ Al volver de una pausa: cierra la hoja y ábrela otra vez
+
+**Esta es la causa más común de que una guía desaparezca.**
+
+Si el escáner se queda con la app abierta un rato largo, la vista deja de estar
+al día. A veces se ve **en blanco**, a veces con datos viejos. Lo que hay en la
+pantalla ya no es lo que hay en el archivo.
+
+Y entonces pasa esto: escaneas en una fila que **tú ves vacía** pero que en el
+archivo ya tenía una guía. Escribes encima, y esa guía se pierde. No es un fallo
+del sistema — el escáner está mandando datos a una vista que no había cargado.
+
+> **Antes de disparar tras una pausa: cierra la pestaña y vuelve a abrirla.**
+> Diez segundos. Y si la hoja se ve rara o en blanco, **no escanees**.
+
+Desde ahora queda registrado. Si pasa, en `HISTORIAL_BORRADOS` aparece:
+
+```
+SOBRESCRITA con «1ZXYZ999» (la celda ya tenía otra guía)
+```
+
+Con la fecha, la pestaña, la fila y **la guía que se perdió**, para poder
+recuperarla. Antes esto no dejaba ningún rastro: el historial solo registraba
+las celdas que se vaciaban, no las que se escribían encima.
+
+---
+
 ## 9 bis. Tres cosas que cambiaron
 
 **Las alertas graves ya no se borran solas.** Un `⛔` o un `🛑` se quedan puestos
@@ -301,6 +328,9 @@ por debajo del último dato.
   (`Ctrl+Shift+V`). Pegar una celda sin validación **borra la validación que
   hubiera debajo**, y desde ahí la pistola deja de avisar de las guías retenidas
   sin decir nada. Si ya pasó: `🔧 Mantenimiento → 🛡️ Reponer validación`.
+- ❌ **No escanees sobre una hoja que lleva rato abierta sin refrescar.** Ciérrala
+  y ábrela primero (ver §8 bis). Es la causa más común de que una guía
+  desaparezca.
 - ❌ **No renombres las pestañas** sin avisar. El sistema las reconoce por su
   nombre: `M-S ...` son de registro previo, las que dicen `INVENTARIO` son inventarios.
 
