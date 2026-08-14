@@ -1236,6 +1236,39 @@ ok("reescribir el MISMO valor no se registra", motivoDeCambio("1ZABC111", "1ZABC
 ok("ni cambiando solo mayúsculas", motivoDeCambio("1zabc111", "1ZABC111") === null);
 ok("ni con espacios de sobra", motivoDeCambio("  1ZABC111  ", "1ZABC111") === null);
 
+console.log("\n=== 5y12. Editar una M-S avisa a la hoja de unidad ===");
+// La hoja de unidad es la que MUESTRA el estado de la M-S («Sin registrar en
+// M-S», «Sobra (Ajena)», «Escaneado en …»). Si alguien se equivoca en la M-S,
+// borra y vuelve a escanear, esa hoja tiene que enterarse. Antes no se
+// propagaba nada al editar una M-S, y se quedaba con el mensaje viejo hasta que
+// alguien forzaba la actualización.
+const cacheProp = { map: new Map([
+    ["1ZENMS",    [{ hoja: "M-S T1", fila: 5, isMS: true,  isInventario: false }]],
+    ["1ZSALIDA",  [{ hoja: "M-S T1", fila: 6, isMS: true,  isInventario: false },
+                   { hoja: "A1 77-14-ZP", fila: 20, isMS: false, isInventario: false }]],
+    ["1ZINV",     [{ hoja: "INVENTARIO A", fila: 3, isMS: false, isInventario: true }]]
+]) };
+
+// Una guía recién metida en la M-S y que no está en ninguna unidad: nada que
+// avisar, así que no cuesta ni una llamada.
+ok("guía solo en la M-S: ningún destino que avisar",
+   hojasConGuias(cacheProp, new Set(["1ZENMS"]), "destino").size === 0);
+
+// EL CASO: la guía está en la M-S y en una hoja de unidad. Al tocarla en la
+// M-S hay que recalcular esa unidad.
+const destProp = hojasConGuias(cacheProp, new Set(["1ZSALIDA"]), "destino");
+ok("guía en M-S y en unidad: se avisa a la unidad",
+   destProp.size === 1 && destProp.has("A1 77-14-ZP"));
+ok("y no se cuela la propia M-S en la lista de destinos", !destProp.has("M-S T1"));
+
+// Los dominios siguen separados.
+ok("un inventario no es un destino",
+   hojasConGuias(cacheProp, new Set(["1ZINV"]), "destino").size === 0);
+ok("pero sí sale por su propio dominio",
+   hojasConGuias(cacheProp, new Set(["1ZINV"]), "inventario").has("INVENTARIO A"));
+ok("y la M-S sale por el suyo",
+   hojasConGuias(cacheProp, new Set(["1ZSALIDA"]), "ms").has("M-S T1"));
+
 console.log("\n=== 5y11. Dos capturas pegadas (lo que pasa de verdad) ===");
 // Sacado del historial del archivo real: el escáner dispara sobre una celda que
 // ya tenía algo con el cursor DENTRO, y en vez de sustituir, añade. La guía que

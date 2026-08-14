@@ -1103,9 +1103,24 @@ function procesarEdicion(e) {
 
     if (esModoInventario) {
         sincronizarInventariosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
-    } else if (esHojaPrincipal(nombreHoja) && !esHojaMS(nombreHoja)) {
+    } else {
         // Que la otra hoja destino se entere de que la guía cambió: si tenía un
         // duplicado apuntando a esta fila, hay que limpiarlo o reubicarlo.
+        //
+        // TAMBIÉN desde una M-S, y esta es la parte que faltaba. La condición
+        // era `esHojaPrincipal && !esHojaMS`, así que editar una M-S no avisaba
+        // a nadie. Y la hoja de unidad es precisamente la que MUESTRA el estado
+        // de la M-S: si alguien se equivoca en la M-S, borra y vuelve a
+        // escanear, la Global se quedaba diciendo «⚠️ Sin registrar en M-S» o
+        // «⚠️ Sobra (Ajena)» con datos viejos.
+        //
+        // El repaso de 5 minutos tampoco lo recogía: esas filas tienen texto en
+        // la columna B, así que no cuentan como «sin validar» y la hoja no se da
+        // por pendiente. Solo lo arreglaba forzar la actualización a mano.
+        //
+        // No cuesta nada cuando no hace falta: hojasConGuias solo devuelve las
+        // hojas de destino que contienen esas guías, y una guía recién metida en
+        // una M-S normalmente no está en ninguna todavía.
         sincronizarDestinosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
     }
 
