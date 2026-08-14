@@ -1110,6 +1110,38 @@ let destinos = [filasNecesarias(1, 1), filasNecesarias(500, 100), filasNecesaria
 ok("el destino nunca queda por debajo del tamaño actual",
    destinos[0] > 1 && destinos[1] > 100 && destinos[2] > 1200);
 
+console.log("\n=== 5y9. Saber qué salió: el caché, no el texto de la columna B ===");
+// Una fila con alerta encima NUNCA recibe el «➡ Salió en …»: ese aviso es
+// informativo y la regla de prioridad no le deja pisar una alerta. Por eso la
+// limpieza se quedaba sin quitar precisamente las filas problemáticas, aunque
+// el bulto llevara horas embarcado.
+const hdrsSal = ["GLOBAL 4_FISICO", "M-S T1_FISICO", "INVENTARIO A_FISICO",
+                 "REZAGO_FISICO", "CACHE_SISTEMA_FISICO"];
+const dataSal = [
+  hdrsSal,
+  ["1ZSALIO",  "1ZSALIO",  "",         "",          ""],   // fila 1
+  ["6100166",  "1ZAQUI",   "",         "",          ""],   // fila 2: pedimento + guía solo en M-S
+  ["",         "",         "1ZINV",    "1ZREZ",     "1ZSIS"]
+];
+const salidas = mapaSalidasDesdeCache({ headers: hdrsSal, data: dataSal });
+
+ok("una guía escaneada en la Global cuenta como salida", salidas.get("1ZSALIO") === "GLOBAL 4");
+ok("una que solo está en la M-S no ha salido", !salidas.has("1ZAQUI"));
+ok("un inventario no es un destino", !salidas.has("1ZINV"));
+ok("el rezago tampoco: estar en rezago no es haberse embarcado", !salidas.has("1ZREZ"));
+ok("las hojas del sistema no cuentan", !salidas.has("1ZSIS"));
+ok("los pedimentos no entran como guías salidas", !salidas.has("6100166"));
+
+ok("sin caché devuelve un mapa vacío", mapaSalidasDesdeCache(null).size === 0);
+ok("caché sin datos devuelve un mapa vacío",
+   mapaSalidasDesdeCache({ headers: hdrsSal }).size === 0);
+
+// LO QUE ARREGLA: la fila lleva un duplicado, nunca recibió la marca de salida,
+// y aun así el caché sabe que salió.
+ok("una fila con ⛔ sin marca de salida se detecta igual",
+   esEstadoSalida("⛔ DUPLICADO (En: M-S GLOBALES Fila 9)") === false &&
+   salidas.has("1ZSALIO") === true);
+
 console.log("\n=== 5y8. Contar las guías de UNA pestaña en el caché ===");
 // Es lo que enseña el antes y el después al rehacer el caché de una sola hoja,
 // para que no haya que creerse que hizo algo.

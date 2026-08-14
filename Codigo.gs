@@ -2143,28 +2143,43 @@ function obtenerRegistroMSDesdeCache(cacheInfo, nombreHojaActual) {
 // `guiasAfectadas` acota el trabajo: si sabemos qué guías cambiaron, las M-S
 // que no las contienen no se tocan (cero llamadas a la API). Con null hace
 // barrido completo (menú / trigger por tiempo).
+// Qué guía salió en qué pestaña de unidad, según el caché. Puro cálculo, sin
+// una sola llamada a la API.
+//
+// Esto es el HECHO: la guía está escaneada en una hoja de destino. El «➡ Salió
+// en …» de la columna B es solo cómo se muestra, y no siempre llega a
+// escribirse — una fila con una alerta encima nunca lo recibe, porque el aviso
+// de salida es informativo y la regla de prioridad no deja que pise a una
+// alerta. Por eso quien necesite saber si una guía salió tiene que preguntar
+// aquí y no leer la columna B.
+function mapaSalidasDesdeCache(cacheInfo) {
+    let salidas = new Map();
+    if (!cacheInfo || !cacheInfo.headers || !cacheInfo.data) return salidas;
+
+    for (let c = 0; c < cacheInfo.headers.length; c++) {
+        let header = String(cacheInfo.headers[c]);
+        if (!header.endsWith("_FISICO")) continue;
+
+        // Solo cuentan las hojas de unidad: una M-S no es un destino, y el
+        // rezago tampoco significa que el bulto se haya embarcado.
+        let n = claveHoja(header.replace("_FISICO", ""));
+        if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
+
+        for (let r = 1; r < cacheInfo.data.length; r++) {
+            let fila = cacheInfo.data[r];
+            if (!fila) continue;
+            let v = String(fila[c]).trim().toUpperCase();
+            if (v !== "" && !esCabeceraBloque(v)) salidas.set(v, n);
+        }
+    }
+    return salidas;
+}
+
 function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
     if (!cacheInfo || !cacheInfo.headers) return;
 
-    let escaneadosDestino = new Map();
     let colPorHoja = mapaColumnasFisico(cacheInfo);
-
-    // Recorre el caché entero (todas las columnas de destino × todas las filas)
-    // para saber qué guía salió en qué pestaña. Es puro cálculo, sin API.
-    perf("(memoria) índice de salidas", 0, () => {
-        for (let c = 0; c < cacheInfo.headers.length; c++) {
-            let header = String(cacheInfo.headers[c]);
-            if (!header.endsWith("_FISICO")) continue;
-
-            let n = claveHoja(header.replace("_FISICO", ""));
-            if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
-
-            for (let r = 1; r < cacheInfo.data.length; r++) {
-                let v = String(cacheInfo.data[r][c]).trim().toUpperCase();
-                if (v !== "" && !esCabeceraBloque(v)) escaneadosDestino.set(v, n);
-            }
-        }
-    });
+    let escaneadosDestino = perf("(memoria) índice de salidas", 0, () => mapaSalidasDesdeCache(cacheInfo));
 
     // Qué pestañas M-S hay que abrir. En un escaneo el caché ya sabe cuáles
     // contienen la guía, así que se piden por nombre y no se toca ninguna otra.
@@ -4566,15 +4581,41 @@ function limpiarGuiasMovidasSeleccion() {
     let filasHistorial = [];
     let nombreHoja = claveHoja(hoja.getName());
 
+    // El caché sabe qué guías están escaneadas en una hoja de unidad. Eso es el
+    // HECHO de que salieron; el «➡ Salió en …» de la columna B es solo cómo se
+    // muestra, y a una fila con alerta encima nunca llega a escribirse: el
+    // aviso de salida es informativo y la regla de prioridad no le deja pisar
+    // una alerta.
+    //
+    // Por eso antes se quedaban sin limpiar precisamente las filas problemáticas
+    // —las que llevaban un duplicado— aunque el bulto se hubiera embarcado hacía
+    // horas. Ahora se pregunta al caché y no al texto.
+    let cacheParaSalidas = getCacheData(ss);
+    let salidas = mapaSalidasDesdeCache(cacheParaSalidas);
+    let conAlerta = 0;
+
     for (let i = 0; i < numFilasSeleccion && i < valores.length; i++) {
         let valB = String(valores[i][1]).trim();
-        if (esEstadoSalida(valB)) {
-            paraEliminar.add(i);
-            let guiaBorrada = String(valores[i][0]).trim();
-            if (guiaBorrada !== "") {
-                filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, "LIMPIEZA DE GUÍA YA SALIDA"));
-            }
-        }
+        let guiaBorrada = String(valores[i][0]).trim();
+        let clave = guiaBorrada.toUpperCase();
+
+        let porTexto = esEstadoSalida(valB);
+        let porCache = clave !== "" && !esCabeceraBloque(clave) && salidas.has(clave);
+        if (!porTexto && !porCache) continue;
+
+        paraEliminar.add(i);
+        if (guiaBorrada === "") continue;
+
+        // Se distingue el motivo: si la fila llevaba una alerta sin resolver,
+        // el historial tiene que decirlo. Quitarla en silencio sería esconder
+        // justo el caso que hay que revisar.
+        let motivo = porTexto
+            ? "LIMPIEZA DE GUÍA YA SALIDA"
+            : "LIMPIEZA DE GUÍA YA SALIDA (salió en " + salidas.get(clave) +
+              "; la fila seguía marcada «" + cabezaEstado(valB) + "»)";
+        if (!porTexto) conAlerta++;
+
+        filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, motivo));
     }
 
     for (let i = 0; i < numFilasSeleccion && i < valores.length; i++) {
@@ -4640,7 +4681,11 @@ function limpiarGuiasMovidasSeleccion() {
     recalcularHoja(hoja, ss, cacheInfo, null);
     if (esHojaInventario(nombreHoja)) sincronizarInventariosAfectados(ss, cacheInfo, null, nombreHoja);
 
-    ss.toast('✅ Guías limpiadas (' + eliminadas + ' filas). Colores y validaciones subieron con ellas.', 'Limpieza Completa', 5);
+    ss.toast('✅ Guías limpiadas (' + eliminadas + ' filas). Colores y validaciones subieron con ellas.' +
+             (conAlerta > 0
+                ? '  ⚠️ ' + conAlerta + ' seguían marcadas con alerta aunque ya habían salido: mira el historial.'
+                : ''),
+             'Limpieza Completa', conAlerta > 0 ? 12 : 5);
   });
 }
 
