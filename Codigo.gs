@@ -1242,6 +1242,44 @@ function rangoDeUpdates(updates, minRow, rowCount) {
 //
 // En ese caso se deja tal cual: el recálculo ya la marcará como guía inválida,
 // que es avisar sin destruir. Limpiar no es borrar.
+// ¿Este valor son DOS capturas pegadas una detrás de otra?
+//
+// Es lo que pasa cuando el escáner dispara sobre una celda que ya tenía algo y
+// el cursor está DENTRO de la celda en vez de encima: en lugar de sustituir,
+// añade. El resultado es una cadena larguísima con dos guías dentro, y hasta
+// ahora salía como un genérico «❌ Guía Inválida» que no decía nada de lo que
+// había pasado ni de qué guía se había quedado sin fila propia.
+//
+// Visto en el historial del archivo real, y es la causa de las guías que
+// «desaparecen»: no se borran, se quedan pegadas a la de al lado.
+function detectarGuiasPegadas(valor) {
+    let v = String(valor).trim().toUpperCase();
+    if (v.length <= 18) return null;
+
+    if (v.startsWith("1Z")) {
+        // Dos guías 1Z: la segunda «1Z» aparece donde acaba la primera.
+        let seg = v.indexOf("1Z", 2);
+        if (seg >= 16) return { primera: v.substring(0, seg), segunda: v.substring(seg) };
+        // Una guía completa con un pedimento de 7 dígitos pegado detrás.
+        if (v.length === 25 && /^\d{7}$/.test(v.substring(18)))
+            return { primera: v.substring(0, 18), segunda: v.substring(18) };
+    }
+
+    // Y al revés: el cursor estaba al principio y la guía entró delante del
+    // pedimento que ya estaba en la celda.
+    let m = v.match(/^(\d{7})(1Z[0-9A-Z]{16})$/);
+    if (m) return { primera: m[1], segunda: m[2] };
+    return null;
+}
+
+// El aviso que se pinta cuando la captura no es una guía válida. Si son dos
+// pegadas se dice cuáles, porque de ahí se recupera la que se perdió.
+function textoCapturaInvalida(valor) {
+    let pegadas = detectarGuiasPegadas(valor);
+    if (!pegadas) return "❌ Guía Inválida";
+    return "❌ DOS PEGADAS: " + pegadas.primera + " + " + pegadas.segunda;
+}
+
 function normalizacionAEscribir(valRaw) {
     if (typeof valRaw !== 'string') return null;
     let limpio = valRaw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -2943,7 +2981,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           if (esErr) {
               if (bAAct) bAAct.conAlerta++;
           } else if (!esGuiaUPSValida(v)) {
-              resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b";
+              resultadosB[i][0] = textoCapturaInvalida(v); coloresB[i][0] = "#df5f6b";
               if (bAAct) bAAct.conAlerta++;
           } else {
               if (bAAct) { bAAct.guias.push(v); bAAct.filasGuias.push(i); }
@@ -3269,7 +3307,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
           if (esErr) {
               if (bAAct) bAAct.conAlerta++;
           } else if (!esGuiaUPSValida(v)) {
-              resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b";
+              resultadosB[i][0] = textoCapturaInvalida(v); coloresB[i][0] = "#df5f6b";
               if (bAAct) bAAct.conAlerta++;
           } else {
               guiasGlobales.add(v);
@@ -3512,7 +3550,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
     } else if (esErr) {
       // Duplicado entre inventarios o error estructural: ya tiene mensaje fijo.
     } else if (!esGuiaUPSValida(valor)) {
-      resultadosB[i][0] = "❌ Guía Inválida"; coloresB[i][0] = "#df5f6b";
+      resultadosB[i][0] = textoCapturaInvalida(valor); coloresB[i][0] = "#df5f6b";
     } else if (filaUbicacionActual === -1) {
       // Guía escaneada antes de cualquier ubicación: antes se quedaba SIN
       // estado, y una columna B vacía con dato en A hacía que la red de

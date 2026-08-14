@@ -1236,6 +1236,45 @@ ok("reescribir el MISMO valor no se registra", motivoDeCambio("1ZABC111", "1ZABC
 ok("ni cambiando solo mayúsculas", motivoDeCambio("1zabc111", "1ZABC111") === null);
 ok("ni con espacios de sobra", motivoDeCambio("  1ZABC111  ", "1ZABC111") === null);
 
+console.log("\n=== 5y11. Dos capturas pegadas (lo que pasa de verdad) ===");
+// Sacado del historial del archivo real: el escáner dispara sobre una celda que
+// ya tenía algo con el cursor DENTRO, y en vez de sustituir, añade. La guía que
+// estaba no se borra: se queda pegada a la nueva y las dos dejan de servir.
+const p1 = detectarGuiasPegadas("1ZC3375104031528941Z03F61Y6713913378");
+ok("dos guías 1Z se separan",
+   p1 && p1.primera === "1ZC337510403152894" && p1.segunda === "1Z03F61Y6713913378");
+const p2 = detectarGuiasPegadas("1Z8929F904909326581Z7146776738785525");
+ok("otro caso real del historial",
+   p2 && p2.primera === "1Z8929F90490932658" && p2.segunda === "1Z7146776738785525");
+
+// EL CASO DE LA CELDA A1: había un pedimento y le entró una guía delante.
+const p3 = detectarGuiasPegadas("1ZE4C54304509118566100544");
+ok("guía + pedimento se separan",
+   p3 && p3.primera === "1ZE4C5430450911856" && p3.segunda === "6100544");
+const p4 = detectarGuiasPegadas("61005441ZE4C5430450911856");
+ok("y al revés, pedimento + guía",
+   p4 && p4.primera === "6100544" && p4.segunda === "1ZE4C5430450911856");
+
+// Lo que NO debe partir.
+ok("una guía normal no se toca", detectarGuiasPegadas("1ZC337510403152894") === null);
+ok("un pedimento no se toca", detectarGuiasPegadas("6100544") === null);
+ok("una guía corta no se toca", detectarGuiasPegadas("12345678") === null);
+ok("una celda vacía no se toca", detectarGuiasPegadas("") === null);
+
+// El mensaje que ve el operador: dice QUÉ dos guías hay dentro, que es de donde
+// se recupera la que se perdió. Antes salía un «Guía Inválida» que no decía nada.
+ok("el aviso nombra las dos guías",
+   textoCapturaInvalida("1ZC3375104031528941Z03F61Y6713913378")
+   === "❌ DOS PEGADAS: 1ZC337510403152894 + 1Z03F61Y6713913378");
+ok("una guía mala de verdad sigue siendo «Guía Inválida»",
+   textoCapturaInvalida("XYZ123") === "❌ Guía Inválida");
+ok("mismo nivel que una guía inválida: no tapa a un duplicado",
+   nivelAlerta(textoCapturaInvalida("1ZC3375104031528941Z03F61Y6713913378"))
+   === nivelAlerta("❌ Guía Inválida"));
+ok("y un ⛔ sí puede pisarlo",
+   puedePisar(textoCapturaInvalida("1ZC3375104031528941Z03F61Y6713913378"),
+              "⛔ DUPLICADO (En: M-S T1 Fila 9)") === true);
+
 console.log("\n=== 5y10. Normalizar nunca puede vaciar una celda ===");
 // La causa de que una celda con un rótulo se quedara en blanco sola: quitar
 // todo lo que no sea A-Z0-9 de un texto sin letras ni números deja la cadena
