@@ -393,7 +393,22 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
     que hace sonar el escáner. `asegurarFilasDeEscaneo` la **construye** en vez
     de copiarla de la fila de arriba: copiarla solo funciona si esa fila la
     tiene, y las reglas puestas a mano cubren un rango fijo.
-13. **NADA automático escribe valores en la columna A**, salvo la normalización
+13. **Las Globales NO usan `filaFinalSugerida`.** Las M-S y los inventarios sí:
+    su columna A se actualiza en el caché durante el mismo escaneo, así que la
+    fila final sacada de ahí es fiable. Una Global tiene una segunda fuente que
+    decide sus mensajes —la preforma de la columna O— y esa puede llegar por
+    caminos que **no disparan `onEdit`**: una importación, una fórmula, un
+    pegado que Sheets no clasifica como edición.
+
+    Si la columna `_PREFORMA` del caché se queda corta, el recálculo no llega a
+    leer el final de la columna O y las guías cuya preforma quedó fuera del
+    rango salen `⚠️ Sobra (Ajena)`. No sobran: no se leyó su preforma. Era la
+    causa de que «se arreglara solo» al forzar la actualización, que sí usa
+    `getLastRow`.
+
+    Acusar a un bulto de ajeno no se puede hacer desde una lectura que podría
+    estar truncada. Cuesta una llamada (~50 ms) sobre un escaneo de ~900.
+14. **NADA automático escribe valores en la columna A**, salvo la normalización
     del propio escaneo — y esa escribe **solo las celdas que cambian**
     (`rangoDeUpdates`). Es el invariante más importante del archivo: la columna
     A es del operador.

@@ -1321,6 +1321,12 @@ function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
 // `tocoPreforma`: si es false, no se recalculan los colores de la columna O.
 // Un escaneo normal (columna A) no puede cambiarlos, y comprobarlos cuesta una
 // lectura de columna completa. Los menús pasan true para repintado total.
+// OJO: `filaFinalSugerida` la usan las M-S y los inventarios, pero las Globales
+// la IGNORAN a propósito. Su columna O puede llegar por caminos que no disparan
+// onEdit, así que una fila final sacada del caché podría dejar fuera parte de la
+// preforma y hacer que guías buenas salieran como «Sobra (Ajena)». Ver el
+// comentario largo dentro de actualizarGlobalPreforma.
+//
 // `filaFinalSugerida` (opcional, y por eso va la última) evita un getLastRow en
 // el camino del escaneo. Los menús y los triggers NO la pasan a propósito: ahí
 // nadie espera delante de la pantalla y se prefiere la verdad del servidor. Si
@@ -2759,12 +2765,25 @@ function horaPreservada(datosMasivos, i, idxHora, valorFila, horaActual) {
 // =========================================================================
 function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida, filasEditadas) {
   if (tocoPreforma === undefined) tocoPreforma = true;
-  // Si viene sugerida, se ahorra la llamada más cara del sistema. La etiqueta
-  // se conserva: en la próxima medición del camino de edición debe salir con
-  // CERO llamadas, y esa es la prueba de que el atajo se activó.
-  const ultimaFila = filaFinalSugerida > 0
-      ? filaFinalSugerida
-      : perf("getLastRow", 0, () => Math.max(hoja.getLastRow(), 1));
+
+  // Aquí NO se usa el atajo del caché, y es a propósito.
+  //
+  // En las M-S y los inventarios la fila final puede salir del caché sin
+  // riesgo: su columna A se actualiza en el caché en el mismo escaneo. Pero en
+  // una Global hay una segunda fuente que decide los mensajes —la PREFORMA de
+  // la columna O— y esa puede llegar por caminos que no disparan onEdit: una
+  // importación, una fórmula, un pegado que Sheets no clasifica como edición.
+  //
+  // Cuando eso pasa, la columna _PREFORMA del caché se queda corta, el
+  // recálculo no llega a leer el final de la columna O, y las guías cuya
+  // preforma quedó fuera del rango salen «⚠️ Sobra (Ajena)». No sobran: es que
+  // no se leyó su preforma. Por eso se arreglaba solo al forzar la
+  // actualización, que sí usa getLastRow.
+  //
+  // Acusar a un bulto de ajeno es una afirmación seria y no se puede hacer
+  // desde una lectura que podría estar truncada. Cuesta una llamada (~50 ms
+  // medidos) sobre un escaneo de ~900. Se paga.
+  const ultimaFila = perf("getLastRow", 0, () => Math.max(hoja.getLastRow(), 1));
   if (ultimaFila < 1) return;
 
   perf("asegurarColumnas", 0, () => asegurarColumnas(hoja, 19));
