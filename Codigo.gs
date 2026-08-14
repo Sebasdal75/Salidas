@@ -2152,9 +2152,16 @@ function obtenerRegistroMSDesdeCache(cacheInfo, nombreHojaActual) {
 // de salida es informativo y la regla de prioridad no deja que pise a una
 // alerta. Por eso quien necesite saber si una guía salió tiene que preguntar
 // aquí y no leer la columna B.
-function mapaSalidasDesdeCache(cacheInfo) {
+// `hojaExcluida` es la pestaña desde la que se pregunta. NUNCA cuenta como
+// destino de sí misma, y omitirlo fue un fallo caro: en una hoja de unidad
+// como «A1», todas sus guías figuraban como «ya salieron»… en A1. La limpieza
+// cumplía la condición en todas las filas y vaciaba la hoja entera.
+//
+// Una guía escaneada aquí no ha salido de aquí. Salir es aparecer en OTRA.
+function mapaSalidasDesdeCache(cacheInfo, hojaExcluida) {
     let salidas = new Map();
     if (!cacheInfo || !cacheInfo.headers || !cacheInfo.data) return salidas;
+    let excluida = hojaExcluida ? claveHoja(hojaExcluida) : null;
 
     for (let c = 0; c < cacheInfo.headers.length; c++) {
         let header = String(cacheInfo.headers[c]);
@@ -2164,6 +2171,7 @@ function mapaSalidasDesdeCache(cacheInfo) {
         // rezago tampoco significa que el bulto se haya embarcado.
         let n = claveHoja(header.replace("_FISICO", ""));
         if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
+        if (excluida && n === excluida) continue;
 
         for (let r = 1; r < cacheInfo.data.length; r++) {
             let fila = cacheInfo.data[r];
@@ -4590,8 +4598,9 @@ function limpiarGuiasMovidasSeleccion() {
     // Por eso antes se quedaban sin limpiar precisamente las filas problemáticas
     // —las que llevaban un duplicado— aunque el bulto se hubiera embarcado hacía
     // horas. Ahora se pregunta al caché y no al texto.
+    // Se excluye ESTA pestaña: una guía escaneada aquí no ha salido de aquí.
     let cacheParaSalidas = getCacheData(ss);
-    let salidas = mapaSalidasDesdeCache(cacheParaSalidas);
+    let salidas = mapaSalidasDesdeCache(cacheParaSalidas, nombreHoja);
     let conAlerta = 0;
 
     for (let i = 0; i < numFilasSeleccion && i < valores.length; i++) {

@@ -1132,6 +1132,22 @@ ok("el rezago tampoco: estar en rezago no es haberse embarcado", !salidas.has("1
 ok("las hojas del sistema no cuentan", !salidas.has("1ZSIS"));
 ok("los pedimentos no entran como guías salidas", !salidas.has("6100166"));
 
+// LA HOJA NUNCA ES DESTINO DE SÍ MISMA. Omitirlo vaciaba hojas enteras: en una
+// pestaña de unidad como «A1», todas sus guías figuraban como «ya salieron»…
+// en A1, así que la limpieza cumplía la condición en TODAS las filas.
+const hdrsA1 = ["A1_FISICO", "GLOBAL 1_FISICO", "M-S T1_FISICO"];
+const dataA1 = [hdrsA1, ["1ZSOLOA1", "", "1ZSOLOA1"], ["1ZDOBLE", "1ZDOBLE", ""]];
+const desdeA1 = mapaSalidasDesdeCache({ headers: hdrsA1, data: dataA1 }, "A1");
+
+ok("una guía escaneada en A1 NO cuenta como salida de A1", !desdeA1.has("1ZSOLOA1"));
+ok("pero sí cuenta si está en otra unidad", desdeA1.get("1ZDOBLE") === "GLOBAL 1");
+ok("sin excluir, A1 se veía a sí misma como destino",
+   mapaSalidasDesdeCache({ headers: hdrsA1, data: dataA1 }).get("1ZSOLOA1") === "A1");
+ok("desde la M-S, A1 sí es un destino",
+   mapaSalidasDesdeCache({ headers: hdrsA1, data: dataA1 }, "M-S T1").get("1ZSOLOA1") === "A1");
+ok("el nombre a excluir se normaliza",
+   !mapaSalidasDesdeCache({ headers: hdrsA1, data: dataA1 }, "  a1  ").has("1ZSOLOA1"));
+
 ok("sin caché devuelve un mapa vacío", mapaSalidasDesdeCache(null).size === 0);
 ok("caché sin datos devuelve un mapa vacío",
    mapaSalidasDesdeCache({ headers: hdrsSal }).size === 0);
