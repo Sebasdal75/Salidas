@@ -1236,6 +1236,32 @@ ok("reescribir el MISMO valor no se registra", motivoDeCambio("1ZABC111", "1ZABC
 ok("ni cambiando solo mayúsculas", motivoDeCambio("1zabc111", "1ZABC111") === null);
 ok("ni con espacios de sobra", motivoDeCambio("  1ZABC111  ", "1ZABC111") === null);
 
+console.log("\n=== 5y10. Normalizar nunca puede vaciar una celda ===");
+// La causa de que una celda con un rótulo se quedara en blanco sola: quitar
+// todo lo que no sea A-Z0-9 de un texto sin letras ni números deja la cadena
+// vacía, y el script la escribía encima.
+ok("un guion solo NO borra la celda", normalizacionAEscribir("—") === null);
+ok("una flecha tampoco", normalizacionAEscribir("→") === null);
+ok("símbolos solos tampoco", normalizacionAEscribir("###") === null);
+ok("espacios solos tampoco", normalizacionAEscribir("   ") === null);
+ok("una celda vacía tampoco", normalizacionAEscribir("") === null);
+
+// Lo que sí tiene que seguir limpiando.
+ok("quita guiones de una guía", normalizacionAEscribir("1Z-123-456") === "1Z123456");
+ok("pasa a mayúsculas", normalizacionAEscribir("1zabc111") === "1ZABC111");
+ok("quita espacios de los extremos", normalizacionAEscribir("  1ZABC111  ") === "1ZABC111");
+ok("quita acentos y deja lo alfanumérico", normalizacionAEscribir("GUÍA1") === "GUA1");
+
+// Y lo que no hay que reescribir, para no gastar una llamada por gusto.
+ok("un valor ya limpio no se reescribe", normalizacionAEscribir("1ZABC111") === null);
+ok("los números no son texto y no pasan por aquí", normalizacionAEscribir(6100166) === null);
+ok("null y undefined no rompen",
+   normalizacionAEscribir(null) === null && normalizacionAEscribir(undefined) === null);
+
+// El caso que lo delató: un rótulo con acentos se acorta pero NO se vacía.
+ok("un rótulo con letras se conserva aunque cambie", normalizacionAEscribir("Guías") === "GUAS");
+ok("un rótulo sin letras ni números se queda intacto", normalizacionAEscribir("· · ·") === null);
+
 console.log("\n=== 5y5. La escritura no alcanza a las filas vecinas ===");
 // Escribir de vuelta filas que no cambiaron es una forma silenciosa de perder
 // una guía: se reescriben con la copia que se leyó unos milisegundos antes, y

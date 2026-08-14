@@ -1019,13 +1019,11 @@ function procesarEdicion(e) {
             // Se compara contra el valor CRUDO, no contra el ya normalizado: si
             // no, un cambio que solo fuera de minúscula a mayúscula no se
             // detectaría y la celda se quedaría como se tecleó.
-            if (typeof valRaw === 'string') {
-                let clean = valorIngresado.replace(/[^A-Z0-9]/g, '');
-                if (String(valRaw) !== clean) {
-                    batchUpdates.push({row: filaActual, col: colActual, val: clean});
-                    valorIngresado = clean;
-                    valoresEditados[r][c] = clean;
-                }
+            let limpio = normalizacionAEscribir(valRaw);
+            if (limpio !== null) {
+                batchUpdates.push({row: filaActual, col: colActual, val: limpio});
+                valorIngresado = limpio;
+                valoresEditados[r][c] = limpio;
             }
 
             // Errores estructurales (pedimento incompleto) acumulados para escribir en bloque.
@@ -1231,6 +1229,28 @@ function rangoDeUpdates(updates, minRow, rowCount) {
     let desde = Math.min.apply(null, filas);
     let hasta = Math.max.apply(null, filas);
     return { desde: desde, alto: hasta - desde + 1 };
+}
+
+// Qué hay que ESCRIBIR de vuelta al normalizar una captura, o null si la celda
+// no se toca.
+//
+// NORMALIZAR NUNCA PUEDE VACIAR UNA CELDA. Si lo que hay escrito no tiene ni
+// una letra ni un número —un guion, una flecha, un título de solo símbolos, un
+// texto con solo acentos— quitar todo lo que no sea A-Z0-9 deja la cadena
+// vacía, y escribirla borraba el contenido. Era la causa de que una celda con
+// un rótulo se quedara en blanco sola en cuanto alguien la tocaba.
+//
+// En ese caso se deja tal cual: el recálculo ya la marcará como guía inválida,
+// que es avisar sin destruir. Limpiar no es borrar.
+function normalizacionAEscribir(valRaw) {
+    if (typeof valRaw !== 'string') return null;
+    let limpio = valRaw.trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (limpio === "") return null;
+    // Se compara contra el valor CRUDO, no contra el ya normalizado: si no, un
+    // cambio que solo fuera de minúscula a mayúscula no se detectaría y la
+    // celda se quedaría como se tecleó.
+    if (valRaw === limpio) return null;
+    return limpio;
 }
 
 function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
