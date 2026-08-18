@@ -1236,6 +1236,34 @@ ok("reescribir el MISMO valor no se registra", motivoDeCambio("1ZABC111", "1ZABC
 ok("ni cambiando solo mayúsculas", motivoDeCambio("1zabc111", "1ZABC111") === null);
 ok("ni con espacios de sobra", motivoDeCambio("  1ZABC111  ", "1ZABC111") === null);
 
+console.log("\n=== 5y13. «REZAGO MS»: rezago que sí se cruza con las M-S ===");
+// El rezago normal NO se cruza contra las M-S: lo que decide si una guía es de
+// rezago es la preforma, no haber pasado por una M-S. Al nombrar la pestaña
+// «REZAGO MS» se pide justo ese cruce, y una guía registrada en cualquier M-S
+// deja de salir «⚠️ Ajena (No es de rezago)».
+ok("REZAGO MS sí cruza", esRezagoConMS("REZAGO MS") === true);
+ok("con guion también", esRezagoConMS("REZAGO M-S") === true);
+ok("da igual el orden", esRezagoConMS("MS REZAGO") === true);
+ok("y con más palabras en medio", esRezagoConMS("REZAGO MS 2") === true);
+ok("no distingue mayúsculas ni espacios", esRezagoConMS("  rezago ms  ") === true);
+
+// El rezago normal se queda como estaba.
+ok("un rezago normal NO cruza", esRezagoConMS("REZAGO") === false);
+ok("REZAGO 2 tampoco", esRezagoConMS("REZAGO 2") === false);
+
+// No captura «MS» metido dentro de otra palabra.
+ok("no confunde una palabra que contenga MS", esRezagoConMS("REZAGO MSA") === false);
+ok("ni al revés", esRezagoConMS("REZAGO AMS") === false);
+
+// Y no toca a nada que no sea rezago.
+ok("una Global no es rezago", esRezagoConMS("GLOBAL 4") === false);
+ok("una M-S de verdad tampoco", esRezagoConMS("M-S T1") === false);
+ok("A1 tampoco", esRezagoConMS("A1 77-14-ZP") === false);
+
+// Sigue siendo una hoja principal de rezago, no una M-S.
+ok("«REZAGO MS» NO se convierte en M-S", esHojaMS("REZAGO MS") === false);
+ok("y sigue siendo hoja principal", esHojaPrincipal("REZAGO MS") === true);
+
 console.log("\n=== 5y12. Editar una M-S avisa a la hoja de unidad ===");
 // La hoja de unidad es la que MUESTRA el estado de la M-S («Sin registrar en
 // M-S», «Sobra (Ajena)», «Escaneado en …»). Si alguien se equivoca en la M-S,

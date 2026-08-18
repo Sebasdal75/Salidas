@@ -152,6 +152,22 @@ function esHojaMS(nombreHoja) {
 // de un global, y con guías 1Z el prefijo del embarcador tampoco lo dice.
 // Cómo clasifica el sistema una pestaña. Solo para el diagnóstico: ver esto
 // escrito al lado de cada nombre convierte un fallo invisible en obvio.
+// ¿Es una hoja de rezago que además debe cruzarse contra las M-S?
+//
+// El rezago normal NO se cruza: son bultos que se quedaron, y lo que decide si
+// una guía «es de rezago» es la preforma, no haber pasado por una M-S. Pero al
+// nombrar la pestaña «REZAGO MS» se pide justo lo contrario: que una guía
+// registrada en cualquier M-S cuente como reconocida en vez de salir
+// «⚠️ Ajena (No es de rezago)».
+//
+// Se exige que MS vaya como palabra suelta (con o sin guion) para no capturar
+// por accidente un nombre que solo la lleve dentro de otra palabra.
+function esRezagoConMS(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    if (n.indexOf("REZAGO") === -1) return false;
+    return /(^|[^A-Z0-9])M-?S($|[^A-Z0-9])/.test(n);
+}
+
 function tipoDePestana(nombreHoja) {
     let n = claveHoja(nombreHoja);
     if (esHojaInterna(n)) return "interna";
@@ -2810,6 +2826,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   let nombreHoja = perf("nombre de la hoja", 0, () => claveHoja(hoja.getName()));
   let esHojaMSLocal = esHojaMS(nombreHoja);
   let esRezago = nombreHoja.indexOf("REZAGO") !== -1;
+  // «REZAGO MS»: rezago que SÍ se cruza contra las M-S (ver esRezagoConMS).
+  let rezagoCruzaMS = esRezago && esRezagoConMS(nombreHoja);
   let requiereAlertaMS = !esHojaMSLocal && esHojaPrincipal(nombreHoja) && !esRezago;
 
   let datosMS = perf("(memoria) registro M-S", 0, () => obtenerRegistroMSDesdeCache(cacheInfo, nombreHoja));
@@ -2937,7 +2955,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       });
   }
 
-  if (!esHojaMSLocal && !esRezago) {
+  // El registro de las M-S se dobla sobre la preforma: una guía registrada en
+  // una M-S cuenta como esperada aunque no esté en la columna O.
+  //
+  // El rezago queda fuera por defecto —lo que decide si una guía es de rezago
+  // es la preforma, no haber pasado por una M-S— salvo que la pestaña se llame
+  // «REZAGO MS», que es la forma de pedir justo ese cruce.
+  if (!esHojaMSLocal && (!esRezago || rezagoCruzaMS)) {
       registroMS.forEach((guiasSet, pedimento) => {
           if (!mapaPreformas[pedimento]) mapaPreformas[pedimento] = new Set();
           guiasSet.forEach(g => {
@@ -3079,7 +3103,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 
               if (esRezago) {
                   if (pedReal) {
-                      resultadosB[filaG][0] = pedimentosCompletos.has(pedReal) ? "✅ Recuperado (Ped: " + pedReal + ") | 🌟 COMPLETO" : "✅ Recuperado (Ped: " + pedReal + ")";
+                      // En «REZAGO MS» se dice de qué M-S viene: si la guía se
+                      // reconoce por el cruce y no por la preforma, saber cuál
+                      // la registró es la mitad de la información.
+                      let deDonde = (rezagoCruzaMS && origen) ? " (" + origen + ")" : "";
+                      resultadosB[filaG][0] = pedimentosCompletos.has(pedReal)
+                          ? "✅ Recuperado (Ped: " + pedReal + ")" + deDonde + " | 🌟 COMPLETO"
+                          : "✅ Recuperado (Ped: " + pedReal + ")" + deDonde;
                       coloresB[filaG][0] = "#07c369";
                   } else {
                       let infoOtro = guiasRezagoGlobal.get(g);
