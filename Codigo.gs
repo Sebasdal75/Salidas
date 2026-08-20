@@ -168,6 +168,63 @@ function esRezagoConMS(nombreHoja) {
     return /(^|[^A-Z0-9])M-?S($|[^A-Z0-9])/.test(n);
 }
 
+// =========================================================================
+// HISTÓRICO DE DÍAS ANTERIORES
+// =========================================================================
+// Una pestaña «HISTORICO» donde se acumula lo de días pasados, para poder
+// detectar una guía que ya se procesó y se borró hace días.
+//
+// No hace falta enlazar nada externo: da igual de dónde salga el concentrado
+// —pegado a mano, importado, o volcado por el propio cierre— mientras esté en
+// esa pestaña. Enlazar un Excel de Office desde aquí exigiría OAuth contra
+// Microsoft y una app registrada; una pestaña se lee sin pedirle permiso a
+// nadie y no se cae.
+const HOJA_HISTORICO = "HISTORICO";
+
+// Extrae guía -> fecha de un volcado cualquiera.
+//
+// Se recorren TODAS las columnas a propósito: así funciona con el concentrado
+// tal y como esté armado, sin obligar a un formato. Lo que parece fecha se
+// recuerda para la fila, y lo que pasa la validación de guía se indexa con
+// ella. Los pedimentos de 7 dígitos no entran: esGuiaUPSValida ya los rechaza.
+function guiasDelHistorico(datos) {
+    let mapa = new Map();
+    if (!datos) return mapa;
+    for (let r = 0; r < datos.length; r++) {
+        let fila = datos[r];
+        if (!fila) continue;
+
+        // Dos pasadas por fila: primero se busca la fecha en TODA la fila y
+        // después se indexan las guías. En una sola pasada, un concentrado con
+        // la fecha a la derecha de la guía dejaba las guías sin fecha, y el
+        // orden de las columnas no debería importar.
+        let fecha = "";
+        for (let c = 0; c < fila.length && fecha === ""; c++) {
+            let bruto = fila[c];
+            if (bruto instanceof Date) {
+                fecha = Utilities.formatDate(bruto, Session.getScriptTimeZone(), "dd/MM/yyyy");
+            } else if (typeof bruto === "string") {
+                let v = bruto.trim();
+                if (/^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(v)) fecha = v.split(" ")[0];
+            }
+        }
+
+        for (let c = 0; c < fila.length; c++) {
+            let bruto = fila[c];
+            if (bruto === "" || bruto === null || bruto === undefined) continue;
+            if (bruto instanceof Date) continue;
+
+            let v = String(bruto).trim();
+            if (v === "" || /^\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}/.test(v)) continue;
+
+            let g = v.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            // La primera aparición manda: interesa cuándo se vio por PRIMERA vez.
+            if (esGuiaUPSValida(g) && !mapa.has(g)) mapa.set(g, fecha);
+        }
+    }
+    return mapa;
+}
+
 function tipoDePestana(nombreHoja) {
     let n = claveHoja(nombreHoja);
     if (esHojaInterna(n)) return "interna";
@@ -3676,7 +3733,8 @@ function onOpen() {
         .addItem('¿Por qué esta guía sale así?', 'diagnosticarGuia')
         .addItem('Diagnóstico del sistema', 'diagnosticoSistema')
         .addItem('Medir velocidad de escaneo', 'medirRendimiento')
-        .addItem('Prueba: ¿qué cuesta abrir el caché?', 'probarCosteCache'))
+        .addItem('Prueba: ¿qué cuesta abrir el caché?', 'probarCosteCache')
+        .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos'))
 
     .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
         .addItem('Cierre del día (historial + caché)', 'cierreDelDia')
@@ -4847,6 +4905,76 @@ function guiasDeHojaEnCache(cacheInfo, clave) {
 // Se diferencia de «Forzar Actualización» en dos cosas: enseña el antes y el
 // después en número de guías, y recalcula SIN repintado total, así que las
 // alertas graves que sigan en pie no se pierden por arreglar el caché.
+// Botón de menú: cruza TODO lo que hay escaneado ahora contra el histórico.
+//
+// Solo informa: no escribe ni marca nada. Que una guía se procesara hace días
+// no siempre es un error —puede ser una devolución legítima— así que la
+// decisión es del operador, no del script.
+function buscarDuplicadosHistoricos() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+
+  const hojaHist = ss.getSheetByName(HOJA_HISTORICO);
+  if (!hojaHist) {
+      ui.alert("📚 Histórico",
+          "No existe la pestaña «" + HOJA_HISTORICO + "».\n\n" +
+          "Créala y pega ahí tu concentrado de días anteriores. Da igual cómo\n" +
+          "esté armado: se recorren todas las columnas buscando guías, y si en\n" +
+          "la fila hay una fecha, se usa para decirte de qué día era.", ui.ButtonSet.OK);
+      return;
+  }
+
+  let historico = guiasDelHistorico(
+      hojaHist.getRange(1, 1, hojaHist.getMaxRows(), hojaHist.getMaxColumns()).getValues());
+
+  if (historico.size === 0) {
+      ui.alert("📚 Histórico",
+          "La pestaña «" + HOJA_HISTORICO + "» no tiene ninguna guía reconocible.",
+          ui.ButtonSet.OK);
+      return;
+  }
+
+  let hallazgos = [];
+  let revisadas = 0;
+  ss.getSheets().forEach(h => {
+      let n = claveHoja(h.getName());
+      if (esHojaSistema(n) || n === claveHoja(HOJA_HISTORICO)) return;
+      let lr = h.getLastRow();
+      if (lr < 1) return;
+      revisadas++;
+      let colA = h.getRange(1, 1, lr, 1).getValues();
+      for (let i = 0; i < colA.length; i++) {
+          let g = String(colA[i][0]).trim().toUpperCase();
+          if (g === "" || esCabeceraBloque(g)) continue;
+          if (historico.has(g)) {
+              hallazgos.push({ hoja: h.getName(), fila: i + 1, guia: g, fecha: historico.get(g) });
+          }
+      }
+  });
+
+  let L = [];
+  L.push("Histórico: " + historico.size.toLocaleString() + " guías de días anteriores");
+  L.push("Pestañas revisadas: " + revisadas);
+  L.push("");
+
+  if (hallazgos.length === 0) {
+      L.push("✅ Ninguna de las guías escaneadas hoy aparece en el histórico.");
+  } else {
+      L.push("⚠️ " + hallazgos.length + " ya estaban en el histórico:");
+      L.push("");
+      hallazgos.slice(0, 40).forEach(x => {
+          L.push("   " + x.guia + "   ·   " + x.hoja + " fila " + x.fila +
+                 (x.fecha ? "   ·   ya el " + x.fecha : ""));
+      });
+      if (hallazgos.length > 40) L.push("   … y " + (hallazgos.length - 40) + " más.");
+      L.push("");
+      L.push("No se ha marcado ni cambiado nada: que una guía se procesara hace");
+      L.push("días puede ser legítimo (una devolución), así que lo decides tú.");
+  }
+
+  ui.alert("📚 Duplicados contra el histórico", L.join("\n"), ui.ButtonSet.OK);
+}
+
 function reconstruirCacheDeHojaActiva() {
   const ss = obtenerArchivo();
   const ui = SpreadsheetApp.getUi();

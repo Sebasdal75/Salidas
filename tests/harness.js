@@ -1236,6 +1236,44 @@ ok("reescribir el MISMO valor no se registra", motivoDeCambio("1ZABC111", "1ZABC
 ok("ni cambiando solo mayúsculas", motivoDeCambio("1zabc111", "1ZABC111") === null);
 ok("ni con espacios de sobra", motivoDeCambio("  1ZABC111  ", "1ZABC111") === null);
 
+console.log("\n=== 5y14. Histórico de días anteriores ===");
+// Se recorren TODAS las columnas a propósito: así funciona con el concentrado
+// tal y como esté armado, sin obligar a un formato.
+const histCrudo = [
+  ["FECHA", "PESTAÑA", "GUÍA"],
+  ["12/08/2026", "GLOBAL 2", "1ZC337510403152894"],
+  ["12/08/2026", "GLOBAL 2", "1Z8929F90490932658"],
+  ["13/08/2026", "M-S T1",   "1ZR1H0146725447420"],
+  ["", "", ""],
+  ["13/08/2026", "M-S T1",   "6100544"]              // un pedimento NO es una guía
+];
+const hist = guiasDelHistorico(histCrudo);
+ok("indexa las guías del volcado", hist.size === 3);
+ok("y guarda la fecha de cada una", hist.get("1ZC337510403152894") === "12/08/2026");
+ok("de otro día también", hist.get("1ZR1H0146725447420") === "13/08/2026");
+ok("un pedimento de 7 dígitos no entra", !hist.has("6100544"));
+ok("los encabezados no ensucian", !hist.has("GUÍA") && !hist.has("PESTAÑA"));
+
+// Da igual el orden de las columnas ni cuántas haya.
+const otroOrden = guiasDelHistorico([["1ZC337510403152894", "lo que sea", "12/08/2026"]]);
+ok("la fecha puede ir después de la guía", otroOrden.get("1ZC337510403152894") === "12/08/2026");
+ok("una guía sin fecha se indexa igual",
+   guiasDelHistorico([["1ZC337510403152894"]]).get("1ZC337510403152894") === "");
+
+// Las guías vienen con guiones o espacios según de dónde salga el concentrado.
+ok("normaliza guiones y espacios",
+   guiasDelHistorico([["1Z-C33751-0403152894"]]).has("1ZC337510403152894"));
+
+// La PRIMERA aparición manda: interesa cuándo se vio por primera vez.
+const repe = guiasDelHistorico([
+  ["10/08/2026", "1ZC337510403152894"],
+  ["14/08/2026", "1ZC337510403152894"]
+]);
+ok("se queda con la fecha más antigua", repe.get("1ZC337510403152894") === "10/08/2026");
+
+ok("sin datos devuelve un mapa vacío", guiasDelHistorico(null).size === 0);
+ok("una hoja en blanco tampoco rompe", guiasDelHistorico([["", ""],["",""]]).size === 0);
+
 console.log("\n=== 5y13. «REZAGO MS»: rezago que sí se cruza con las M-S ===");
 // El rezago normal NO se cruza contra las M-S: lo que decide si una guía es de
 // rezago es la preforma, no haber pasado por una M-S. Al nombrar la pestaña
