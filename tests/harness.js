@@ -661,23 +661,41 @@ console.log("\n=== 5k. Inventario: la misma guía en dos ubicaciones IW de la mi
 // Este caso NO lo ve la lógica local (guiasFisicas se vacía en cada IW): lo
 // detecta el caché. Hay que comprobar que marca las DOS filas, no solo una,
 // porque si no, en la columna A una quedaría verde.
+// OJO CON LOS ÍNDICES, que aquí estuvo el fallo: el caché guarda la FILA DE LA
+// HOJA (1, 2, 3...) y el array de datos empieza en 0. El índice 30 es la fila
+// 31. Este fixture los tenía mezclados y por eso el test daba por bueno un bug:
+// una guía nunca se saltaba a sí misma.
 const cacheDosIW = {
   map: new Map([[G, [
-    { hoja: "INVENTARIO A", fila: 30, isMS: false, isInventario: true },
-    { hoja: "INVENTARIO A", fila: 55, isMS: false, isInventario: true }
+    { hoja: "INVENTARIO A", fila: 31, isMS: false, isInventario: true },
+    { hoja: "INVENTARIO A", fila: 56, isMS: false, isInventario: true }
   ]]]),
   headers: [], data: []
 };
 let filasInv = [];
 for (let i = 0; i < 60; i++) filasInv.push([""]);
-filasInv[30] = [G];
-filasInv[55] = [G];
+filasInv[30] = [G];   // fila 31 de la hoja
+filasInv[55] = [G];   // fila 56 de la hoja
 
 let dupDosIW = calcularDuplicadosExternos(filasInv, 60, "INVENTARIO A", cacheDosIW);
 ok("marca la fila 30", dupDosIW.has(30));
 ok("marca también la fila 55", dupDosIW.has(55));
-ok("cada una apunta a la otra",
-   dupDosIW.get(30).fila === 55 && dupDosIW.get(55).fila === 30);
+ok("cada una apunta a la OTRA, no a sí misma",
+   dupDosIW.get(30).fila === 56 && dupDosIW.get(55).fila === 31);
+
+// EL CASO QUE FALTABA: una guía que está UNA sola vez no puede salir duplicada
+// de sí misma. Es lo que hacía que la última guía de cada ubicación IW se
+// marcara sola, porque al mirar «la otra» se leía la fila siguiente, que en el
+// último renglón del bloque es ya la cabecera IW de la ubicación nueva.
+const cacheUnaSola = {
+  map: new Map([[G, [{ hoja: "INVENTARIO A", fila: 31, isMS: false, isInventario: true }]]]),
+  headers: [], data: []
+};
+let filaUnica = [];
+for (let i = 0; i < 60; i++) filaUnica.push([""]);
+filaUnica[30] = [G];   // fila 31 de la hoja
+ok("una guía sola NO es duplicado de sí misma",
+   calcularDuplicadosExternos(filaUnica, 60, "INVENTARIO A", cacheUnaSola).size === 0);
 // Y por tanto las dos llevan "⛔ DUPLICADO" en la B, que la columna A pinta de rojo.
 ok("las dos acaban rojas en la columna A",
    colorColumnaA(G, "⛔ DUPLICADO (En: INVENTARIO A Fila 55)") === "#df5f6b" &&

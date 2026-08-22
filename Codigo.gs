@@ -1728,7 +1728,11 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
 
         for (let m = 0; m < matches.length; m++) {
             let match = matches[m];
-            if (match.hoja === claveEsta && match.fila === i) continue;
+            // Igual que arriba: el caché guarda la fila de la hoja, `i` es el
+            // índice del array. En las M-S y las Globales el desfase no se veía
+            // porque el filtro de dominio ya descarta la propia hoja entera;
+            // en los inventarios NO, y ahí sí hacía daño.
+            if (match.hoja === claveEsta && match.fila === i + 1) continue;
 
             if (esInv) {
                 if (!match.isInventario) continue;   // inventario ignora Global y M-S
@@ -3602,16 +3606,23 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
           let v = String(datosMasivos[i][0]).trim().toUpperCase();
           if (v === "" || v.startsWith("IW") || esCabeceraBloque(v)) continue;
 
+          let filaHoja = i + 1;
           let matches = cacheInfo.map.get(v);
           if (!matches) continue;
 
           for (let m = 0; m < matches.length; m++) {
               let match = matches[m];
               if (!match.isInventario) continue;                            // ignora Global / M-S
-              if (match.hoja === claveEsta && match.fila === i) continue;    // la propia fila
+              // El caché guarda la FILA DE LA HOJA (1, 2, 3...) y datosMasivos
+              // es un array que empieza en 0. Mezclarlos hacía que una guía
+              // nunca se saltara a sí misma, y que se mirara la ubicación de la
+              // fila SIGUIENTE. En medio de un bloque eso coincidía y no se
+              // notaba; en la ÚLTIMA guía la siguiente fila es la cabecera IW
+              // del bloque nuevo, así que salía un duplicado inventado.
+              if (match.hoja === claveEsta && match.fila === filaHoja) continue;
 
               if (match.hoja === claveEsta) {
-                  let otraUb = ubicacionPorFila[match.fila];
+                  let otraUb = ubicacionPorFila[match.fila - 1];
                   // Misma ubicación: eso es un duplicado local, se marca más abajo.
                   if (otraUb === undefined || otraUb === ubicacionPorFila[i]) continue;
                   dupInventario.set(i, "⛔ DUPLICADO (En: " + otraUb + ", fila " + match.fila + ")");

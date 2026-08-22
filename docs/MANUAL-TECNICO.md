@@ -338,6 +338,14 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
 ## 11. Invariantes y trampas (leer antes de tocar)
 
 1. **Indexación del caché** (§3.2). Lo más fácil de romper en un refactor.
+   **El caché guarda la FILA DE LA HOJA (1, 2, 3…); `datosMasivos` es un array
+   que empieza en 0.** La conversión es `filaHoja = i + 1`, y mezclarlas ya
+   costó un bug: en los inventarios, una guía nunca se saltaba a sí misma y se
+   leía la ubicación de la fila siguiente, así que la ÚLTIMA guía de cada
+   ubicación IW salía duplicada contra la ubicación del bloque de abajo.
+   En las M-S y las Globales no se veía porque el filtro de dominio ya descarta
+   la propia hoja entera. Si escribes un test para esto, pon en el fixture la
+   fila de la hoja, no el índice: el test que había codificaba el error.
 2. **`invalidarCacheRAM()` tras re-fotografiar fuera del `onEdit`.** Si no, la
    RAM miente. Ya está en las funciones de menú; replícalo en cualquier nueva.
 3. **Nombres siempre por `claveHoja()`.** Nunca compares `hoja.getName()` crudo
