@@ -1254,6 +1254,30 @@ ok("reescribir el MISMO valor no se registra", motivoDeCambio("1ZABC111", "1ZABC
 ok("ni cambiando solo mayúsculas", motivoDeCambio("1zabc111", "1ZABC111") === null);
 ok("ni con espacios de sobra", motivoDeCambio("  1ZABC111  ", "1ZABC111") === null);
 
+console.log("\n=== 5y15. Tránsito de arribo ===");
+// Funciona como una Global —preforma en la O, faltantes y sobrantes— sin
+// cerebro propio. Lo que cambia es que llegar no es embarcarse.
+ok("«TRANSITO DE ARRIBO» se reconoce", esHojaTransito("TRANSITO DE ARRIBO") === true);
+ok("con acento también", esHojaTransito("TRÁNSITO DE ARRIBO") === true);
+ok("en minúsculas también", esHojaTransito("transito de arribo") === true);
+ok("no confunde una Global", esHojaTransito("GLOBAL 4") === false);
+ok("ni una M-S", esHojaTransito("M-S T1") === false);
+
+// Sigue usando el cerebro de las Globales: es lo que da faltantes y sobrantes.
+ok("es hoja principal, no un dominio nuevo", esHojaPrincipal("TRANSITO DE ARRIBO") === true);
+ok("no es M-S", esHojaMS("TRANSITO DE ARRIBO") === false);
+ok("no es inventario", esHojaInventario("TRANSITO DE ARRIBO") === false);
+ok("y lleva preforma, que es de donde salen los faltantes",
+   usaPreforma("TRANSITO DE ARRIBO") === true);
+
+// LO QUE PROTEGE: un bulto que llega NO puede marcarse como salido en la M-S,
+// porque entonces «Limpiar guías movidas» lo borraría dándolo por embarcado.
+const hdrsTr = ["TRANSITO DE ARRIBO_FISICO", "GLOBAL 2_FISICO", "M-S T1_FISICO"];
+const dataTr = [hdrsTr, ["1ZLLEGA", "", "1ZLLEGA"], ["", "1ZSALE", "1ZSALE"]];
+const salTr = mapaSalidasDesdeCache({ headers: hdrsTr, data: dataTr });
+ok("escanear en el arribo NO cuenta como salida", !salTr.has("1ZLLEGA"));
+ok("pero una Global de verdad sí", salTr.get("1ZSALE") === "GLOBAL 2");
+
 console.log("\n=== 5y14. Histórico de días anteriores ===");
 // Se recorren TODAS las columnas a propósito: así funciona con el concentrado
 // tal y como esté armado, sin obligar a un formato.

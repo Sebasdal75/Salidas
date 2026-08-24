@@ -74,7 +74,7 @@ Cuatro dominios, decididos **por el nombre** (todo pasa por `claveHoja()` =
 
 | Dominio | Predicado | Ejemplos | Preforma |
 |---------|-----------|----------|----------|
-| Principal / Global | `esHojaPrincipal` | GLOBAL PENDIENTE, AGA, REZAGO | Sí |
+| Principal / Global | `esHojaPrincipal` | GLOBAL PENDIENTE, AGA, REZAGO, TRANSITO DE ARRIBO | Sí |
 | M-S (registro previo) | `esHojaMS` | M-S T1, M-S GLOBALES, M-S A1, SIMPLES, MULTIPLES | No |
 | Inventario | `esHojaInventario` | INVENTARIO A, INVENTARIO MACHO | No |
 | Sistema | `esHojaSistema` | CACHE_SISTEMA, HISTORIAL_BORRADOS, MACHO, *plantillas* | — |
@@ -83,6 +83,14 @@ Cuatro dominios, decididos **por el nombre** (todo pasa por `claveHoja()` =
 (cualquier pestaña con "MACHO" en el nombre). Diferencia clave: las plantillas
 MACHO **sí** reciben el volcado de la columna M, las internas **no**.
 Ver §7.
+
+> **Tránsito de arribo:** una pestaña cuyo nombre lleve `TRANSITO` o `TRÁNSITO`
+> usa el cerebro de las Globales sin cambios —preforma en la O, faltantes y
+> sobrantes— pero **llegar no es embarcarse**, así que `esHojaTransito` la saca
+> de dos sitios: no se le exige registro previo en M-S (saldría el aviso en
+> todas las guías) y **no cuenta como destino de salida** (si contara, escanear
+> un bulto que llega marcaría su fila de la M-S como salida y la limpieza la
+> borraría dándola por embarcada).
 
 > **Qué es una M-S:** un **registro previo**. El bulto se escanea cuando ya está
 > físicamente presente pero aún no se sabe en qué unidad se va. Su contenido

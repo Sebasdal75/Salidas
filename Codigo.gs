@@ -270,6 +270,26 @@ function esHojaInventario(nombreHoja) {
     return claveHoja(nombreHoja).indexOf("INVENTARIO") !== -1;
 }
 
+// Operación de ARRIBO: bultos que LLEGAN, no que salen.
+//
+// Funciona igual que una Global —preforma en la O, escaneo en la A, faltantes y
+// sobrantes— y por eso no necesita un cerebro propio. Pero cambian dos cosas,
+// las dos por el mismo motivo: llegar no es embarcarse.
+//
+//   · No se le exige registro previo en una M-S. La M-S es el paso ANTES de
+//     salir; en un arribo no ha pasado por ahí y saldría «⚠️ Sin registrar en
+//     M-S» en todas y cada una de las guías.
+//   · No cuenta como destino de salida. Si contara, escanear un bulto que
+//     llega marcaría su fila de la M-S como «➡ Salió en …», y «Limpiar guías
+//     movidas» la borraría dándola por embarcada.
+//
+// Se aceptan las dos grafías: claveHoja pone en mayúsculas pero no quita
+// acentos, así que «TRÁNSITO» y «TRANSITO» son cadenas distintas.
+function esHojaTransito(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    return n.indexOf("TRANSITO") !== -1 || n.indexOf("TRÁNSITO") !== -1;
+}
+
 function esHojaPrincipal(nombreHoja) {
     let n = claveHoja(nombreHoja);
     if (esHojaSistema(n)) return false;
@@ -2325,8 +2345,12 @@ function mapaSalidasDesdeCache(cacheInfo, hojaExcluida) {
 
         // Solo cuentan las hojas de unidad: una M-S no es un destino, y el
         // rezago tampoco significa que el bulto se haya embarcado.
+        // El tránsito de arribo tampoco: llegar no es embarcarse. Si contara
+        // como destino, escanear un bulto que llega marcaría su fila de la M-S
+        // como salida y la limpieza la borraría dándola por embarcada.
         let n = claveHoja(header.replace("_FISICO", ""));
-        if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) || n.indexOf("REZAGO") !== -1) continue;
+        if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) ||
+            n.indexOf("REZAGO") !== -1 || esHojaTransito(n)) continue;
         if (excluida && n === excluida) continue;
 
         for (let r = 1; r < cacheInfo.data.length; r++) {
@@ -2889,7 +2913,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   let esRezago = nombreHoja.indexOf("REZAGO") !== -1;
   // «REZAGO MS»: rezago que SÍ se cruza contra las M-S (ver esRezagoConMS).
   let rezagoCruzaMS = esRezago && esRezagoConMS(nombreHoja);
-  let requiereAlertaMS = !esHojaMSLocal && esHojaPrincipal(nombreHoja) && !esRezago;
+  // En un arribo no se exige registro previo en M-S: la M-S es el paso de
+  // antes de SALIR, y un bulto que llega no ha pasado por ahí.
+  let requiereAlertaMS = !esHojaMSLocal && esHojaPrincipal(nombreHoja) &&
+                         !esRezago && !esHojaTransito(nombreHoja);
 
   let datosMS = perf("(memoria) registro M-S", 0, () => obtenerRegistroMSDesdeCache(cacheInfo, nombreHoja));
   let guiasEnMS = datosMS.guiasOrigen;
