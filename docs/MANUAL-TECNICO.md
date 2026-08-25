@@ -408,7 +408,10 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
 12. **Las filas nuevas nacen sin validación de datos**, y esa validación es la
     que hace sonar el escáner. `asegurarFilasDeEscaneo` la **construye** en vez
     de copiarla de la fila de arriba: copiarla solo funciona si esa fila la
-    tiene, y las reglas puestas a mano cubren un rango fijo.
+    tiene, y las reglas puestas a mano cubren un rango fijo. Qué columnas la
+    llevan lo decide `columnasValidables`, el mismo sitio que usa el botón de
+    reponerla: dos sitios decidiendo lo mismo acaban separándose, y el día que
+    uno cambie las filas nuevas se quedarían sin la O sin que nada lo diga.
 13. **Las Globales NO usan `filaFinalSugerida`.** Las M-S y los inventarios sí:
     su columna A se actualiza en el caché durante el mismo escaneo, así que la
     fila final sacada de ahí es fiable. Una Global tiene una segunda fuente que
@@ -446,6 +449,21 @@ actual si la celda estaba vacía (bug P1-5: antes pisaba las vecinas).
     `agruparPorPedimento` (con confirmación y registro) y
     `limpiarGuiasMovidasSeleccion` (con registro). Ninguna función del caché
     escribe jamás en una hoja de escaneo: el caché solo lee de ellas.
+15. **El alto que necesita una hoja lo marca la columna que llega más abajo, no
+    la celda que se acaba de tocar.** En una Global la A y la O crecen por
+    separado, y la preforma de la O suele ir muy por delante del escaneo físico
+    de la A.
+
+    Mientras `asegurarFilasDeEscaneo` recibía `filaInicial + numRows - 1`,
+    escanear arriba en la A no estiraba la hoja aunque la preforma estuviera
+    pegada al último renglón de la rejilla, y la cola de la preforma se quedaba
+    fuera. Eso sale luego como «faltantes» que nunca llegaron a caber — el mismo
+    síntoma del invariante 13, por otro camino.
+
+    Ahora recibe `filaQueMarcaElAlto(filaEditada, filaFinal)`, y `filaFinal`
+    viene de `filaFinalDesdeCache`, que ya coge la más baja de `_FISICO` y
+    `_PREFORMA`. Por eso el crecimiento va **después** de calcular `filaFinal`
+    y antes de recalcular.
 
 ---
 
@@ -488,7 +506,7 @@ duplicado → borrado → costales → agrupar → limpiar.
 
 ### Filas: crecer y recortar
 `asegurarFilas` · `asegurarFilasDeEscaneo` · `filasNecesarias` ·
-`recortarFilasSobrantes` · `filasTrasRecorte`
+`filaQueMarcaElAlto` · `recortarFilasSobrantes` · `filasTrasRecorte`
 
 ### Alertas: nivel, prioridad y permanencia
 `nivelAlerta` · `puedePisar` · `conservarAlertaGrave` ·

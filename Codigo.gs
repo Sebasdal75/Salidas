@@ -440,13 +440,31 @@ function asegurarFilasDeEscaneo(hoja, filaTocada, nombreHoja) {
     // mano cubren un rango fijo (A1:A200 y O1:O200), así que a partir de la
     // fila 201 no hay nada que copiar y el escáner se habría quedado mudo justo
     // en las filas nuevas, que es donde nadie lo comprueba.
+    // Qué columnas llevan validación lo decide `columnasValidables`, el mismo
+    // sitio que usa el botón de reponerla. Antes esta función repetía el
+    // criterio por su cuenta, y dos sitios decidiendo lo mismo acaban
+    // separándose: el día que uno cambie, las filas nuevas se quedarían sin la
+    // O y nadie lo vería hasta que el escáner enmudeciera ahí abajo.
     let clave = nombreHoja ? claveHoja(nombreHoja) : claveHoja(hoja.getName());
-    aplicarValidacionRetenida(hoja, 1, max + 1, aAnadir);
-    if (usaPreforma(clave) && hoja.getMaxColumns() >= 15) {
-        aplicarValidacionRetenida(hoja, 15, max + 1, aAnadir);
-    }
+    columnasValidables(clave, hoja.getMaxColumns()).forEach(col => {
+        aplicarValidacionRetenida(hoja, col, max + 1, aAnadir);
+    });
 
     return aAnadir;
+}
+
+// El alto que necesita la hoja no lo marca solo la celda que se acaba de tocar,
+// sino la columna que llegue MÁS ABAJO.
+//
+// En una Global la A y la O crecen por separado: la preforma de la O suele ir
+// muy por delante del escaneo físico de la A. Mientras el crecimiento miraba
+// únicamente la fila editada, escanear en la A nunca estiraba la hoja por lo
+// que hiciera falta en la O, y sobre todo: la preforma que entra de una vez
+// (pegada o importada) puede pasar del final de la rejilla sin que el evento
+// de edición llegue a verlo entero. Lo que sobra se pierde en silencio y luego
+// aparece como «faltantes» que en realidad nunca cupieron.
+function filaQueMarcaElAlto(filaEditada, filaConDatos) {
+    return Math.max(filaEditada || 0, filaConDatos || 0);
 }
 
 // -------------------------------------------------------------------------
@@ -1155,18 +1173,6 @@ function procesarEdicion(e) {
 
     if (!huboCambiosRelevantes) return;
 
-    // Si el escaneo se está acercando al final de la hoja, se estira sola. Va
-    // aquí, con el lock ya tomado y antes de recalcular, para que el recálculo
-    // se encuentre la hoja ya del tamaño bueno. Solo cuesta un getMaxRows por
-    // escaneo (2-5 ms medidos); el insertRowsAfter cae una vez cada 50.
-    // Estirar la hoja inserta filas, y eso dispara alCambiarEstructura, que
-    // rehará el caché sin necesidad. Se deja pasar a propósito: marcar
-    // mantenimiento aquí abriría una ventana ciega en la que un borrado de fila
-    // de verdad se perdería, y eso es peor que repetir un trabajo de un segundo
-    // una vez cada cincuenta escaneos.
-    perf("estirar la hoja si hace falta", 0, () =>
-        asegurarFilasDeEscaneo(hoja, filaInicial + numRows - 1, nombreHoja));
-
     // El caché se actualiza ANTES de recalcular: así los recálculos ven la
     // realidad y pueden reevaluar duplicados desde cero.
     let guiasAfectadas = actualizarBloqueEnCache(e.source, hoja, nombreHoja, filaInicial, numRows,
@@ -1184,6 +1190,26 @@ function procesarEdicion(e) {
     // última fila, el recálculo tiene que llegar igualmente hasta ahí para
     // limpiar su estado y su hora.
     let filaFinal = filaFinalDesdeCache(cacheInfo, nombreHoja, filaInicial + numRows - 1);
+
+    // Si el escaneo se está acercando al final de la hoja, se estira sola. Va
+    // aquí, con el lock ya tomado y antes de recalcular, para que el recálculo
+    // se encuentre la hoja ya del tamaño bueno. Solo cuesta un getMaxRows por
+    // escaneo (2-5 ms medidos); el insertRowsAfter cae una vez cada 50.
+    //
+    // Se mide contra `filaFinal`, no contra la fila que se acaba de tocar:
+    // `filaFinalDesdeCache` ya coge la más baja de la A y la O, que es lo que
+    // de verdad marca el alto que necesita la hoja. Mirando solo la celda
+    // editada, escanear arriba en la A no estiraba la hoja aunque la preforma
+    // de la O estuviera pegada al último renglón de la rejilla.
+    //
+    // Estirar la hoja inserta filas, y eso dispara alCambiarEstructura, que
+    // rehará el caché sin necesidad. Se deja pasar a propósito: marcar
+    // mantenimiento aquí abriría una ventana ciega en la que un borrado de fila
+    // de verdad se perdería, y eso es peor que repetir un trabajo de un segundo
+    // una vez cada cincuenta escaneos.
+    perf("estirar la hoja si hace falta", 0, () =>
+        asegurarFilasDeEscaneo(hoja,
+            filaQueMarcaElAlto(filaInicial + numRows - 1, filaFinal), nombreHoja));
 
     // Las filas que el operador ACABA de tocar. Sin esto, la regla de conservar
     // alertas graves las dejaría pegadas también aquí: corriges la guía que

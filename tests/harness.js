@@ -1583,5 +1583,34 @@ ok("un inventario lleva A y O",
 ok("una hoja estrecha no pide la O",
    JSON.stringify(columnasValidables("GLOBAL 4", 12)) === JSON.stringify([1]));
 
+console.log("\n=== 5z2. El alto lo marca la columna que llega más abajo ===");
+// EL FALLO QUE ESTO ARREGLA: en una Global la A y la O crecen por separado. La
+// preforma de la O va muy por delante del escaneo físico de la A, y mientras el
+// crecimiento miraba SOLO la celda editada, escanear arriba en la A no estiraba
+// la hoja aunque la preforma estuviera pegada al último renglón de la rejilla.
+// Resultado: la cola de la preforma se quedaba fuera y salía como «faltantes»
+// que en realidad nunca llegaron a caber.
+
+// El caso del fallo: se escanea en la fila 40 de la A, pero la preforma de la O
+// llega hasta la 1190 en una hoja de 1200.
+ok("escanear arriba no impide que crezca por la O",
+   filaQueMarcaElAlto(40, 1190) === 1190);
+ok("y con eso sí crece", filasNecesarias(filaQueMarcaElAlto(40, 1190), 1200) === 1250);
+ok("mirando solo la celda editada NO crecía (el fallo)",
+   filasNecesarias(40, 1200) === 0);
+
+// Al revés manda la edición: si acabas de pegar 300 filas, esas mandan aunque
+// el caché todavía no las haya visto.
+ok("un pegado por debajo de los datos manda", filaQueMarcaElAlto(1400, 900) === 1400);
+ok("empatados da igual cuál", filaQueMarcaElAlto(600, 600) === 600);
+
+// Valores ausentes: el caché devuelve 0 cuando la hoja no está fotografiada, y
+// eso no puede convertirse en NaN ni tumbar el escaneo.
+ok("sin dato en caché manda la edición", filaQueMarcaElAlto(120, 0) === 120);
+ok("sin edición manda el caché", filaQueMarcaElAlto(0, 350) === 350);
+ok("los dos vacíos no piden crecer",
+   filasNecesarias(filaQueMarcaElAlto(0, 0), 1200) === 0);
+ok("undefined no produce NaN", filaQueMarcaElAlto(undefined, 500) === 500);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
