@@ -1765,5 +1765,37 @@ ok("nada que escribir, ningún tramo", bloquesContiguos([]).length === 0);
 let filasCubiertas = bloques.reduce((n, b) => n + b.valores.length, 0);
 ok("no se escribe ni una celda de más", filasCubiertas === 6);
 
+console.log("\n--- 6i. OneDrive: el vínculo y la trampa del login ---");
+// Un vínculo de OneDrive abre el visor web; con download=1 entrega el archivo.
+ok("añade download a un vínculo limpio",
+   urlDescargaOneDrive("https://x.sharepoint.com/:x:/g/ABC") ===
+   "https://x.sharepoint.com/:x:/g/ABC?download=1");
+ok("con query existente usa &",
+   urlDescargaOneDrive("https://x.sharepoint.com/:x:/g/ABC?e=aBcD") ===
+   "https://x.sharepoint.com/:x:/g/ABC?e=aBcD&download=1");
+ok("no lo duplica si ya está",
+   urlDescargaOneDrive("https://x/ABC?download=1") === "https://x/ABC?download=1");
+ok("ni cuando va en medio",
+   urlDescargaOneDrive("https://x/ABC?download=1&e=x") === "https://x/ABC?download=1&e=x");
+ok("vacío devuelve vacío", urlDescargaOneDrive("") === "");
+ok("null no revienta", urlDescargaOneDrive(null) === "");
+
+// LA PROTECCIÓN QUE NO PUEDE FALTAR: si el vínculo no es público, Microsoft
+// responde 200 con la página de inicio de sesión. Sin detectarlo, esa página
+// entraría a parseCsv y la importación diría «0 guías nuevas» tan tranquila,
+// como si la base estuviera vacía. Un fallo que no se nota es peor que uno que
+// revienta.
+ok("detecta una página de login", pareceLoginHtml("<!DOCTYPE html><html><head>"));
+ok("detecta HTML sin doctype", pareceLoginHtml("<html lang=\"es\">"));
+ok("detecta HTML con espacios delante", pareceLoginHtml("\n  <!doctype html>"));
+ok("un CSV normal NO es login", !pareceLoginHtml("GUIA,HOUSE\n1Z999,H1"));
+ok("un CSV con punto y coma tampoco", !pareceLoginHtml("GUIA;HOUSE;FECHA"));
+ok("vacío no es login", !pareceLoginHtml(""));
+ok("null no revienta", !pareceLoginHtml(null));
+// Un CSV cuyo primer campo empezara con «<» sería rarísimo, pero si pasa se
+// prefiere el falso positivo: el aviso se lee, una importación vacía no.
+ok("prefiere el falso positivo antes que importar basura",
+   pareceLoginHtml("<no es csv>"));
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

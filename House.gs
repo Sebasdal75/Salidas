@@ -54,6 +54,12 @@ const TXT_HOUSE_SIN_DATO = "—";
 
 const PROP_ARCHIVOS_IMPORTADOS = 'HOUSE_ARCHIVOS_IMPORTADOS';
 
+// La URL de OneDrive vive aquí, NO en el código. Este proyecto está en un
+// repositorio de git: una URL pegada en el archivo queda en el historial para
+// siempre, aunque después se borre de la línea. Y esa URL es, por sí sola, la
+// llave del archivo.
+const PROP_URL_ONEDRIVE = 'HOUSE_URL_ONEDRIVE';
+
 function colHouse() { return COL_HOUSE; }
 function textoHouseSinDato() { return TXT_HOUSE_SIN_DATO; }
 function diasIndiceCaliente() { return DIAS_INDICE_CALIENTE; }
@@ -356,6 +362,22 @@ function importarInboundAlIndice() {
         return;
     }
 
+    let msg = volcarAlIndice(ss, nuevas);
+
+    PropertiesService.getScriptProperties()
+        .setProperty(PROP_ARCHIVOS_IMPORTADOS,
+                     yaImportados.concat(leidos).filter(x => x !== "").join(","));
+
+    if (sinCabecera.length) {
+        msg += "\n\n⚠️ Sin columnas reconocibles: " + sinCabecera.join(", ");
+    }
+    ui.alert("📥 Importar inbound", msg, ui.ButtonSet.OK);
+}
+
+// Fusiona, reparte entre caliente y frío, escribe, y devuelve el resumen.
+// Lo comparten la importación desde Drive y la de OneDrive: el índice no sabe
+// —ni le importa— de dónde salió el CSV.
+function volcarAlIndice(ss, nuevas) {
     let fusion = fusionarEnIndice(leerIndice(ss, HOJA_INDICE_HOUSE)
                                   .concat(leerIndice(ss, HOJA_INDICE_HOUSE_FRIO)), nuevas);
     let particion = particionPorAntiguedad(fusion.filas, new Date(), DIAS_INDICE_CALIENTE);
@@ -363,11 +385,8 @@ function importarInboundAlIndice() {
     escribirIndice(ss, HOJA_INDICE_HOUSE, particion.calientes);
     escribirIndice(ss, HOJA_INDICE_HOUSE_FRIO, particion.frias);
 
-    PropertiesService.getScriptProperties()
-        .setProperty(PROP_ARCHIVOS_IMPORTADOS,
-                     yaImportados.concat(leidos).filter(x => x !== "").join(","));
-
-    let msg = "Guías nuevas en el índice: " + fusion.anadidas + "\n" +
+    let msg = "Guías leídas del archivo: " + (nuevas || []).length + "\n" +
+              "Guías nuevas en el índice: " + fusion.anadidas + "\n" +
               "Índice caliente (últimos " + DIAS_INDICE_CALIENTE + " días): " +
               particion.calientes.length + "\n" +
               "Archivo frío: " + particion.frias.length;
@@ -377,10 +396,7 @@ function importarInboundAlIndice() {
                fusion.conflictos.slice(0, 5)
                    .map(c => "  " + c.guia + ": " + c.viejo + " ≠ " + c.nuevo).join("\n");
     }
-    if (sinCabecera.length) {
-        msg += "\n\n⚠️ Sin columnas reconocibles: " + sinCabecera.join(", ");
-    }
-    ui.alert("📥 Importar inbound", msg, ui.ButtonSet.OK);
+    return msg;
 }
 
 function escribirIndice(ss, nombre, filas) {
@@ -390,6 +406,121 @@ function escribirIndice(ss, nombre, filas) {
     if (filas.length === 0) return;
     asegurarFilas(h, filas.length + 1);
     h.getRange(2, 1, filas.length, 3).setValues(filas);
+}
+
+// -------------------------------------------------------------------------
+// IMPORTAR DESDE ONEDRIVE
+//
+// Apps Script no habla OneDrive de forma nativa y `UrlFetchApp` va ANÓNIMO: no
+// lleva ninguna identidad de Microsoft. Eso obliga a que el vínculo sea de
+// «cualquiera con el vínculo», que es lectura pública. Con «gente de la
+// organización» o «personas concretas», Microsoft devuelve una página de inicio
+// de sesión en vez del archivo.
+//
+// «Puede ver» basta para el script —solo lee, nunca escribe— pero no protege
+// nada: quien tenga la URL se descarga el archivo. Si se usa este camino, que
+// el CSV lleve solo 1Z y HOUSE.
+// -------------------------------------------------------------------------
+
+// Un vínculo de OneDrive abre el visor web; con `download=1` entrega el archivo.
+function urlDescargaOneDrive(url) {
+    let u = String(url === undefined || url === null ? "" : url).trim();
+    if (u === "") return "";
+    if (/[?&]download=1/.test(u)) return u;
+    return u + (u.indexOf("?") === -1 ? "?download=1" : "&download=1");
+}
+
+// LA PROTECCIÓN QUE NO PUEDE FALTAR: si el vínculo no es público, Microsoft
+// responde 200 con una página de inicio de sesión. Sin comprobarlo, esa página
+// entraría a `parseCsv` y la importación diría «0 guías nuevas» tan tranquila,
+// como si la base estuviera vacía. Un fallo que no se nota es peor que uno que
+// revienta.
+function pareceLoginHtml(texto) {
+    let t = String(texto === undefined || texto === null ? "" : texto).trim();
+    if (t === "") return false;
+    if (t.charAt(0) === "<") return true;
+    let cabeza = t.substring(0, 1000).toUpperCase();
+    return cabeza.indexOf("<!DOCTYPE") !== -1 || cabeza.indexOf("<HTML") !== -1;
+}
+
+function configurarUrlOneDrive() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let actual = PropertiesService.getScriptProperties().getProperty(PROP_URL_ONEDRIVE);
+    let r = ui.prompt("🔗 Vínculo de OneDrive",
+        "Pega el vínculo para compartir del CSV.\n\n" +
+        "Tiene que ser de «Cualquiera con el vínculo» — con «puede ver» basta.\n" +
+        "Si lo restringes a tu organización, el script recibe una página de " +
+        "inicio de sesión en vez del archivo.\n\n" +
+        "⚠️ Ese vínculo es la llave del archivo: que el CSV lleve solo 1Z y HOUSE.\n\n" +
+        (actual ? "Ahora mismo hay uno guardado. Deja vacío para borrarlo." : ""),
+        ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return;
+
+    let url = r.getResponseText().trim();
+    if (url === "") {
+        PropertiesService.getScriptProperties().deleteProperty(PROP_URL_ONEDRIVE);
+        ui.alert("🔗 Vínculo", "Borrado.", ui.ButtonSet.OK);
+        return;
+    }
+    PropertiesService.getScriptProperties().setProperty(PROP_URL_ONEDRIVE, url);
+    ui.alert("🔗 Vínculo", "Guardado en las propiedades del script, fuera del código.",
+             ui.ButtonSet.OK);
+}
+
+function importarInboundDesdeOneDrive() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let url = PropertiesService.getScriptProperties().getProperty(PROP_URL_ONEDRIVE);
+    if (!url) {
+        ui.alert("☁️ OneDrive", "No hay vínculo guardado.\n\nUsa «Configurar vínculo de " +
+                 "OneDrive» primero.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let texto;
+    try {
+        let resp = UrlFetchApp.fetch(urlDescargaOneDrive(url),
+                                     { muteHttpExceptions: true, followRedirects: true });
+        if (resp.getResponseCode() !== 200) {
+            ui.alert("☁️ OneDrive", "Microsoft respondió " + resp.getResponseCode() +
+                     ".\n\nRevisa que el vínculo siga vivo.", ui.ButtonSet.OK);
+            return;
+        }
+        texto = resp.getContentText();
+    } catch (err) {
+        ui.alert("☁️ OneDrive", "No se pudo descargar:\n\n" + err, ui.ButtonSet.OK);
+        return;
+    }
+
+    if (pareceLoginHtml(texto)) {
+        ui.alert("☁️ OneDrive",
+                 "Lo que llegó no es un CSV: es una página web, casi seguro la de " +
+                 "inicio de sesión.\n\n" +
+                 "El script entra ANÓNIMO, sin cuenta de Microsoft. El vínculo tiene " +
+                 "que ser de «Cualquiera con el vínculo».\n\n" +
+                 "No se importó nada.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let primeraLinea = texto.split(/\r?\n/)[0] || "";
+    let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
+    let cols = detectarColumnasInbound(datos[0] || []);
+    if (cols.guia === -1 || cols.house === -1) {
+        ui.alert("☁️ OneDrive",
+                 "El archivo llegó bien, pero no reconozco sus columnas.\n\n" +
+                 "Cabeceras encontradas: " + (datos[0] || []).join(" | ") + "\n\n" +
+                 "Necesito una de guía (1Z, TRACKING, GUIA, RASTREO) y una de house " +
+                 "(HOUSE, HAWB, HBL, CASA).", ui.ButtonSet.OK);
+        return;
+    }
+
+    let resumen = volcarAlIndice(ss, filasDeInbound(datos, cols));
+    ui.alert("☁️ OneDrive", resumen, ui.ButtonSet.OK);
 }
 
 // -------------------------------------------------------------------------
