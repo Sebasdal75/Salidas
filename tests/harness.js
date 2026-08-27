@@ -21,6 +21,7 @@ global.ScriptApp = {};
 const fs = require('fs');
 const path = require('path');
 eval(fs.readFileSync(path.join(__dirname, '..', 'Codigo.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'House.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -1611,6 +1612,158 @@ ok("sin edición manda el caché", filaQueMarcaElAlto(0, 350) === 350);
 ok("los dos vacíos no piden crecer",
    filasNecesarias(filaQueMarcaElAlto(0, 0), 1200) === 0);
 ok("undefined no produce NaN", filaQueMarcaElAlto(undefined, 500) === 500);
+
+console.log("\n=== 6. Índice de houses (módulo en pruebas) ===");
+// Cinco guías reales con dígito verificador bueno: si el fixture llevara guías
+// inválidas, `filasDeInbound` las tiraría y los tests pasarían por el motivo
+// equivocado.
+const G1 = "1Z999AA10123456784", G2 = "1Z999AA10123456793", G3 = "1Z999AA10123456800";
+const G4 = "1Z999AA10123456819", G5 = "1Z999AA10123456828";
+
+console.log("\n--- 6a. El seguro de pruebas ---");
+// Ninguna función del módulo escribe nada mientras el archivo no se llame
+// PRUEBA. Es lo que permite pegarlo en producción sin que haga nada.
+ok("«Salidas PRUEBA» sí es de pruebas", esArchivoDePrueba("Salidas PRUEBA"));
+ok("minúsculas también", esArchivoDePrueba("copia de prueba 2026"));
+ok("el archivo real NO es de pruebas", !esArchivoDePrueba("SALIDAS UPS"));
+ok("«PRUEBAS» en plural también entra", esArchivoDePrueba("WMS PRUEBAS"));
+
+console.log("\n--- 6b. Leer el CSV que salga de Power Query ---");
+// Excel en México exporta con punto y coma tan a menudo como con coma, y
+// equivocarse deja UNA columna con toda la fila dentro.
+ok("coma", separadorCsv("GUIA,HOUSE,FECHA") === ",");
+ok("punto y coma", separadorCsv("GUIA;HOUSE;FECHA") === ";");
+ok("tabulador", separadorCsv("GUIA\tHOUSE\tFECHA") === "\t");
+ok("gana el que más aparece", separadorCsv("A;B;C;D,E") === ";");
+
+// Las cabeceras no se piden por posición: Power Query cambia de forma cada vez
+// que alguien toca la consulta, y una posición fija se rompería en silencio.
+let colsA = detectarColumnasInbound(["FECHA ARRIBO", "TRACKING NUMBER", "HOUSE AWB", "PESO"]);
+ok("encuentra la guía por TRACKING", colsA.guia === 1);
+ok("encuentra la house", colsA.house === 2);
+ok("encuentra la fecha", colsA.fecha === 0);
+
+// EL CASO QUE OBLIGA A BUSCAR LA HOUSE PRIMERO: «HOUSE AWB» contiene «AWB».
+// Mirando la guía antes, se llevaría por delante la columna de la house.
+let colsB = detectarColumnasInbound(["MASTER AWB", "HOUSE AWB", "1Z"]);
+ok("«HOUSE AWB» no se confunde con la guía", colsB.house === 1);
+// Y «MASTER AWB» tampoco: es la guía madre del consolidado, una sola para
+// cientos de bultos. Si entrara al índice no casaría nunca con lo escaneado.
+ok("y la guía es la columna 1Z, no el master", colsB.guia === 2);
+ok("el master no se cuela como guía", colsB.guia !== 0);
+// «AWB» a secas sí vale cuando no hay nada mejor.
+let colsD = detectarColumnasInbound(["AWB", "HOUSE"]);
+ok("sin columna mejor, AWB sirve de guía", colsD.guia === 0 && colsD.house === 1);
+let colsE = detectarColumnasInbound(["MASTER AWB", "HOUSE AWB"]);
+ok("pero un master solo no se acepta como guía", colsE.guia === -1);
+
+let colsC = detectarColumnasInbound(["COLUMNA1", "COLUMNA2"]);
+ok("sin columnas reconocibles avisa con -1", colsC.guia === -1 && colsC.house === -1);
+
+console.log("\n--- 6c. De CSV crudo a filas limpias ---");
+// El reporte trae totales, renglones vacíos y basura. Nada de eso entra al
+// índice: engorda la carga sin servir para buscar.
+let crudo = [
+    ["FECHA", "GUIA", "HOUSE"],
+    ["2026-08-01", G1, "HAWB-001"],
+    ["2026-08-02", G2, "HAWB-002"],
+    ["", "", ""],                       // renglón vacío
+    ["2026-08-03", "TOTAL", "999"],     // subtotal del reporte
+    ["2026-08-04", G3, ""],             // sin house: no sirve de nada
+    ["2026-08-05", "6100544", "HAWB-9"] // un pedimento, no una guía
+];
+let limpio = filasDeInbound(crudo, detectarColumnasInbound(crudo[0]));
+ok("solo entran las filas con guía Y house", limpio.length === 2);
+ok("y son las correctas", limpio[0].guia === G1 && limpio[1].house === "HAWB-002");
+ok("la fecha se convierte a Date", limpio[0].fecha instanceof Date);
+
+// La guía del reporte puede venir con guiones o espacios; la escaneada no los
+// tiene. Sin normalizar, jamás casarían.
+ok("normaliza guiones", claveGuiaHouse("1Z-999-AA1-0123-456-784") === G1);
+ok("normaliza espacios y minúsculas", claveGuiaHouse(" 1z999aa10123456784 ") === G1);
+ok("null no revienta", claveGuiaHouse(null) === "");
+
+console.log("\n--- 6d. Fechas en los tres formatos que se ven por aquí ---");
+ok("ISO", aFechaInbound("2026-08-15").getMonth() === 7);
+ok("día/mes/año", aFechaInbound("15/08/2026").getDate() === 15);
+ok("...y NO lo lee como mes/día", aFechaInbound("15/08/2026").getMonth() === 7);
+ok("un Date pasa tal cual", aFechaInbound(new Date(2026, 7, 15)).getDate() === 15);
+ok("lo que no se entiende devuelve null", aFechaInbound("el martes") === null);
+ok("vacío devuelve null", aFechaInbound("") === null);
+
+console.log("\n--- 6e. Fusionar sin pisar ---");
+// LO MÁS IMPORTANTE DE ESTE MÓDULO: si una guía ya tiene house y llega otra
+// distinta, se CONSERVA la vieja y se reporta el choque. Pisarla en silencio no
+// se descubriría hasta que el bulto estuviera en el lugar equivocado.
+let fus = fusionarEnIndice(
+    [[G1, "HAWB-001", "2026-08-01"], [G2, "HAWB-002", "2026-08-02"]],
+    [{guia: G2, house: "HAWB-OTRA", fecha: "2026-08-20"},
+     {guia: G3, house: "HAWB-003", fecha: "2026-08-20"}]);
+ok("solo se añade la que no estaba", fus.anadidas === 1);
+ok("el índice queda con tres", fus.filas.length === 3);
+ok("la house vieja NO se pisó", fus.filas[1][1] === "HAWB-002");
+ok("y el choque se reporta", fus.conflictos.length === 1 && fus.conflictos[0].guia === G2);
+ok("una guía repetida con la MISMA house no es conflicto",
+   fusionarEnIndice([[G1, "H1", ""]], [{guia: G1, house: "H1"}]).conflictos.length === 0);
+ok("el índice de partida vacío también funciona",
+   fusionarEnIndice([], [{guia: G1, house: "H1"}]).anadidas === 1);
+
+console.log("\n--- 6f. Caliente y frío ---");
+// El corte es lo que hace que el relleno de cada minuto sea barato: se cargan
+// unos miles de filas, no la base entera.
+let hoy = new Date(2026, 7, 27);
+let part = particionPorAntiguedad([
+    [G1, "H1", "2026-08-20"],   // reciente
+    [G2, "H2", "2025-01-15"],   // año pasado
+    [G3, "H3", ""],             // sin fecha
+    [G4, "H4", "2026-05-01"]    // 118 días: fuera de los 90
+], hoy, diasIndiceCaliente());
+ok("lo reciente va al caliente", part.calientes.some(f => f[0] === G1));
+ok("lo viejo va al frío", part.frias.some(f => f[0] === G2));
+ok("118 días también va al frío", part.frias.some(f => f[0] === G4));
+// Sin fecha se queda en el caliente a propósito: ver una guía de más es barato,
+// no encontrarla no lo es.
+ok("sin fecha se queda en el caliente", part.calientes.some(f => f[0] === G3));
+ok("y no se pierde ninguna", part.calientes.length + part.frias.length === 4);
+
+console.log("\n--- 6g. Qué celdas hay que rellenar ---");
+let hojaSim = [
+    [G1, "✅ OK", "", "HAWB-001"],       // ya tiene house
+    [G2, "✅ OK", "", ""],               // falta
+    ["", "", "", ""],                    // fila vacía
+    ["6100544", "", "", ""],             // pedimento: no lleva house
+    [G3, "⛔ DUPLICADO", "", ""],        // falta, aunque esté duplicada
+    [G4, "✅ OK", "", textoHouseSinDato()] // ya se buscó y no estaba
+];
+let porLlenar = celdasPorLlenar(hojaSim, colHouse());
+ok("solo las que faltan", porLlenar.length === 2);
+ok("y con la fila de la HOJA, no el índice del array",
+   porLlenar[0].fila === 2 && porLlenar[1].fila === 5);
+ok("un pedimento no pide house", !porLlenar.some(p => p.guia === "6100544"));
+// Sin esto se recargaría el índice entero cada minuto para volver a no
+// encontrar la misma guía.
+ok("la marca de «no está» cuenta como llena", !porLlenar.some(p => p.guia === G4));
+ok("una hoja vacía no pide nada", celdasPorLlenar([], colHouse()).length === 0);
+
+console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
+// Mismo invariante que protege la columna A: entre leer un rango y devolverlo
+// cabe un escaneo ajeno, y devolver la copia leída lo borraría.
+let bloques = bloquesContiguos([
+    {fila: 2, valor: "A"}, {fila: 3, valor: "B"}, {fila: 4, valor: "C"},
+    {fila: 9, valor: "D"},
+    {fila: 20, valor: "E"}, {fila: 21, valor: "F"}
+]);
+ok("tres tramos", bloques.length === 3);
+ok("el primero arranca en la 2 y mide 3", bloques[0].fila === 2 && bloques[0].valores.length === 3);
+ok("el suelto mide 1", bloques[1].fila === 9 && bloques[1].valores.length === 1);
+ok("el último arranca en la 20", bloques[2].fila === 20 && bloques[2].valores.length === 2);
+ok("desordenado se ordena solo",
+   bloquesContiguos([{fila: 5, valor: "B"}, {fila: 4, valor: "A"}]).length === 1);
+ok("nada que escribir, ningún tramo", bloquesContiguos([]).length === 0);
+// Los tramos solo cubren filas que se van a llenar: ninguna celda ajena entra
+// en el rango escrito.
+let filasCubiertas = bloques.reduce((n, b) => n + b.valores.length, 0);
+ok("no se escribe ni una celda de más", filasCubiertas === 6);
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

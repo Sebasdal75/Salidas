@@ -3784,7 +3784,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
 // =========================================================================
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
-  ui.createMenu('📦 Opciones Avanzadas')
+  const menu = ui.createMenu('📦 Opciones Avanzadas')
     // Arriba, suelto, lo del día a día. Todo lo demás en submenús: son cosas de
     // mantenimiento o de configuración, y tenerlas a la vista hacía un menú
     // larguísimo donde costaba encontrar las dos que se usan a diario.
@@ -3818,9 +3818,23 @@ function onOpen() {
         .addItem('Reconstruir caché completo (todas)', 'RECONSTRUIR_CACHE_TOTAL')
         .addItem('Reponer validación (solo esta pestaña)', 'aplicarValidacionHojaActiva')
         .addItem('Reponer validación (todas las pestañas)', 'aplicarValidacionEnTodas')
-        .addItem('Proteger hojas del sistema', 'protegerHojasSistema'))
+        .addItem('Proteger hojas del sistema', 'protegerHojasSistema'));
 
-    .addToUi();
+  // El submenú de houses solo aparece en la copia de pruebas. En producción no
+  // se ve siquiera, así que el módulo puede estar pegado sin que nadie lo
+  // active por curiosidad.
+  if (esArchivoDePrueba(SpreadsheetApp.getActiveSpreadsheet().getName())) {
+      menu.addSeparator()
+          .addSubMenu(ui.createMenu('🧪 Houses (pruebas)')
+              .addItem('📥 Importar inbound desde Drive', 'importarInboundAlIndice')
+              .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
+              .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
+              .addSeparator()
+              .addItem('Rellenar solo, cada minuto', 'instalarTriggerHouse')
+              .addItem('Dejar de rellenar solo', 'quitarTriggerHouse'));
+  }
+
+  menu.addToUi();
 }
 
 // =========================================================================
