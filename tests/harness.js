@@ -6,7 +6,10 @@
 // validación de guías, aislamiento de duplicados y preservación de horas.
 // Todo lo que escribe en el spreadsheet hay que probarlo en el archivo real.
 
-global.Utilities = { formatDate: () => "12:00:00" };
+global.Utilities = {
+  formatDate: () => "12:00:00",
+  base64Encode: (s) => Buffer.from(String(s), 'utf8').toString('base64')
+};
 global.Session = {
   getScriptTimeZone: () => "UTC",
   getActiveUser: () => ({ getEmail: () => "op@test.com" }),
@@ -1854,6 +1857,45 @@ ok("null no revienta", !pareceLoginHtml(null));
 // prefiere el falso positivo: el aviso se lee, una importación vacía no.
 ok("prefiere el falso positivo antes que importar basura",
    pareceLoginHtml("<no es csv>"));
+
+// EL CASO QUE SE PASA POR ALTO: al compartir, lo natural es compartir EL LIBRO
+// DE EXCEL, no un CSV. Entonces baja un binario, parseCsv lo vuelve basura y el
+// error que sale es «no reconozco sus columnas» —que manda a buscar el problema
+// a las cabeceras, donde no está—.
+ok("un .xlsx se reconoce por «PK»", pareceExcelBinario("PK\u0003\u0004algo"));
+ok("un .xls viejo por la firma OLE", pareceExcelBinario("\u00D0\u00CF\u0011\u00E0"));
+ok("un CSV no es un Excel", !pareceExcelBinario("GUIA,HOUSE\n1Z,H1"));
+ok("una cadena de un carácter no revienta", !pareceExcelBinario("P"));
+ok("vacío tampoco", !pareceExcelBinario(""));
+
+// Cada respuesta lleva a un consejo distinto: ese es el punto. «No jala» no se
+// puede arreglar; «esto es un Excel, exporta a CSV» sí.
+ok("clasifica un CSV", clasificarDescarga("GUIA,HOUSE\n1Z,H1") === "csv");
+ok("clasifica un Excel", clasificarDescarga("PK\u0003\u0004") === "excel");
+ok("clasifica una página web", clasificarDescarga("<!DOCTYPE html>") === "html");
+ok("clasifica el vacío", clasificarDescarga("") === "vacio");
+ok("solo espacios también es vacío", clasificarDescarga("   \n  ") === "vacio");
+ok("el consejo del Excel manda a exportar a CSV",
+   explicarDescargaMala("excel").indexOf("CSV") !== -1);
+ok("el del HTML habla del inicio de sesión",
+   explicarDescargaMala("html").toUpperCase().indexOf("SESIÓN") !== -1);
+
+// Las dos formas de vínculo de OneDrive NO se descargan igual, y meterlas en el
+// mismo saco es lo que hace que «el vínculo es correcto» y «no jala» sean
+// verdad a la vez.
+ok("un vínculo de empresa no es personal",
+   !esVinculoPersonal("https://x.sharepoint.com/:x:/g/ABC"));
+ok("1drv.ms sí es personal", esVinculoPersonal("https://1drv.ms/x/s!ABC"));
+ok("onedrive.live.com también", esVinculoPersonal("https://onedrive.live.com/?id=ABC"));
+ok("mayúsculas no engañan", esVinculoPersonal("HTTPS://1DRV.MS/x/s!ABC"));
+// En el personal, download=1 devuelve la página del visor, no el archivo.
+ok("el personal va por la API de compartidos",
+   urlDescargaOneDrive("https://1drv.ms/x/s!ABC")
+       .indexOf("https://api.onedrive.com/v1.0/shares/u!") === 0);
+ok("y NO lleva download=1",
+   urlDescargaOneDrive("https://1drv.ms/x/s!ABC").indexOf("download=1") === -1);
+ok("el base64 va url-safe, sin + ni / ni =",
+   !/[+/=]/.test(base64DeVinculo("https://1drv.ms/x/s!AB+CD/EF")));
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

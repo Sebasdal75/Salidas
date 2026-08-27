@@ -521,10 +521,34 @@ function escribirIndice(ss, nombre, filas) {
 // el CSV lleve solo 1Z y HOUSE.
 // -------------------------------------------------------------------------
 
-// Un vínculo de OneDrive abre el visor web; con `download=1` entrega el archivo.
+// OneDrive tiene DOS formas de vínculo y no se descargan igual. Meterlas en el
+// mismo saco es lo que hace que «el vínculo es correcto» y «no jala» sean
+// verdad a la vez.
+//
+//   Empresarial (SharePoint):  ...sharepoint.com/:x:/g/...   -> &download=1
+//   Personal (1drv.ms):        1drv.ms / onedrive.live.com   -> API de shares
+//
+// En el personal, `download=1` devuelve la página del visor, no el archivo.
+function esVinculoPersonal(url) {
+    let u = String(url === undefined || url === null ? "" : url).toLowerCase();
+    return u.indexOf("1drv.ms") !== -1 || u.indexOf("onedrive.live.com") !== -1;
+}
+
+// El vínculo se codifica en base64 «url-safe» y se pide por la API pública de
+// compartidos, que sí entrega el contenido.
+function urlApiCompartido(b64) {
+    return "https://api.onedrive.com/v1.0/shares/u!" + b64 + "/root/content";
+}
+
+function base64DeVinculo(url) {
+    return Utilities.base64Encode(String(url))
+        .replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
+}
+
 function urlDescargaOneDrive(url) {
     let u = String(url === undefined || url === null ? "" : url).trim();
     if (u === "") return "";
+    if (esVinculoPersonal(u)) return urlApiCompartido(base64DeVinculo(u));
     if (/[?&]download=1/.test(u)) return u;
     return u + (u.indexOf("?") === -1 ? "?download=1" : "&download=1");
 }
@@ -540,6 +564,95 @@ function pareceLoginHtml(texto) {
     if (t.charAt(0) === "<") return true;
     let cabeza = t.substring(0, 1000).toUpperCase();
     return cabeza.indexOf("<!DOCTYPE") !== -1 || cabeza.indexOf("<HTML") !== -1;
+}
+
+// Un .xlsx es un ZIP: empieza por «PK». Un .xls viejo empieza por la firma OLE.
+//
+// Este es el caso que se pasa por alto: al compartir, lo natural es compartir
+// EL LIBRO DE EXCEL, no un CSV. Entonces baja un binario, `parseCsv` lo
+// convierte en basura y el error que sale es «no reconozco sus columnas» —que
+// manda a buscar el problema en las cabeceras, donde no está—. Decir «esto es
+// un Excel, exporta a CSV» ahorra la tarde entera.
+function pareceExcelBinario(texto) {
+    let t = String(texto === undefined || texto === null ? "" : texto);
+    if (t.length < 2) return false;
+    if (t.charAt(0) === "P" && t.charAt(1) === "K") return true;       // .xlsx (zip)
+    return t.charCodeAt(0) === 0xD0 && t.charCodeAt(1) === 0xCF;       // .xls (OLE)
+}
+
+// Clasifica lo que llegó ANTES de intentar interpretarlo. Cada respuesta lleva
+// a un consejo distinto, y ese es el punto: «no jala» no se puede arreglar,
+// «esto es un Excel» sí.
+function clasificarDescarga(texto) {
+    let t = String(texto === undefined || texto === null ? "" : texto);
+    if (t.trim() === "") return "vacio";
+    if (pareceExcelBinario(t)) return "excel";
+    if (pareceLoginHtml(t)) return "html";
+    return "csv";
+}
+
+function explicarDescargaMala(clase) {
+    if (clase === "excel") {
+        return "Lo que bajó es un LIBRO DE EXCEL, no un CSV.\n\n" +
+               "El vínculo apunta al .xlsx. Apps Script no puede leerlo: por dentro " +
+               "es un archivo comprimido, no texto.\n\n" +
+               "En Excel: Archivo → Guardar como → CSV UTF-8, sube ESE a OneDrive y " +
+               "comparte el vínculo del CSV.\n\nNo se importó nada.";
+    }
+    if (clase === "html") {
+        return "Lo que llegó es una página web, no un archivo.\n\n" +
+               "Casi siempre es la de inicio de sesión: el script entra ANÓNIMO, sin " +
+               "cuenta de Microsoft. También pasa si el vínculo apunta a una CARPETA " +
+               "en vez de a un archivo, o si caducó.\n\n" +
+               "Usa «Probar el vínculo» para ver qué respondió Microsoft.\n\n" +
+               "No se importó nada.";
+    }
+    return "El archivo llegó vacío.\n\nRevisa que el vínculo apunte al archivo bueno " +
+           "y que no esté vacío en OneDrive.\n\nNo se importó nada.";
+}
+
+// El diagnóstico: dice EXACTAMENTE qué respondió Microsoft en vez de dejarte
+// adivinando. Es lo que convierte un «no jala» en algo que se puede arreglar.
+function probarVinculoOneDrive() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let url = PropertiesService.getScriptProperties().getProperty(PROP_URL_ONEDRIVE);
+    if (!url) {
+        ui.alert("🔎 Probar el vínculo", "No hay vínculo guardado.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let destino = urlDescargaOneDrive(url);
+    let resp;
+    try {
+        resp = UrlFetchApp.fetch(destino, { muteHttpExceptions: true, followRedirects: true });
+    } catch (err) {
+        ui.alert("🔎 Probar el vínculo",
+                 "URL usada:\n" + destino + "\n\nNi siquiera se pudo conectar:\n\n" + err,
+                 ui.ButtonSet.OK);
+        return;
+    }
+
+    let codigo = resp.getResponseCode();
+    let cabeceras = resp.getAllHeaders() || {};
+    let tipo = cabeceras['Content-Type'] || cabeceras['content-type'] || "(sin tipo)";
+    let texto = "";
+    try { texto = resp.getContentText(); } catch (err) { texto = ""; }
+    let clase = clasificarDescarga(texto);
+
+    let muestra = texto.substring(0, 200).replace(/[\r\n]+/g, " ⏎ ");
+    ui.alert("🔎 Probar el vínculo",
+        "URL usada:\n" + destino + "\n\n" +
+        "Código HTTP: " + codigo + "\n" +
+        "Tipo de contenido: " + tipo + "\n" +
+        "Tamaño: " + texto.length + " caracteres\n" +
+        "Lo que parece ser: " + clase.toUpperCase() + "\n\n" +
+        "Primeros 200 caracteres:\n" + (muestra || "(nada)") + "\n\n" +
+        (clase === "csv" ? "✅ Esto sí se puede importar."
+                         : "❌ " + explicarDescargaMala(clase)),
+        ui.ButtonSet.OK);
 }
 
 function configurarUrlOneDrive() {
@@ -596,13 +709,9 @@ function importarInboundDesdeOneDrive() {
         return;
     }
 
-    if (pareceLoginHtml(texto)) {
-        ui.alert("☁️ OneDrive",
-                 "Lo que llegó no es un CSV: es una página web, casi seguro la de " +
-                 "inicio de sesión.\n\n" +
-                 "El script entra ANÓNIMO, sin cuenta de Microsoft. El vínculo tiene " +
-                 "que ser de «Cualquiera con el vínculo».\n\n" +
-                 "No se importó nada.", ui.ButtonSet.OK);
+    let clase = clasificarDescarga(texto);
+    if (clase !== "csv") {
+        ui.alert("☁️ OneDrive", explicarDescargaMala(clase), ui.ButtonSet.OK);
         return;
     }
 

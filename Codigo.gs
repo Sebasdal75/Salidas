@@ -3836,6 +3836,7 @@ function onOpen() {
               .addItem('📥 Importar inbound desde Drive', 'importarInboundAlIndice')
               .addItem('☁️ Importar inbound desde OneDrive', 'importarInboundDesdeOneDrive')
               .addItem('🔗 Configurar vínculo de OneDrive', 'configurarUrlOneDrive')
+              .addItem('🔎 Probar el vínculo (diagnóstico)', 'probarVinculoOneDrive')
               .addSeparator()
               .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
               .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
