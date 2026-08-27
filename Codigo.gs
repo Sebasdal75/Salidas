@@ -3823,7 +3823,14 @@ function onOpen() {
   // El submenú de houses solo aparece en la copia de pruebas. En producción no
   // se ve siquiera, así que el módulo puede estar pegado sin que nadie lo
   // active por curiosidad.
-  if (esArchivoDePrueba(SpreadsheetApp.getActiveSpreadsheet().getName())) {
+  //
+  // El `typeof` no es paranoia: `esArchivoDePrueba` vive en House.gs, y si
+  // alguien pega solo este archivo —lo normal al actualizar producción— la
+  // llamada reventaría y con ella TODO el onOpen. El menú entero desaparecería
+  // y siete operadores se quedarían sin cierre, sin validación y sin
+  // diagnóstico, por un submenú de pruebas que ahí ni se usa.
+  if (typeof esArchivoDePrueba === 'function' &&
+      esArchivoDePrueba(SpreadsheetApp.getActiveSpreadsheet().getName())) {
       menu.addSeparator()
           .addSubMenu(ui.createMenu('🧪 Houses (pruebas)')
               .addItem('📥 Importar inbound desde Drive', 'importarInboundAlIndice')
