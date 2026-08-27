@@ -1686,6 +1686,65 @@ ok("normaliza guiones", claveGuiaHouse("1Z-999-AA1-0123-456-784") === G1);
 ok("normaliza espacios y minúsculas", claveGuiaHouse(" 1z999aa10123456784 ") === G1);
 ok("null no revienta", claveGuiaHouse(null) === "");
 
+console.log("\n--- 6c2. Guías enterradas dentro de un texto ---");
+// La macro de prealerta hace DOS búsquedas: exacta contra la columna A y, si
+// falla, «contiene» contra la AD. O sea que la guía a veces no está sola en su
+// celda. Ese «contiene» es lo que hace que la macro tarde —un bucle dentro de
+// otro, 100 millones de comparaciones según su propio comentario—.
+//
+// Aquí se resuelve al IMPORTAR: se sacan todas las guías de la fila y cada una
+// entra al índice por su cuenta. Buscar vuelve a ser un Map.get instantáneo.
+ok("saca una guía suelta", guiasEnTexto(G1)[0] === G1);
+ok("la encuentra dentro de un texto",
+   guiasEnTexto("REF CLIENTE " + G1 + " PALLET 3")[0] === G1);
+ok("con guiones y espacios también",
+   guiasEnTexto("ref: 1Z-999-AA1 0123 456 784 /fin")[0] === G1);
+ok("saca DOS guías del mismo renglón",
+   guiasEnTexto(G1 + " y " + G2).length === 2);
+ok("y son las correctas",
+   guiasEnTexto(G1 + " y " + G2).indexOf(G2) !== -1);
+ok("dos guías pegadas sin separador tampoco se pierden",
+   guiasEnTexto(G1 + G2).length === 2);
+ok("la misma guía repetida cuenta una vez", guiasEnTexto(G1 + " " + G1).length === 1);
+// El dígito verificador es lo que impide inventarse guías: 18 caracteres
+// cualesquiera que empiecen por 1Z no bastan.
+ok("una cadena que parece guía pero no lo es se descarta",
+   guiasEnTexto("1Z999AA10123456785").length === 0);
+ok("un texto sin guías no devuelve nada", guiasEnTexto("PALLET 3 CAJA ROJA").length === 0);
+ok("un texto corto no revienta", guiasEnTexto("ABC").length === 0);
+ok("vacío tampoco", guiasEnTexto("").length === 0);
+ok("null tampoco", guiasEnTexto(null).length === 0);
+
+// En la fila, se salta la columna que ya se leyó como guía exacta para no
+// contarla dos veces.
+ok("barre la fila menos la columna de la guía",
+   guiasDeFila([G1, "HOUSE-1", "ref " + G2], 0).length === 1);
+ok("y la que encuentra es la enterrada",
+   guiasDeFila([G1, "HOUSE-1", "ref " + G2], 0)[0] === G2);
+
+// EL CASO DE LA PREALERTA: una house con la guía metida en un campo de texto,
+// que la búsqueda exacta no encontraría jamás.
+let crudoPre = [
+    ["ORDEN", "HOUSE", "REFERENCIAS"],
+    ["", "HAWB-77", "cliente ACME · " + G3 + " · pallet 2"]
+];
+let filasPre = filasDeInbound(crudoPre, detectarColumnasInbound(crudoPre[0]), "PREALERTA.csv");
+ok("la guía enterrada entra al índice", filasPre.length === 1 && filasPre[0].guia === G3);
+ok("con su house", filasPre[0].house === "HAWB-77");
+ok("y marcada como embebida", filasPre[0].embebida === true);
+
+// Un renglón de prealerta con VARIAS guías genera una entrada por guía: las dos
+// comparten house, que es justo lo que significa un consolidado.
+let crudoMulti = [
+    ["GUIA", "HOUSE", "REFERENCIAS"],
+    [G1, "HAWB-88", G2 + " " + G4]
+];
+let filasMulti = filasDeInbound(crudoMulti, detectarColumnasInbound(crudoMulti[0]), "PREALERTA.csv");
+ok("tres guías, tres entradas", filasMulti.length === 3);
+ok("todas con la misma house", filasMulti.every(f => f.house === "HAWB-88"));
+ok("la de su columna NO va marcada como embebida",
+   filasMulti.filter(f => !f.embebida).length === 1);
+
 console.log("\n--- 6d. Fechas en los tres formatos que se ven por aquí ---");
 ok("ISO", aFechaInbound("2026-08-15").getMonth() === 7);
 ok("día/mes/año", aFechaInbound("15/08/2026").getDate() === 15);

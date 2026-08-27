@@ -159,17 +159,91 @@ function aFechaInbound(v) {
 // índice lo engorda sin que sirvan para buscar nada.
 function filasDeInbound(datos, cols, origen) {
     let salida = [];
-    if (!datos || cols.guia === -1 || cols.house === -1) return salida;
+    // La HOUSE es lo único imprescindible. La columna de guía puede no existir:
+    // en la prealerta la guía vive dentro del campo de referencias y no tiene
+    // columna propia —por eso la macro de VBA hace la búsqueda por «contiene»
+    // contra la AD—. Sin guía declarada se barre la fila entera.
+    if (!datos || cols.house === -1) return salida;
     let tipo = tipoDeOrigen(origen);
     for (let i = 1; i < datos.length; i++) {
         let fila = datos[i];
         if (!fila) continue;
-        let guia = claveGuiaHouse(fila[cols.guia]);
         let house = String(fila[cols.house] === undefined ? "" : fila[cols.house]).trim();
-        if (guia === "" || house === "") continue;
-        if (!esGuiaUPSValida(guia)) continue;
+        if (house === "") continue;
         let fecha = cols.fecha === -1 ? null : aFechaInbound(fila[cols.fecha]);
-        salida.push({ guia: guia, house: house, fecha: fecha, origen: tipo });
+
+        // La guía de la columna que toca, y ADEMÁS las que vengan enterradas en
+        // cualquier otra celda de la misma fila.
+        let guias = [];
+        let exacta = cols.guia === -1 ? "" : claveGuiaHouse(fila[cols.guia]);
+        if (exacta !== "" && esGuiaUPSValida(exacta)) guias.push(exacta);
+        guiasDeFila(fila, cols.guia).forEach(g => {
+            if (guias.indexOf(g) === -1) guias.push(g);
+        });
+
+        guias.forEach(g => salida.push({
+            guia: g, house: house, fecha: fecha, origen: tipo,
+            embebida: g !== exacta
+        }));
+    }
+    return salida;
+}
+
+// -------------------------------------------------------------------------
+// GUÍAS ENTERRADAS EN TEXTO
+//
+// La macro de prealerta hace DOS búsquedas: primero exacta contra la columna A
+// y, si falla, «contiene» contra la AD. O sea que la guía a veces no está sola
+// en su celda, sino dentro de un texto más largo —referencias, descripciones,
+// varias guías en el mismo renglón—.
+//
+// Ese «contiene» es lo que hace que la macro tarde: es un bucle dentro de otro
+// bucle, 100 millones de comparaciones según su propio comentario, y por eso
+// necesita una caché para sobrevivir.
+//
+// AQUÍ NO SE HACE ASÍ. La búsqueda por «contiene» se resuelve UNA VEZ, al
+// importar: se sacan todas las guías que haya en la fila y cada una entra al
+// índice por su cuenta. Después, buscar vuelve a ser un Map.get instantáneo.
+// El coste se paga una vez al importar en vez de en cada búsqueda, que es toda
+// la diferencia entre 100 millones de comparaciones y ninguna.
+// -------------------------------------------------------------------------
+
+// Todas las guías 1Z válidas que haya dentro de un texto.
+//
+// Se limpia el texto de separadores antes de buscar: así una guía partida por
+// guiones o espacios se encuentra igual. Dos guías pegadas tampoco se pierden,
+// porque el patrón mide 18 caracteres exactos.
+function guiasEnTexto(texto) {
+    let t = String(texto === undefined || texto === null ? "" : texto)
+            .toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (t.length < 18) return [];
+
+    let salida = [];
+    let vistas = {};
+    let re = /1Z[A-Z0-9]{16}/g;
+    let m;
+    while ((m = re.exec(t)) !== null) {
+        let g = m[0];
+        if (!vistas[g] && esGuiaUPSValida(g)) {
+            vistas[g] = true;
+            salida.push(g);
+        }
+        // Se avanza UN carácter, no dieciocho: si la ventana de 18 no pasa el
+        // dígito verificador, la buena puede empezar una posición más allá.
+        // Al concatenar celdas los desfases son normales.
+        re.lastIndex = m.index + 1;
+    }
+    return salida;
+}
+
+// Barre la fila entera menos la columna que ya se leyó como guía exacta.
+function guiasDeFila(fila, saltarIdx) {
+    let salida = [];
+    for (let c = 0; c < (fila || []).length; c++) {
+        if (c === saltarIdx) continue;
+        guiasEnTexto(fila[c]).forEach(g => {
+            if (salida.indexOf(g) === -1) salida.push(g);
+        });
     }
     return salida;
 }
@@ -420,7 +494,9 @@ function importarInboundAlIndice() {
         let primeraLinea = texto.split(/\r?\n/)[0] || "";
         let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
         let cols = detectarColumnasInbound(datos[0] || []);
-        if (cols.guia === -1 || cols.house === -1) {
+        // Solo la HOUSE es imprescindible. Sin columna de guía se barren las
+        // filas enteras buscando 1Z enterradas, que es el caso de la prealerta.
+        if (cols.house === -1) {
             sinCabecera.push(nombre);
             continue;
         }
@@ -473,7 +549,10 @@ function volcarAlIndice(ss, nuevas) {
     escribirIndice(ss, HOJA_INDICE_HOUSE, particion.calientes);
     escribirIndice(ss, HOJA_INDICE_HOUSE_FRIO, particion.frias);
 
+    let embebidas = (nuevas || []).filter(n => n.embebida).length;
     let msg = "Guías leídas del archivo: " + (nuevas || []).length + "\n" +
+              (embebidas ? "  · de ellas, " + embebidas + " venían dentro de un texto, " +
+                           "no en su columna\n" : "") +
               "Guías nuevas en el índice: " + fusion.anadidas + "\n" +
               "Houses corregidas por el inbound: " + fusion.corregidas + "\n" +
               "Índice caliente (últimos " + DIAS_INDICE_CALIENTE + " días): " +
@@ -718,12 +797,13 @@ function importarInboundDesdeOneDrive() {
     let primeraLinea = texto.split(/\r?\n/)[0] || "";
     let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
     let cols = detectarColumnasInbound(datos[0] || []);
-    if (cols.guia === -1 || cols.house === -1) {
+    if (cols.house === -1) {
         ui.alert("☁️ OneDrive",
-                 "El archivo llegó bien, pero no reconozco sus columnas.\n\n" +
+                 "El archivo llegó bien, pero no encuentro la columna de la HOUSE.\n\n" +
                  "Cabeceras encontradas: " + (datos[0] || []).join(" | ") + "\n\n" +
-                 "Necesito una de guía (1Z, TRACKING, GUIA, RASTREO) y una de house " +
-                 "(HOUSE, HAWB, HBL, CASA).", ui.ButtonSet.OK);
+                 "Necesito una que se llame HOUSE, HAWB, HBL o CASA. La de la guía es " +
+                 "opcional: si no está, busco las 1Z dentro del texto de cada fila.",
+                 ui.ButtonSet.OK);
         return;
     }
 
