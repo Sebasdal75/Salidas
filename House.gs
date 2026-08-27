@@ -157,9 +157,10 @@ function aFechaInbound(v) {
 // Del CSV crudo a filas limpias. Se tira todo lo que no sea una guía válida:
 // el reporte trae totales, subtotales y renglones en blanco, y meterlos al
 // índice lo engorda sin que sirvan para buscar nada.
-function filasDeInbound(datos, cols) {
+function filasDeInbound(datos, cols, origen) {
     let salida = [];
     if (!datos || cols.guia === -1 || cols.house === -1) return salida;
+    let tipo = tipoDeOrigen(origen);
     for (let i = 1; i < datos.length; i++) {
         let fila = datos[i];
         if (!fila) continue;
@@ -168,10 +169,50 @@ function filasDeInbound(datos, cols) {
         if (guia === "" || house === "") continue;
         if (!esGuiaUPSValida(guia)) continue;
         let fecha = cols.fecha === -1 ? null : aFechaInbound(fila[cols.fecha]);
-        salida.push({ guia: guia, house: house, fecha: fecha });
+        salida.push({ guia: guia, house: house, fecha: fecha, origen: tipo });
     }
     return salida;
 }
+
+// -------------------------------------------------------------------------
+// QUIÉN GANA CUANDO DOS ARCHIVOS NO DICEN LO MISMO
+//
+// La base son dos archivos distintos, y no valen igual:
+//
+//   INBOUND    es lo que LLEGÓ.        Es la realidad.
+//   PREALERTA  es lo que DIJERON que iba a llegar. Es una promesa.
+//
+// Si los dos hablan de la misma guía con houses distintas, gana el inbound
+// SIEMPRE, sin importar cuál se importara antes. Dejarlo al orden de lectura
+// —que es lo que hacía— significaba que la house buena o la mala dependía de
+// cómo ordenara Drive la carpeta ese día. Eso no es una regla, es una moneda al
+// aire, y el resultado se escribe en la hoja con la que se despacha.
+//
+// Entre dos archivos del mismo tipo sí gana el primero, y el choque se reporta:
+// dos inbounds que se contradicen es un problema del reporte, no algo que este
+// módulo pueda resolver eligiendo.
+// -------------------------------------------------------------------------
+const ORIGEN_DESCONOCIDO = 0;
+const ORIGEN_PREALERTA = 1;
+const ORIGEN_INBOUND = 2;
+
+function tipoDeOrigen(nombreArchivo) {
+    let n = String(nombreArchivo === undefined || nombreArchivo === null ? "" : nombreArchivo)
+            .toUpperCase();
+    if (n.indexOf("INBOUND") !== -1) return ORIGEN_INBOUND;
+    if (n.indexOf("PREALERT") !== -1) return ORIGEN_PREALERTA;
+    return ORIGEN_DESCONOCIDO;
+}
+
+function nombreDeOrigen(tipo) {
+    if (tipo === ORIGEN_INBOUND) return "INBOUND";
+    if (tipo === ORIGEN_PREALERTA) return "PREALERTA";
+    return "";
+}
+
+function origenInbound() { return ORIGEN_INBOUND; }
+function origenPrealerta() { return ORIGEN_PREALERTA; }
+function origenDesconocido() { return ORIGEN_DESCONOCIDO; }
 
 // La misma normalización que usa el escaneo para la columna A, para que una
 // guía escrita con guiones en el reporte case con la escaneada sin ellos.
@@ -184,38 +225,64 @@ function claveGuiaHouse(v) {
 // EL ÍNDICE
 // -------------------------------------------------------------------------
 
-// Mete las filas nuevas sin duplicar y sin pisar lo que ya había.
+// Mete las filas nuevas sin duplicar y con una regla clara para los choques.
 //
-// Si una guía ya está con OTRA house, se conserva la vieja y se reporta el
-// choque. Pisarla en silencio sería lo peor que puede hacer este módulo: la
-// house es el dato con el que se despacha, y una house cambiada sin que nadie
-// lo sepa no se descubre hasta que el bulto está en el lugar equivocado.
+// Una house cambiada sin que nadie lo sepa no se descubre hasta que el bulto
+// está en el lugar equivocado, así que ningún choque se resuelve en silencio:
+// o gana el inbound —porque es lo que llegó de verdad— o se conserva lo que ya
+// estaba y se REPORTA.
+//
+// Cada fila del índice es [guía, house, fecha, origen]. El origen se guarda
+// para poder mirar después de dónde salió una house que no cuadra; sin él, un
+// choque solo se puede investigar volviendo a abrir los CSV.
 function fusionarEnIndice(existentes, nuevas) {
     let filas = [];
-    let vistos = new Map();
+    let porGuia = new Map();
     (existentes || []).forEach(f => {
         let g = claveGuiaHouse(f[0]);
-        if (g === "" || vistos.has(g)) return;
-        vistos.set(g, String(f[1]).trim());
-        filas.push([g, String(f[1]).trim(), f[2] === undefined ? "" : f[2]]);
+        if (g === "" || porGuia.has(g)) return;
+        let fila = [g, String(f[1]).trim(), f[2] === undefined ? "" : f[2],
+                    f[3] === undefined ? "" : f[3]];
+        porGuia.set(g, fila);
+        filas.push(fila);
     });
 
-    let anadidas = 0;
+    let anadidas = 0, corregidas = 0;
     let conflictos = [];
     (nuevas || []).forEach(n => {
-        let previo = vistos.get(n.guia);
-        if (previo !== undefined) {
-            if (previo !== n.house) {
-                conflictos.push({ guia: n.guia, viejo: previo, nuevo: n.house });
-            }
+        let origen = n.origen === undefined ? ORIGEN_DESCONOCIDO : n.origen;
+        let previa = porGuia.get(n.guia);
+
+        if (previa === undefined) {
+            let fila = [n.guia, n.house, n.fecha || "", nombreDeOrigen(origen)];
+            porGuia.set(n.guia, fila);
+            filas.push(fila);
+            anadidas++;
             return;
         }
-        vistos.set(n.guia, n.house);
-        filas.push([n.guia, n.house, n.fecha || ""]);
-        anadidas++;
+        if (previa[1] === n.house) return;   // dicen lo mismo: nada que hacer
+
+        // El inbound pisa a la prealerta: la prealerta es lo que dijeron que
+        // iba a llegar, el inbound es lo que llegó.
+        if (origen === ORIGEN_INBOUND && previa[3] !== nombreDeOrigen(ORIGEN_INBOUND)) {
+            conflictos.push({ guia: n.guia, viejo: previa[1], nuevo: n.house,
+                              resuelto: "gana el inbound" });
+            previa[1] = n.house;
+            previa[2] = n.fecha || previa[2];
+            previa[3] = nombreDeOrigen(origen);
+            corregidas++;
+            return;
+        }
+
+        // Mismo tipo de archivo, o una prealerta contra un inbound: se conserva
+        // lo que estaba. Dos inbounds que se contradicen es un problema del
+        // reporte, no algo que este módulo pueda resolver eligiendo.
+        conflictos.push({ guia: n.guia, viejo: previa[1], nuevo: n.house,
+                          resuelto: "se conservó la anterior" });
     });
 
-    return { filas: filas, anadidas: anadidas, conflictos: conflictos };
+    return { filas: filas, anadidas: anadidas, corregidas: corregidas,
+             conflictos: conflictos };
 }
 
 // Parte el índice en caliente y frío. Sin fecha se queda en el caliente: ver
@@ -283,7 +350,7 @@ function hojaIndice(ss, nombre, crear) {
     let h = ss.getSheetByName(nombre);
     if (!h && crear) {
         h = ss.insertSheet(nombre);
-        h.getRange(1, 1, 1, 3).setValues([["GUIA", "HOUSE", "FECHA"]]);
+        h.getRange(1, 1, 1, 4).setValues([["GUIA", "HOUSE", "FECHA", "ORIGEN"]]);
         h.setFrozenRows(1);
         h.hideSheet();
     }
@@ -295,7 +362,17 @@ function leerIndice(ss, nombre) {
     if (!h) return [];
     let lr = h.getLastRow();
     if (lr < 2) return [];
-    return h.getRange(2, 1, lr - 1, 3).getValues();
+    // Se lee lo que haya, no cuatro columnas a ciegas: un índice creado antes
+    // de que existiera la columna ORIGEN tiene tres, y pedir la cuarta
+    // reventaría. Lo que falte se rellena vacío.
+    let anchoReal = Math.max(1, Math.min(4, h.getLastColumn()));
+    let filas = h.getRange(2, 1, lr - 1, anchoReal).getValues();
+    if (anchoReal === 4) return filas;
+    return filas.map(f => {
+        let completa = f.slice();
+        while (completa.length < 4) completa.push("");
+        return completa;
+    });
 }
 
 // Un Map guía → house. Cargarlo cuesta una lectura; buscar en él es gratis.
@@ -327,7 +404,7 @@ function importarInboundAlIndice() {
     let yaImportados = (PropertiesService.getScriptProperties()
                         .getProperty(PROP_ARCHIVOS_IMPORTADOS) || "").split(",");
     let archivos = carpetas.next().getFiles();
-    let nuevas = [], leidos = [], saltados = [], sinCabecera = [];
+    let nuevas = [], leidos = [], saltados = [], sinCabecera = [], sinTipo = [];
 
     while (archivos.hasNext()) {
         let f = archivos.next();
@@ -348,7 +425,12 @@ function importarInboundAlIndice() {
             continue;
         }
 
-        filasDeInbound(datos, cols).forEach(r => nuevas.push(r));
+        // El nombre del archivo decide si es inbound o prealerta, y eso decide
+        // quién gana un choque. No importa el orden en que Drive devuelva los
+        // archivos: la regla la aplica la fusión, no el turno de lectura.
+        let deEste = filasDeInbound(datos, cols, nombre);
+        if (tipoDeOrigen(nombre) === ORIGEN_DESCONOCIDO) sinTipo.push(nombre);
+        deEste.forEach(r => nuevas.push(r));
         leidos.push(f.getId());
     }
 
@@ -371,6 +453,12 @@ function importarInboundAlIndice() {
     if (sinCabecera.length) {
         msg += "\n\n⚠️ Sin columnas reconocibles: " + sinCabecera.join(", ");
     }
+    if (sinTipo.length) {
+        msg += "\n\n⚠️ No sé si son inbound o prealerta (el nombre no lo dice):\n" +
+               sinTipo.join(", ") + "\n\n" +
+               "Se importaron igual, pero si chocan con otra house NO podrán ganar. " +
+               "Ponle al archivo «INBOUND» o «PREALERTA» en el nombre.";
+    }
     ui.alert("📥 Importar inbound", msg, ui.ButtonSet.OK);
 }
 
@@ -387,25 +475,36 @@ function volcarAlIndice(ss, nuevas) {
 
     let msg = "Guías leídas del archivo: " + (nuevas || []).length + "\n" +
               "Guías nuevas en el índice: " + fusion.anadidas + "\n" +
+              "Houses corregidas por el inbound: " + fusion.corregidas + "\n" +
               "Índice caliente (últimos " + DIAS_INDICE_CALIENTE + " días): " +
               particion.calientes.length + "\n" +
               "Archivo frío: " + particion.frias.length;
     if (fusion.conflictos.length) {
-        msg += "\n\n⚠️ " + fusion.conflictos.length + " guías traían una house DISTINTA " +
-               "de la que ya estaba. Se conservó la anterior:\n" +
-               fusion.conflictos.slice(0, 5)
-                   .map(c => "  " + c.guia + ": " + c.viejo + " ≠ " + c.nuevo).join("\n");
+        msg += "\n\n⚠️ " + fusion.conflictos.length + " guías con DOS houses distintas:\n" +
+               fusion.conflictos.slice(0, 8)
+                   .map(c => "  " + c.guia + ": " + c.viejo + " → " + c.nuevo +
+                             "  (" + c.resuelto + ")").join("\n");
+        if (fusion.conflictos.length > 8) {
+            msg += "\n  …y " + (fusion.conflictos.length - 8) + " más.";
+        }
+        msg += "\n\nLas que dicen «se conservó la anterior» son las que hay que " +
+               "revisar a mano: los dos archivos se contradicen y ninguno manda " +
+               "sobre el otro.";
     }
     return msg;
 }
 
 function escribirIndice(ss, nombre, filas) {
     let h = hojaIndice(ss, nombre, true);
+    // Un índice creado antes de que existiera la columna ORIGEN tiene tres
+    // columnas, y escribir cuatro en él reventaría.
+    if (h.getMaxColumns() < 4) h.insertColumnsAfter(h.getMaxColumns(), 4 - h.getMaxColumns());
+    h.getRange(1, 1, 1, 4).setValues([["GUIA", "HOUSE", "FECHA", "ORIGEN"]]);
     let lr = h.getLastRow();
-    if (lr > 1) h.getRange(2, 1, lr - 1, 3).clearContent();
+    if (lr > 1) h.getRange(2, 1, lr - 1, 4).clearContent();
     if (filas.length === 0) return;
     asegurarFilas(h, filas.length + 1);
-    h.getRange(2, 1, filas.length, 3).setValues(filas);
+    h.getRange(2, 1, filas.length, 4).setValues(filas);
 }
 
 // -------------------------------------------------------------------------
@@ -519,7 +618,14 @@ function importarInboundDesdeOneDrive() {
         return;
     }
 
-    let resumen = volcarAlIndice(ss, filasDeInbound(datos, cols));
+    // El tipo se saca de la propia URL, que suele llevar el nombre del archivo.
+    // Si no se reconoce, esas houses no podrán ganar un choque: es preferible a
+    // dejar que una prealerta pise a un inbound por accidente.
+    let resumen = volcarAlIndice(ss, filasDeInbound(datos, cols, url));
+    if (tipoDeOrigen(url) === ORIGEN_DESCONOCIDO) {
+        resumen += "\n\n⚠️ No sé si este archivo es inbound o prealerta: la URL no lo " +
+                   "dice. Sus houses no podrán corregir a otras si chocan.";
+    }
     ui.alert("☁️ OneDrive", resumen, ui.ButtonSet.OK);
 }
 

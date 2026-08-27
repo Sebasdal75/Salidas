@@ -1691,22 +1691,80 @@ ok("un Date pasa tal cual", aFechaInbound(new Date(2026, 7, 15)).getDate() === 1
 ok("lo que no se entiende devuelve null", aFechaInbound("el martes") === null);
 ok("vacío devuelve null", aFechaInbound("") === null);
 
-console.log("\n--- 6e. Fusionar sin pisar ---");
-// LO MÁS IMPORTANTE DE ESTE MÓDULO: si una guía ya tiene house y llega otra
-// distinta, se CONSERVA la vieja y se reporta el choque. Pisarla en silencio no
-// se descubriría hasta que el bulto estuviera en el lugar equivocado.
+console.log("\n--- 6e. Fusionar: quién gana cuando dos archivos discrepan ---");
+// La base son DOS archivos y no valen igual:
+//   INBOUND   es lo que llegó.                    Es la realidad.
+//   PREALERTA es lo que dijeron que iba a llegar. Es una promesa.
+ok("«INBOUND_AGOSTO.csv» es inbound", tipoDeOrigen("INBOUND_AGOSTO.csv") === origenInbound());
+ok("«Prealertas 2026.csv» es prealerta",
+   tipoDeOrigen("Prealertas 2026.csv") === origenPrealerta());
+ok("minúsculas también", tipoDeOrigen("inbound_dia.csv") === origenInbound());
+ok("un nombre que no lo dice queda sin tipo",
+   tipoDeOrigen("consolidado.csv") === origenDesconocido());
+ok("sin nombre tampoco revienta", tipoDeOrigen(null) === origenDesconocido());
+
+// EL CASO QUE OBLIGA A TENER LA REGLA: el inbound corrige a la prealerta.
+let fusA = fusionarEnIndice(
+    [[G1, "HAWB-PROMETIDA", "2026-08-01", "PREALERTA"]],
+    [{guia: G1, house: "HAWB-REAL", fecha: "2026-08-20", origen: origenInbound()}]);
+ok("el inbound pisa a la prealerta", fusA.filas[0][1] === "HAWB-REAL");
+ok("se cuenta como corregida", fusA.corregidas === 1);
+ok("no como añadida", fusA.anadidas === 0);
+ok("y queda constancia del choque", fusA.conflictos[0].resuelto === "gana el inbound");
+ok("el origen queda anotado", fusA.filas[0][3] === "INBOUND");
+
+// Y al revés NO: una prealerta no puede pisar lo que ya llegó.
+let fusB = fusionarEnIndice(
+    [[G1, "HAWB-REAL", "2026-08-20", "INBOUND"]],
+    [{guia: G1, house: "HAWB-PROMETIDA", fecha: "2026-08-01", origen: origenPrealerta()}]);
+ok("una prealerta NO pisa a un inbound", fusB.filas[0][1] === "HAWB-REAL");
+ok("nada corregido", fusB.corregidas === 0);
+ok("pero el choque se reporta igual",
+   fusB.conflictos[0].resuelto === "se conservó la anterior");
+
+// Dos inbounds que se contradicen no los resuelve este módulo: es un problema
+// del reporte, y elegir uno a ciegas sería inventarse el dato.
+let fusC = fusionarEnIndice(
+    [[G1, "HAWB-A", "", "INBOUND"]],
+    [{guia: G1, house: "HAWB-B", origen: origenInbound()}]);
+ok("dos inbounds en conflicto: gana el que estaba", fusC.filas[0][1] === "HAWB-A");
+ok("y se marca para revisar a mano",
+   fusC.conflictos[0].resuelto === "se conservó la anterior");
+
+// LA REGLA NO DEPENDE DEL ORDEN: Drive devuelve los archivos como quiere, y la
+// house buena no puede depender de eso. Las dos mezclas dan lo mismo.
+let prealerta = {guia: G1, house: "HAWB-PROMETIDA", origen: origenPrealerta()};
+let inbound   = {guia: G1, house: "HAWB-REAL", origen: origenInbound()};
+ok("prealerta y luego inbound → gana el inbound",
+   fusionarEnIndice([], [prealerta, inbound]).filas[0][1] === "HAWB-REAL");
+ok("inbound y luego prealerta → gana el inbound igual",
+   fusionarEnIndice([], [inbound, prealerta]).filas[0][1] === "HAWB-REAL");
+
+// Un archivo sin tipo reconocible no puede corregir a nadie: mejor eso que
+// dejar que una prealerta pise a un inbound por accidente.
+let fusD = fusionarEnIndice(
+    [[G1, "HAWB-REAL", "", "INBOUND"]],
+    [{guia: G1, house: "HAWB-X", origen: origenDesconocido()}]);
+ok("un archivo sin tipo no corrige nada", fusD.filas[0][1] === "HAWB-REAL");
+
+// Lo de siempre, que sigue valiendo.
 let fus = fusionarEnIndice(
-    [[G1, "HAWB-001", "2026-08-01"], [G2, "HAWB-002", "2026-08-02"]],
-    [{guia: G2, house: "HAWB-OTRA", fecha: "2026-08-20"},
-     {guia: G3, house: "HAWB-003", fecha: "2026-08-20"}]);
+    [[G1, "HAWB-001", "2026-08-01", "INBOUND"], [G2, "HAWB-002", "2026-08-02", "INBOUND"]],
+    [{guia: G2, house: "HAWB-002", fecha: "2026-08-20", origen: origenInbound()},
+     {guia: G3, house: "HAWB-003", fecha: "2026-08-20", origen: origenInbound()}]);
 ok("solo se añade la que no estaba", fus.anadidas === 1);
 ok("el índice queda con tres", fus.filas.length === 3);
-ok("la house vieja NO se pisó", fus.filas[1][1] === "HAWB-002");
-ok("y el choque se reporta", fus.conflictos.length === 1 && fus.conflictos[0].guia === G2);
-ok("una guía repetida con la MISMA house no es conflicto",
-   fusionarEnIndice([[G1, "H1", ""]], [{guia: G1, house: "H1"}]).conflictos.length === 0);
+ok("una guía repetida con la MISMA house no es conflicto", fus.conflictos.length === 0);
 ok("el índice de partida vacío también funciona",
    fusionarEnIndice([], [{guia: G1, house: "H1"}]).anadidas === 1);
+ok("cada fila del índice lleva sus cuatro columnas",
+   fusionarEnIndice([], [{guia: G1, house: "H1", origen: origenInbound()}]).filas[0].length === 4);
+
+// El origen viaja desde el nombre del archivo hasta la fila del índice.
+let crudoInb = [["GUIA", "HOUSE"], [G1, "H-1"]];
+ok("filasDeInbound marca el origen",
+   filasDeInbound(crudoInb, detectarColumnasInbound(crudoInb[0]), "INBOUND_1.csv")[0].origen
+   === origenInbound());
 
 console.log("\n--- 6f. Caliente y frío ---");
 // El corte es lo que hace que el relleno de cada minuto sea barato: se cargan
