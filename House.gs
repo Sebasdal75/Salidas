@@ -808,6 +808,14 @@ function volcarAlIndice(ss, nuevas) {
                "Excel y sale como número o como texto raro. Dale formato de fecha y " +
                "vuelve a exportar.";
     }
+    // Datos nuevos hacen falsas las marcas de «no está»: se limpian aquí, no en
+    // un botón que hay que acordarse de pulsar dos veces al día.
+    let reintentar = limpiarMarcasNoEncontradas(ss);
+    if (reintentar > 0) {
+        msg += "\n\n🔁 " + reintentar + " guías marcadas como «no está» vuelven a la " +
+               "cola: el disparador les buscará house con estos datos nuevos.";
+    }
+
     if (fusion.conflictos.length) {
         msg += "\n\n⚠️ " + fusion.conflictos.length + " guías con DOS houses distintas:\n" +
                fusion.conflictos.slice(0, 8)
@@ -1331,11 +1339,21 @@ function completarHousesDesdeFrio() {
 
 // Borra las marcas de «no está» para que el disparador vuelva a intentarlo.
 // Se usa después de importar un CSV que faltaba.
-function reintentarHousesNoEncontradas() {
-    const ss = obtenerArchivo();
-    const ui = SpreadsheetApp.getUi();
-    if (!exigirModoPrueba(ss)) return;
-
+// Borra las marcas de «buscada y no está» y devuelve cuántas quitó.
+//
+// SE LLAMA SOLA DESPUÉS DE CADA IMPORTACIÓN, y esa es la parte importante.
+//
+// Los datos no llegan de una vez: la prealerta por la mañana, el inbound por la
+// tarde. Una guía escaneada a las nueve todavía no está en ningún archivo, se
+// marca «no está», y la marca existe justamente para no volver a cargar el
+// índice entero cada minuto buscando algo que no aparece.
+//
+// Pero cuando entra un archivo NUEVO, esa marca deja de ser cierta: hay datos
+// que antes no había. Sin limpiarla, la house de esa guía no aparecería nunca
+// —el índice ya la tiene y la hoja sigue diciendo «—»— y el operador tendría
+// que acordarse de pulsar «Reintentar» dos veces al día. Eso se olvida el
+// primer día, y el fallo resultante es mudo.
+function limpiarMarcasNoEncontradas(ss) {
     let limpiadas = 0;
     ss.getSheets().forEach(hoja => {
         let clave = claveHoja(hoja.getName());
@@ -1354,6 +1372,14 @@ function reintentarHousesNoEncontradas() {
             hoja.getRange(b.fila, COL_HOUSE, b.valores.length, 1).setValues(b.valores);
         });
     });
+    return limpiadas;
+}
+
+function reintentarHousesNoEncontradas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+    let limpiadas = limpiarMarcasNoEncontradas(ss);
     ui.alert("🔁 Reintentar", "Marcas borradas: " + limpiadas +
              "\n\nEl disparador las volverá a buscar en el próximo minuto.", ui.ButtonSet.OK);
 }
