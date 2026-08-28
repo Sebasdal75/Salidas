@@ -1631,6 +1631,19 @@ ok("minúsculas también", esArchivoDePrueba("copia de prueba 2026"));
 ok("el archivo real NO es de pruebas", !esArchivoDePrueba("SALIDAS UPS"));
 ok("«PRUEBAS» en plural también entra", esArchivoDePrueba("WMS PRUEBAS"));
 
+// El interruptor de producción. Una copia de pruebas se enciende sola por el
+// nombre; el archivo real necesita que alguien lo encienda a mano, porque que
+// un módulo empiece a escribir en la columna D de siete operadores tiene que
+// ser una decisión consciente y no el efecto de haber pegado un archivo.
+global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
+ok("una copia de pruebas se enciende sola", moduloActivo({ getName: () => "WMS PRUEBA" }));
+ok("el archivo real NO se enciende solo", !moduloActivo({ getName: () => "SALIDAS UPS" }));
+global.PropertiesService = {
+  getScriptProperties: () => ({ getProperty: (k) => (k === 'HOUSE_ACTIVADO' ? 'SI' : null) })
+};
+ok("...salvo que lo enciendan a mano", moduloActivo({ getName: () => "SALIDAS UPS" }));
+global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
+
 console.log("\n--- 6b. Leer el CSV que salga de Power Query ---");
 // Excel en México exporta con punto y coma tan a menudo como con coma, y
 // equivocarse deja UNA columna con toda la fila dentro.

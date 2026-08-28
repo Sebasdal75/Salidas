@@ -3829,10 +3829,12 @@ function onOpen() {
   // llamada reventaría y con ella TODO el onOpen. El menú entero desaparecería
   // y siete operadores se quedarían sin cierre, sin validación y sin
   // diagnóstico, por un submenú de pruebas que ahí ni se usa.
-  if (typeof esArchivoDePrueba === 'function' &&
-      esArchivoDePrueba(SpreadsheetApp.getActiveSpreadsheet().getName())) {
+  if (typeof moduloActivo === 'function' &&
+      moduloActivo(SpreadsheetApp.getActiveSpreadsheet())) {
+      let enPruebas = esArchivoDePrueba(SpreadsheetApp.getActiveSpreadsheet().getName());
       menu.addSeparator()
-          .addSubMenu(ui.createMenu('🧪 Houses (pruebas)')
+          .addSubMenu(ui.createMenu(enPruebas ? '🧪 Houses (pruebas)' : '🏠 Houses')
+              .addItem('📇 Crear el archivo del índice', 'crearArchivoDelIndice')
               .addItem('📥 Importar inbound desde Drive', 'importarInboundAlIndice')
               .addItem('☁️ Importar inbound desde OneDrive', 'importarInboundDesdeOneDrive')
               .addItem('🔗 Añadir vínculo de OneDrive', 'configurarUrlOneDrive')
@@ -3844,7 +3846,14 @@ function onOpen() {
               .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
               .addSeparator()
               .addItem('Rellenar solo, cada minuto', 'instalarTriggerHouse')
-              .addItem('Dejar de rellenar solo', 'quitarTriggerHouse'));
+              .addItem('Dejar de rellenar solo', 'quitarTriggerHouse')
+              .addSeparator()
+              .addItem('⛔ Apagar el módulo en este archivo',
+                       'desactivarHousesEnEsteArchivo'));
+  } else if (typeof activarHousesEnEsteArchivo === 'function') {
+      // Apagado: la única entrada visible es la de encenderlo, con su aviso.
+      menu.addSeparator()
+          .addItem('🏠 Activar el índice de houses…', 'activarHousesEnEsteArchivo');
   }
 
   menu.addToUi();

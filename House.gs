@@ -60,6 +60,30 @@ const PROP_ARCHIVOS_IMPORTADOS = 'HOUSE_ARCHIVOS_IMPORTADOS';
 // llave del archivo.
 const PROP_URL_ONEDRIVE = 'HOUSE_URL_ONEDRIVE';
 
+// -------------------------------------------------------------------------
+// EL ÍNDICE VIVE EN SU PROPIO ARCHIVO
+//
+// Medido en este proyecto: el peso del archivo fija el precio de CADA ida y
+// vuelta a la API. Se vio pasar de 87 ms a 53 ms según el archivo adelgazaba, y
+// un escaneo hace catorce llamadas.
+//
+// Un índice de cien mil filas dentro del archivo de operación encarecería TODOS
+// los escaneos —medio segundo por escaneo, todo el día— que es exactamente lo
+// contrario de lo que este módulo promete. Y el daño no se vería venir: no
+// habría ningún error, solo un sistema que se va poniendo lento sin motivo
+// aparente, semanas después de tocar nada.
+//
+// Por eso el índice va en un archivo aparte. Al disparador le da igual pagar
+// una apertura más: no está en el camino crítico del escaneo. Al operador no.
+const PROP_ID_INDICE = 'HOUSE_ID_ARCHIVO_INDICE';
+const NOMBRE_ARCHIVO_INDICE = "WMS · Índice de houses";
+
+// Interruptor explícito para producción. El nombre «PRUEBA» sigue valiendo para
+// las copias, pero en el archivo real hay que encenderlo a mano: que un módulo
+// empiece a escribir en la columna D de siete operadores tiene que ser una
+// decisión consciente, no el efecto de haber pegado un archivo.
+const PROP_ACTIVADO = 'HOUSE_ACTIVADO';
+
 function colHouse() { return COL_HOUSE; }
 function textoHouseSinDato() { return TXT_HOUSE_SIN_DATO; }
 function diasIndiceCaliente() { return DIAS_INDICE_CALIENTE; }
@@ -71,17 +95,105 @@ function esArchivoDePrueba(nombreArchivo) {
     return String(nombreArchivo).trim().toUpperCase().indexOf(MARCA_PRUEBA) !== -1;
 }
 
+// El módulo está vivo si el archivo es una copia de pruebas O si alguien lo
+// encendió a mano en este archivo.
+function moduloActivo(ss) {
+    if (esArchivoDePrueba(ss.getName())) return true;
+    return PropertiesService.getScriptProperties().getProperty(PROP_ACTIVADO) === 'SI';
+}
+
 // Devuelve true si se puede seguir. Si no, avisa y corta.
 function exigirModoPrueba(ss) {
-    if (esArchivoDePrueba(ss.getName())) return true;
+    if (moduloActivo(ss)) return true;
     SpreadsheetApp.getUi().alert(
-        "🧪 Módulo en pruebas",
-        "El índice de houses solo funciona en una copia de pruebas.\n\n" +
-        "Este archivo se llama «" + ss.getName() + "». Para probarlo, haz una copia " +
-        "cuyo nombre contenga la palabra PRUEBA y pégalo ahí.\n\n" +
-        "Así ninguna prueba puede tocar la operación real.",
+        "🧪 Módulo apagado",
+        "El índice de houses está apagado en este archivo.\n\n" +
+        "Se enciende solo en copias cuyo nombre lleve PRUEBA. Para usarlo en el " +
+        "archivo real, entra en «Activar en este archivo» y léete el aviso.\n\n" +
+        "Así ninguna prueba puede tocar la operación por accidente.",
         SpreadsheetApp.getUi().ButtonSet.OK);
     return false;
+}
+
+// -------------------------------------------------------------------------
+// ENCENDER Y APAGAR EN PRODUCCIÓN
+// -------------------------------------------------------------------------
+function activarHousesEnEsteArchivo() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    if (esArchivoDePrueba(ss.getName())) {
+        ui.alert("🏠 Houses", "Este archivo ya lleva PRUEBA en el nombre: el módulo está " +
+                 "encendido siempre aquí.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let r = ui.alert("🏠 Activar el índice de houses",
+        "Vas a encenderlo en «" + ss.getName() + "», que es el archivo con el que " +
+        "trabajan los operadores.\n\n" +
+        "A partir de ahora:\n" +
+        "· El disparador escribirá en la COLUMNA D de las hojas de escaneo.\n" +
+        "· Solo escribe en celdas VACÍAS de esa columna.\n\n" +
+        "Antes de aceptar, comprueba que la columna D no lleva nada tuyo en " +
+        "ninguna pestaña. ¿Sigo?",
+        ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    PropertiesService.getScriptProperties().setProperty(PROP_ACTIVADO, 'SI');
+    ui.alert("🏠 Houses", "Encendido.\n\nRecarga la hoja para que el menú deje de " +
+             "decir «(pruebas)», y no olvides crear el archivo del índice si aún no lo " +
+             "hiciste.", ui.ButtonSet.OK);
+}
+
+function desactivarHousesEnEsteArchivo() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    PropertiesService.getScriptProperties().deleteProperty(PROP_ACTIVADO);
+    quitarTriggerHouse(true);
+    ui.alert("🏠 Houses", "Apagado, y el disparador quitado.\n\nLo que ya está escrito " +
+             "en la columna D se queda: apagar no borra nada.", ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// EL ARCHIVO DEL ÍNDICE
+// -------------------------------------------------------------------------
+
+// Devuelve el archivo donde vive el índice. Si no se ha creado uno aparte,
+// cae en el archivo actual: sigue funcionando, pero engorda el de operación.
+function archivoDelIndice() {
+    let id = PropertiesService.getScriptProperties().getProperty(PROP_ID_INDICE);
+    if (id) {
+        try { return SpreadsheetApp.openById(id); } catch (err) { /* borrado o sin acceso */ }
+    }
+    return obtenerArchivo();
+}
+
+function indiceEstaAparte() {
+    let id = PropertiesService.getScriptProperties().getProperty(PROP_ID_INDICE);
+    if (!id) return false;
+    try { SpreadsheetApp.openById(id); return true; } catch (err) { return false; }
+}
+
+function crearArchivoDelIndice() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    if (indiceEstaAparte()) {
+        let r = ui.alert("📇 Archivo del índice",
+            "Ya hay uno:\n" + archivoDelIndice().getUrl() + "\n\n¿Crear otro nuevo? " +
+            "El índice actual se quedaría huérfano y habría que reimportar.",
+            ui.ButtonSet.YES_NO);
+        if (r !== ui.Button.YES) return;
+    }
+
+    let nuevo = SpreadsheetApp.create(NOMBRE_ARCHIVO_INDICE);
+    PropertiesService.getScriptProperties().setProperty(PROP_ID_INDICE, nuevo.getId());
+    ui.alert("📇 Archivo del índice",
+        "Creado:\n" + nuevo.getUrl() + "\n\n" +
+        "El índice vive ahí y NO engorda el archivo de operación, que es lo que " +
+        "encarecería cada escaneo.\n\nNo lo borres ni lo muevas fuera de tu Drive. " +
+        "Ahora importa los CSV.", ui.ButtonSet.OK);
 }
 
 // -------------------------------------------------------------------------
@@ -606,13 +718,18 @@ function bloquesContiguos(items) {
 // FUNCIONES QUE HABLAN CON SHEETS
 // -------------------------------------------------------------------------
 
+// Ojo: el `ss` que se pasa NO se usa. El índice vive en su propio archivo
+// (ver PROP_ID_INDICE), y meterlo en el de operación encarecería cada escaneo.
 function hojaIndice(ss, nombre, crear) {
-    let h = ss.getSheetByName(nombre);
+    let libro = archivoDelIndice();
+    let h = libro.getSheetByName(nombre);
     if (!h && crear) {
-        h = ss.insertSheet(nombre);
+        h = libro.insertSheet(nombre);
         h.getRange(1, 1, 1, 4).setValues([["GUIA", "HOUSE", "FECHA", "ORIGEN"]]);
         h.setFrozenRows(1);
-        h.hideSheet();
+        // Se oculta solo si comparte archivo con la operación: en su propio
+        // archivo estorba menos verlo que no poder revisarlo.
+        if (!indiceEstaAparte()) h.hideSheet();
     }
     return h;
 }
