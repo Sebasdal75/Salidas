@@ -204,8 +204,18 @@ function detectarColumnasInbound(headers) {
         return -1;
     };
     // Las claves van SIN acentos porque las cabeceras se comparan sin ellos.
-    const NO_ES_GUIA = ["HOUSE", "HAWB", "HBL", "CASA", "MASTER", "MAWB"];
-    let house = buscar(["HOUSE", "HAWB", "HBL", "CASA"]);
+    //
+    // «CORTA» y «SHIPMENT» son los nombres de la casa: aquí a la house se le
+    // llama «guía corta», y en la prealerta viene como «Shipment».
+    //
+    // CUIDADO CON «CORTA»: «GUIA CORTA» contiene «GUIA». Sin excluirla de la
+    // búsqueda de la guía, el módulo tomaría la columna de la HOUSE creyendo que
+    // era la del 1Z —y sin avisar, porque una cabecera que dice «guía» parece
+    // exactamente lo que se busca—. El índice saldría lleno de houses apuntando
+    // a houses y no casaría con ningún escaneo.
+    const NO_ES_GUIA = ["HOUSE", "HAWB", "HBL", "CASA", "MASTER", "MAWB",
+                        "CORTA", "SHIPMENT"];
+    let house = buscar(["HOUSE", "HAWB", "HBL", "CASA", "CORTA", "SHIPMENT"]);
 
     // La guía se busca en dos rondas, de lo específico a lo genérico. «AWB» a
     // secas es demasiado ancho: casa con «MASTER AWB», que es la guía madre del

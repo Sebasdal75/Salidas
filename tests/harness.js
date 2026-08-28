@@ -1663,6 +1663,45 @@ ok("pero un master solo no se acepta como guía", colsE.guia === -1);
 let colsC = detectarColumnasInbound(["COLUMNA1", "COLUMNA2"]);
 ok("sin columnas reconocibles avisa con -1", colsC.guia === -1 && colsC.house === -1);
 
+// LOS NOMBRES REALES DE LA OPERACIÓN. Aquí a la house se le llama «guía corta»,
+// y en la prealerta viene como «Shipment».
+//
+// EL CHOQUE QUE ESTO EVITA: «GUIA CORTA» contiene «GUIA». Sin excluirla, el
+// módulo tomaría la columna de la HOUSE creyendo que era la del 1Z —y sin
+// avisar, porque una cabecera que dice «guía» parece justo lo que se busca—.
+// El índice saldría lleno de houses apuntando a houses, sin casar con nada.
+let colsInb = detectarColumnasInbound(["Guía", "Guía corta"]);
+ok("«Guía» es el 1Z", colsInb.guia === 0);
+ok("«Guía corta» es la house", colsInb.house === 1);
+ok("y NO se toma la corta por guía", colsInb.guia !== 1);
+// Aunque la corta venga primero.
+let colsInv = detectarColumnasInbound(["Guía corta", "Guía"]);
+ok("da igual el orden: la corta sigue siendo house", colsInv.house === 0);
+ok("y la guía sigue siendo la otra", colsInv.guia === 1);
+
+// La prealerta: Tracking trae UNA guía, Additionals las demás de esa misma
+// house, separadas por comas.
+let colsPre = detectarColumnasInbound(["Tracking", "Shipment", "Additionals"]);
+ok("«Tracking» es el 1Z", colsPre.guia === 0);
+ok("«Shipment» es la house", colsPre.house === 1);
+ok("«Additionals» no se confunde con la guía", colsPre.guia !== 2);
+
+// Y el caso completo: una house con su guía en Tracking y dos más en
+// Additionals. Las tres tienen que entrar compartiendo house.
+let crudoPrealerta = [
+    ["Tracking", "Shipment", "Additionals"],
+    [G1, "SHP-4471", G2 + ", " + G4]
+];
+let filasPrealerta = filasDeInbound(crudoPrealerta,
+    detectarColumnasInbound(crudoPrealerta[0]), "PREALERTAS CONCENTRADO.csv");
+ok("las tres guías entran", filasPrealerta.length === 3);
+ok("todas con la misma house", filasPrealerta.every(f => f.house === "SHP-4471"));
+ok("la de Tracking no va marcada como embebida",
+   filasPrealerta.filter(f => !f.embebida).length === 1);
+ok("las de Additionals sí", filasPrealerta.filter(f => f.embebida).length === 2);
+ok("y ninguna house se coló como guía",
+   !filasPrealerta.some(f => f.guia.indexOf("SHP") !== -1));
+
 // «CSV (delimitado por comas)» guarda en la codificación vieja de Windows, no
 // en UTF-8. Al leerlo, una cabecera «GUÍA» llega rota: no casa ni con «GUÍA» ni
 // con «GUIA», y el módulo juraría que falta la columna estando ahí.
