@@ -2101,12 +2101,44 @@ const UN_MB = 1024 * 1024;
 ok("un archivo pequeño no genera aviso", avisoDeTamano(2 * UN_MB) === "");
 ok("uno grande avisa pero deja pasar",
    avisoDeTamano(15 * UN_MB) !== "" && !excedeElLimite(15 * UN_MB));
-ok("el de 52 MB se rechaza", excedeElLimite(52260081));
+// EL CASO REAL SEGUNDO: ya reducido a GUIA + GUIA CORTA, seguía pesando 25,5
+// MB. O sea que lo que sobra no son columnas, es HISTORIA. Con lectura por
+// bloques ese tamaño sí entra, así que el límite subió: rechazar un archivo que
+// se puede leer es tan malo como aceptar uno que no.
+ok("el de 25,5 MB ya NO se rechaza", !excedeElLimite(26729756));
+ok("pero sí avisa de que va a tardar", avisoDeTamano(26729756) !== "");
+ok("el de 52 MB se sigue rechazando", excedeElLimite(52260081));
 ok("y el aviso dice cuántos MB son",
    avisoDeTamano(52260081).indexOf("49.8 MB") !== -1);
-ok("y manda a exportar solo dos columnas",
-   avisoDeTamano(52260081).indexOf("dos columnas") !== -1);
-ok("justo por debajo del límite pasa", !excedeElLimite(24 * UN_MB));
+// Ya no manda a quitar columnas: si solo quedan dos, el consejo sería inútil.
+ok("y manda a recortar la historia, no las columnas",
+   avisoDeTamano(52260081).indexOf("meses") !== -1);
+ok("justo por debajo del límite pasa", !excedeElLimite(44 * UN_MB));
+
+console.log("\n--- 6k. Leer un CSV enorme por bloques ---");
+// `parseCsv` sobre 25 MB de golpe monta un array de más de un millón de celdas.
+// Por bloques, el pico se queda en lo que ocupe un bloque.
+let csvLargo = "GUIA,GUIA CORTA\n" +
+    Array.from({length: 10}, (_, i) => "FILA" + i + ",H" + i).join("\n");
+let bl = bloquesDeLineas(csvLargo, 4, "GUIA,GUIA CORTA");
+ok("parte en varios bloques", bl.length > 1);
+ok("el primero conserva su cabecera", bl[0].split("\n")[0] === "GUIA,GUIA CORTA");
+// La cabecera se repite en cada bloque para que todos se parseen igual y quien
+// los reciba pueda saltarse siempre la fila 0.
+ok("los demás la reciben pegada", bl[1].split("\n")[0] === "GUIA,GUIA CORTA");
+ok("no se pierde ninguna línea de datos",
+   bl.reduce((n, b, i) => n + b.split("\n").length - (i === 0 ? 1 : 1), 0) === 10);
+
+// UN SALTO DE LÍNEA DENTRO DE UN CAMPO ENTRECOMILLADO no puede partir un
+// bloque, o el CSV quedaría cortado por la mitad y esa fila se perdería.
+let conComillas = 'GUIA,NOTA\nA,"linea1\nlinea2"\nB,ok\nC,ok\nD,ok';
+let bc = bloquesDeLineas(conComillas, 2, null);
+ok("no corta dentro de un campo entrecomillado",
+   bc.every(b => (b.match(/"/g) || []).length % 2 === 0));
+
+ok("un texto de una línea da un bloque", bloquesDeLineas("solo,una", 100, null).length === 1);
+ok("vacío no revienta", bloquesDeLineas("", 100, null).length === 1);
+ok("null tampoco", bloquesDeLineas(null, 100, null).length === 1);
 
 // Power Query exporta «Column1, Column2…» si no se promueven los encabezados.
 // Las columnas se buscan por NOMBRE a propósito, así que con nombres genéricos

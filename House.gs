@@ -138,8 +138,17 @@ function normalizarSaltos(texto) {
 // El arreglo no es de código, es de export: sacar solo las dos columnas que se
 // usan —la guía y la house— en vez del reporte entero. Un inbound completo trae
 // pesos, consignatarios, direcciones y fechas que aquí no pintan nada.
-const MB_AVISO = 10;
-const MB_LIMITE = 25;
+const MB_AVISO = 15;
+const MB_LIMITE = 45;
+
+// Cuántas líneas se parsean de una vez. `parseCsv` sobre 25 MB de golpe monta
+// un array de más de un millón de celdas en memoria; por bloques, el pico se
+// queda en lo que ocupe un bloque.
+const LINEAS_POR_BLOQUE = 20000;
+
+// Cuántas filas se escriben por `setValues`. Un índice de cientos de miles de
+// filas no cabe en una sola llamada.
+const FILAS_POR_ESCRITURA = 50000;
 
 function avisoDeTamano(caracteres) {
     let mb = caracteres / (1024 * 1024);
@@ -147,17 +156,65 @@ function avisoDeTamano(caracteres) {
     let cabeza = "El archivo pesa " + mb.toFixed(1) + " MB.\n\n";
     if (mb >= MB_LIMITE) {
         return cabeza +
-            "Es demasiado para Apps Script: se quedaría sin tiempo a media lectura " +
-            "y el error no diría que el problema es el tamaño.\n\n" +
-            "Exporta SOLO dos columnas —la guía y la house— en vez del reporte " +
-            "entero. Los pesos, consignatarios y direcciones no se usan aquí.";
+            "Es demasiado para Apps Script: se quedaría sin tiempo a media lectura.\n\n" +
+            "Si ya está reducido a las columnas de guía y house, entonces lo que sobra " +
+            "es HISTORIA: exporta solo los últimos meses. Una guía que se escanea hoy " +
+            "se prealertó hace días, no hace dos años.";
     }
-    return cabeza + "Va a tardar, y no está lejos del límite. Si falla, exporta solo " +
-           "las columnas de guía y house.";
+    return cabeza + "Va a tardar. Si falla, exporta solo los últimos meses en vez de " +
+           "toda la historia.";
 }
 
 function excedeElLimite(caracteres) {
     return caracteres / (1024 * 1024) >= MB_LIMITE;
+}
+
+// SIN FECHA NO HAY REPARTO, Y SIN REPARTO EL DISEÑO SE CAE.
+//
+// Todo el rendimiento de este módulo se apoya en que el índice caliente sea
+// pequeño: es el que el disparador abre CADA MINUTO. El reparto entre caliente
+// y frío lo decide la fecha, y sin ella todo se queda en el caliente.
+//
+// O sea que un archivo de 650.000 filas sin fecha no es «un poco más lento»:
+// convierte una carga de un segundo cada minuto en una de medio minuto cada
+// minuto, y el disparador se pisaría a sí mismo. Es peor que no tener houses.
+const AVISO_SIN_FECHA =
+    "⚠️ Este archivo NO trae columna de fecha.\n\n" +
+    "Sin fecha, todas las guías se quedan en el índice caliente, que es el que " +
+    "se abre cada minuto para rellenar. Con pocos miles no pasa nada; con " +
+    "cientos de miles, el disparador no da abasto.\n\n" +
+    "Añade al export una columna de fecha (llámala FECHA), o exporta solo los " +
+    "últimos meses.";
+
+// Parte el texto en bloques de líneas para no parsear 25 MB de una vez.
+//
+// La cabecera se repite al principio de cada bloque: así todos se parsean igual
+// y quien los reciba puede saltarse siempre la fila 0, sin llevar la cuenta de
+// qué bloque era el primero.
+//
+// Un salto de línea DENTRO de un campo entrecomillado no puede partir un bloque,
+// o el CSV quedaría cortado por la mitad y esa fila se perdería. Por eso se
+// cuentan las comillas: mientras haya una abierta, el bloque no se cierra.
+function bloquesDeLineas(texto, porBloque, cabecera) {
+    let lineas = String(texto === undefined || texto === null ? "" : texto).split("\n");
+    let limite = porBloque || LINEAS_POR_BLOQUE;
+    let bloques = [];
+    let actual = [];
+    let dentroDeComillas = false;
+
+    for (let i = 0; i < lineas.length; i++) {
+        actual.push(lineas[i]);
+        if ((lineas[i].match(/"/g) || []).length % 2 === 1) {
+            dentroDeComillas = !dentroDeComillas;
+        }
+        if (actual.length >= limite && !dentroDeComillas) {
+            bloques.push(actual.join("\n"));
+            actual = [];
+        }
+    }
+    if (actual.length) bloques.push(actual.join("\n"));
+    if (cabecera === undefined || cabecera === null) return bloques;
+    return bloques.map((b, i) => (i === 0 ? b : cabecera + "\n" + b));
 }
 
 // Power Query exporta «Column1, Column2, Column3…» cuando no se promueven los
@@ -246,6 +303,21 @@ function aFechaInbound(v) {
     if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
 
     return null;
+}
+
+// Lee un CSV entero por bloques y devuelve las filas listas para el índice.
+// Es lo que permite tragarse un archivo de decenas de MB sin montar en memoria
+// un array de más de un millón de celdas.
+function filasDeCsvCompleto(texto, cols, origen) {
+    let lineas = texto.split("\n");
+    let cabecera = lineas[0] || "";
+    let sep = separadorCsv(cabecera);
+    let salida = [];
+    bloquesDeLineas(texto, LINEAS_POR_BLOQUE, cabecera).forEach(bloque => {
+        let datos = Utilities.parseCsv(bloque, sep);
+        filasDeInbound(datos, cols, origen).forEach(r => salida.push(r));
+    });
+    return salida;
 }
 
 // Del CSV crudo a filas limpias. Se tira todo lo que no sea una guía válida:
@@ -607,6 +679,7 @@ function importarInboundAlIndice() {
                         .getProperty(PROP_ARCHIVOS_IMPORTADOS) || "").split(",");
     let archivos = carpetas.next().getFiles();
     let nuevas = [], leidos = [], saltados = [], sinCabecera = [], sinTipo = [];
+    let sinFecha = [], demasiadoGrandes = [];
 
     while (archivos.hasNext()) {
         let f = archivos.next();
@@ -620,8 +693,14 @@ function importarInboundAlIndice() {
         }
 
         let texto = textoDeArchivo(f);
-        let primeraLinea = texto.split(/\r?\n/)[0] || "";
-        let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
+        if (excedeElLimite(texto.length)) {
+            demasiadoGrandes.push(nombre + " (" + (texto.length / 1048576).toFixed(1) + " MB)");
+            continue;
+        }
+        let primeraLinea = texto.split("\n")[0] || "";
+        // Solo la cabecera para decidir columnas: no hace falta parsear el
+        // archivo entero para saber dónde está cada cosa.
+        let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
         let cols = detectarColumnasInbound(datos[0] || []);
         // Solo la HOUSE es imprescindible. Sin columna de guía se barren las
         // filas enteras buscando 1Z enterradas, que es el caso de la prealerta.
@@ -633,8 +712,9 @@ function importarInboundAlIndice() {
         // El nombre del archivo decide si es inbound o prealerta, y eso decide
         // quién gana un choque. No importa el orden en que Drive devuelva los
         // archivos: la regla la aplica la fusión, no el turno de lectura.
-        let deEste = filasDeInbound(datos, cols, nombre);
+        let deEste = filasDeCsvCompleto(texto, cols, nombre);
         if (tipoDeOrigen(nombre) === ORIGEN_DESCONOCIDO) sinTipo.push(nombre);
+        if (cols.fecha === -1) sinFecha.push(nombre);
         deEste.forEach(r => nuevas.push(r));
         leidos.push(marca);
     }
@@ -663,6 +743,13 @@ function importarInboundAlIndice() {
                sinTipo.join(", ") + "\n\n" +
                "Se importaron igual, pero si chocan con otra house NO podrán ganar. " +
                "Ponle al archivo «INBOUND» o «PREALERTA» en el nombre.";
+    }
+    if (demasiadoGrandes.length) {
+        msg += "\n\n❌ Demasiado grandes, NO se leyeron:\n" + demasiadoGrandes.join(", ") +
+               "\n\n" + avisoDeTamano(MB_LIMITE * 1048576);
+    }
+    if (sinFecha.length) {
+        msg += "\n\n" + AVISO_SIN_FECHA + "\n\nSin fecha: " + sinFecha.join(", ");
     }
     ui.alert("📥 Importar inbound", msg, ui.ButtonSet.OK);
 }
@@ -712,7 +799,12 @@ function escribirIndice(ss, nombre, filas) {
     if (lr > 1) h.getRange(2, 1, lr - 1, 4).clearContent();
     if (filas.length === 0) return;
     asegurarFilas(h, filas.length + 1);
-    h.getRange(2, 1, filas.length, 4).setValues(filas);
+    // Por tramos: un índice de cientos de miles de filas no cabe en un solo
+    // setValues.
+    for (let i = 0; i < filas.length; i += FILAS_POR_ESCRITURA) {
+        let tramo = filas.slice(i, i + FILAS_POR_ESCRITURA);
+        h.getRange(2 + i, 1, tramo.length, 4).setValues(tramo);
+    }
 }
 
 // -------------------------------------------------------------------------
@@ -1024,8 +1116,8 @@ function importarInboundDesdeOneDrive() {
         return;
     }
 
-    let primeraLinea = texto.split(/\n/)[0] || "";
-    let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
+    let primeraLinea = texto.split("\n")[0] || "";
+    let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
     let cols = detectarColumnasInbound(datos[0] || []);
     if (cols.house === -1) {
         ui.alert("☁️ OneDrive",
@@ -1045,7 +1137,8 @@ function importarInboundDesdeOneDrive() {
     // El tipo se saca de la propia URL, que suele llevar el nombre del archivo.
     // Si no se reconoce, esas houses no podrán ganar un choque: es preferible a
     // dejar que una prealerta pise a un inbound por accidente.
-    let resumen = volcarAlIndice(ss, filasDeInbound(datos, cols, url));
+    let resumen = volcarAlIndice(ss, filasDeCsvCompleto(texto, cols, url));
+    if (cols.fecha === -1) resumen += "\n\n" + AVISO_SIN_FECHA;
     if (tipoDeOrigen(url) === ORIGEN_DESCONOCIDO) {
         resumen += "\n\n⚠️ No sé si este archivo es inbound o prealerta: la URL no lo " +
                    "dice. Sus houses no podrán corregir a otras si chocan.";
