@@ -302,6 +302,24 @@ function aFechaInbound(v) {
     m = s.match(/^(\d{1,2})[-\/](\d{1,2})[-\/](\d{4})/);
     if (m) return new Date(Number(m[3]), Number(m[2]) - 1, Number(m[1]));
 
+    // LA TRAMPA DE EXCEL: si la celda no está formateada como fecha, el CSV no
+    // lleva «27/08/2026» sino «46261» —los días transcurridos desde el
+    // 30/12/1899—. Sin entenderlo, esa fila contaría como «sin fecha», se
+    // quedaría en el índice caliente Y NO LO DIRÍA. Basta con que una persona
+    // toque el formato de una columna para que el reparto caliente/frío deje de
+    // funcionar en silencio.
+    //
+    // El rango acota el riesgo: de 1970 a 2079. Un número de cinco cifras que
+    // no sea una fecha (un peso, un consecutivo) queda fuera por arriba o por
+    // abajo en la mayoría de los casos, y equivocarse aquí solo mueve una fila
+    // entre caliente y frío, nunca cambia una house.
+    if (/^\d+([.,]\d+)?$/.test(s)) {
+        let serie = Math.floor(Number(s.replace(",", ".")));
+        if (serie >= 25569 && serie <= 65000) {
+            return new Date(Date.UTC(1899, 11, 30) + serie * 86400000);
+        }
+    }
+
     return null;
 }
 
@@ -766,7 +784,9 @@ function volcarAlIndice(ss, nuevas) {
     escribirIndice(ss, HOJA_INDICE_HOUSE_FRIO, particion.frias);
 
     let embebidas = (nuevas || []).filter(n => n.embebida).length;
+    let conFecha = (nuevas || []).filter(n => n.fecha).length;
     let msg = "Guías leídas del archivo: " + (nuevas || []).length + "\n" +
+              "  · con fecha reconocida: " + conFecha + "\n" +
               (embebidas ? "  · de ellas, " + embebidas + " venían dentro de un texto, " +
                            "no en su columna\n" : "") +
               "Guías nuevas en el índice: " + fusion.anadidas + "\n" +
@@ -774,6 +794,18 @@ function volcarAlIndice(ss, nuevas) {
               "Índice caliente (últimos " + DIAS_INDICE_CALIENTE + " días): " +
               particion.calientes.length + "\n" +
               "Archivo frío: " + particion.frias.length;
+    // Que la columna de fecha exista no basta: si Excel la exportó en un formato
+    // que no se entiende, todas caen en el caliente y el disparador se ahoga sin
+    // que nada lo diga. Este contador es lo que hace visible ese caso.
+    let total = (nuevas || []).length;
+    if (total > 0 && conFecha < total / 2) {
+        msg += "\n\n⚠️ Solo " + conFecha + " de " + total + " guías traen una fecha " +
+               "que se entienda. Las demás se quedan en el índice CALIENTE, que se " +
+               "abre cada minuto.\n\n" +
+               "Suele ser que la columna de fecha no está formateada como fecha en " +
+               "Excel y sale como número o como texto raro. Dale formato de fecha y " +
+               "vuelve a exportar.";
+    }
     if (fusion.conflictos.length) {
         msg += "\n\n⚠️ " + fusion.conflictos.length + " guías con DOS houses distintas:\n" +
                fusion.conflictos.slice(0, 8)

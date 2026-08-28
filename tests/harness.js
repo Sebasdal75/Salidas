@@ -1828,6 +1828,24 @@ ok("un Date pasa tal cual", aFechaInbound(new Date(2026, 7, 15)).getDate() === 1
 ok("lo que no se entiende devuelve null", aFechaInbound("el martes") === null);
 ok("vacío devuelve null", aFechaInbound("") === null);
 
+// LA TRAMPA DE EXCEL: si la celda no está formateada como fecha, el CSV no
+// lleva «27/08/2026» sino el número de días desde el 30/12/1899. Sin
+// entenderlo, esa fila contaría como «sin fecha», se quedaría en el índice
+// caliente Y NO LO DIRÍA. Basta con que alguien toque el formato de una columna
+// para que el reparto caliente/frío deje de funcionar en silencio.
+let serie = aFechaInbound("46261");
+ok("un número de serie de Excel se entiende", serie instanceof Date);
+ok("y da la fecha correcta",
+   serie.getUTCFullYear() === 2026 && serie.getUTCMonth() === 7 && serie.getUTCDate() === 27);
+ok("con decimales (hora incluida) también", aFechaInbound("46261.75") instanceof Date);
+// El rango acota el riesgo: un consecutivo pequeño o un peso no son fechas.
+ok("un número pequeño NO es una fecha", aFechaInbound("1234") === null);
+ok("un número enorme tampoco", aFechaInbound("999999") === null);
+ok("una guía no se confunde con una fecha", aFechaInbound(G1) === null);
+// Equivocarse aquí solo mueve una fila entre caliente y frío, nunca cambia una
+// house: la fecha no interviene en qué house lleva una guía.
+ok("el límite bajo es 1970", aFechaInbound("25569").getUTCFullYear() === 1970);
+
 console.log("\n--- 6e. Fusionar: quién gana cuando dos archivos discrepan ---");
 // La base son DOS archivos y no valen igual:
 //   INBOUND   es lo que llegó.                    Es la realidad.
