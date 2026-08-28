@@ -105,12 +105,26 @@ function sinAcentos(txt) {
 // igual en vez de fallar con un error que apunta al sitio equivocado.
 function textoDeArchivo(archivo) {
     let t = archivo.getBlob().getDataAsString();
-    if (t.indexOf("�") === -1) return t;
-    try {
-        return archivo.getBlob().getDataAsString("windows-1252");
-    } catch (err) {
-        return t;
+    if (t.indexOf("�") !== -1) {
+        try { t = archivo.getBlob().getDataAsString("windows-1252"); } catch (err) { }
     }
+    return normalizarSaltos(t);
+}
+
+// Los tres CSV de Excel terminan las líneas de forma distinta, y en el menú de
+// «Guardar como» están pegados uno debajo del otro:
+//
+//   CSV (delimitado por comas)  -> \r\n   el bueno
+//   CSV (MS-DOS)                -> \r\n
+//   CSV (Macintosh)             -> \r     el que rompe
+//
+// Con solo \r no hay ni un salto de línea reconocible: el archivo entero
+// llegaría como UN renglón, la cabecera se comería todos los datos y la
+// importación diría «0 guías» sin dar ninguna pista de por qué. Un clic de
+// distancia en un desplegable no debería costar una tarde.
+function normalizarSaltos(texto) {
+    return String(texto === undefined || texto === null ? "" : texto)
+        .replace(/\r\n?/g, "\n");
 }
 
 // Excel en México exporta CSV con punto y coma tan a menudo como con coma, y
@@ -843,7 +857,7 @@ function importarInboundDesdeOneDrive() {
                      ".\n\nRevisa que el vínculo siga vivo.", ui.ButtonSet.OK);
             return;
         }
-        texto = resp.getContentText();
+        texto = normalizarSaltos(resp.getContentText());
     } catch (err) {
         ui.alert("☁️ OneDrive", "No se pudo descargar:\n\n" + err, ui.ButtonSet.OK);
         return;

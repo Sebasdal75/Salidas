@@ -1682,6 +1682,23 @@ ok("y sin acento también",
 ok("«NÚMERO DE GUÍA» también",
    detectarColumnasInbound(["NÚMERO DE GUÍA", "HOUSE AWB"]).guia === 0);
 
+// EL DESPISTE DE UN CLIC: en «Guardar como» de Excel 2016 hay tres CSV pegados
+// uno debajo de otro y terminan las líneas distinto.
+//   CSV (delimitado por comas) -> \r\n   el bueno
+//   CSV (MS-DOS)               -> \r\n
+//   CSV (Macintosh)            -> \r     el que rompe
+// Con solo \r no hay ni un salto reconocible: el archivo entero llegaría como
+// UN renglón, la cabecera se comería los datos y saldría «0 guías» sin pista.
+ok("Windows (\\r\\n) queda en \\n", normalizarSaltos("A,B\r\n1,2") === "A,B\n1,2");
+ok("Mac viejo (\\r solo) también", normalizarSaltos("A,B\r1,2") === "A,B\n1,2");
+ok("lo que ya venía en \\n no se toca", normalizarSaltos("A,B\n1,2") === "A,B\n1,2");
+ok("varias líneas seguidas", normalizarSaltos("a\r\nb\rc\nd") === "a\nb\nc\nd");
+ok("vacío no revienta", normalizarSaltos("") === "");
+ok("null tampoco", normalizarSaltos(null) === "");
+// Y lo que importa de verdad: con \r solo, la cabecera se separa de los datos.
+ok("con CSV Macintosh la cabecera ya no se come el archivo",
+   normalizarSaltos("GUIA,HOUSE\r1Z,H1\r1Z2,H2").split("\n").length === 3);
+
 console.log("\n--- 6c. De CSV crudo a filas limpias ---");
 // El reporte trae totales, renglones vacíos y basura. Nada de eso entra al
 // índice: engorda la carga sin servir para buscar.
