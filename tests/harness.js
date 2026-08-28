@@ -1616,6 +1616,28 @@ ok("los dos vacíos no piden crecer",
    filasNecesarias(filaQueMarcaElAlto(0, 0), 1200) === 0);
 ok("undefined no produce NaN", filaQueMarcaElAlto(undefined, 500) === 500);
 
+console.log("\n=== 5z4. Las pestañas del índice no son hojas de escaneo ===");
+// EL FALLO QUE ESTO ARREGLA: si el índice de houses vive en el archivo de
+// operación y no se le marca como interno, el caché lo toma por una Global
+// normal —una hoja con miles de guías en la columna A—. Entonces CADA guía
+// escaneada choca contra su propia copia del índice y sale
+// «⛔ DUPLICADO (En: INDICE_HOUSE)»: duplicados falsos, todos, y bloqueando el
+// cierre de los bloques.
+ok("INDICE_HOUSE es interna", esHojaInterna("INDICE_HOUSE"));
+ok("el archivo frío también", esHojaInterna("INDICE_HOUSE_FRIO"));
+ok("la marca de encendido también", esHojaInterna("HOUSE_ACTIVO"));
+ok("y por tanto NO se escanean",
+   !esHojaPrincipal("INDICE_HOUSE") && !esHojaPrincipal("INDICE_HOUSE_FRIO"));
+ok("son hojas de sistema", esHojaSistema("INDICE_HOUSE"));
+ok("en minúsculas también", esHojaInterna("indice_house"));
+// Por prefijo: si mañana el índice se parte en más pestañas, ninguna puede
+// colarse como hoja de escaneo.
+ok("una variante futura tampoco se cuela", esHojaInterna("INDICE_HOUSE 2026"));
+// Y nada de la operación se vuelve interno por error.
+ok("una Global sigue siendo de escaneo", esHojaPrincipal("GLOBALES"));
+ok("A1 sigue siendo de escaneo", esHojaPrincipal("A1 77-14-ZP"));
+ok("una M-S sigue siendo M-S", esHojaMS("M-S T1"));
+
 console.log("\n=== 5z3. El trigger simple no puede fiarse de una propiedad ===");
 // EL PEOR FALLO DEL ARCHIVO, Y ESTUVO AHÍ MESES:
 //

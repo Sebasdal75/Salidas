@@ -16,7 +16,17 @@ const ID_ARCHIVO = '';
 
 // Hojas internas del motor. Nunca se escanean y NUNCA reciben el volcado de la
 // columna M: la M de CACHE_SISTEMA guarda datos de caché, no la lista FEMAD.
-const HOJAS_INTERNAS = ["CACHE_SISTEMA", "HISTORIAL_BORRADOS"];
+// Pestañas que son MOTOR, no operación: ni se escanean, ni entran al caché, ni
+// reciben la columna M.
+//
+// Las del índice de houses están aquí por una razón que costó cara: si el
+// índice vive en este archivo y NO se le marca como interno, el caché lo toma
+// por una Global normal —una hoja con miles de guías en la columna A— y
+// entonces CADA guía que se escanea choca contra su propia copia del índice y
+// sale «⛔ DUPLICADO (En: INDICE_HOUSE)». Duplicados falsos, todos, y
+// bloqueando el cierre de los bloques.
+const HOJAS_INTERNAS = ["CACHE_SISTEMA", "HISTORIAL_BORRADOS",
+                        "INDICE_HOUSE", "INDICE_HOUSE_FRIO", "HOUSE_ACTIVO"];
 
 // Hoja origen de la lista FEMAD (guías retenidas por la Guardia Nacional).
 // Su columna M alimenta la validación de datos y los colores del resto de
@@ -126,7 +136,13 @@ function claveHoja(nombre) {
 // Motor: caché e historial. Ni se escanean ni reciben la columna M.
 function esHojaInterna(nombreHoja) {
     let n = claveHoja(nombreHoja);
-    return HOJAS_INTERNAS.indexOf(n) !== -1 || n.indexOf("HISTORIAL") !== -1;
+    if (HOJAS_INTERNAS.indexOf(n) !== -1) return true;
+    if (n.indexOf("HISTORIAL") !== -1) return true;
+    // Por prefijo, no por nombre exacto: si mañana el índice se parte en más
+    // pestañas, ninguna puede colarse como hoja de escaneo. Equivocarse por este
+    // lado solo esconde una pestaña interna; por el otro lado llena la operación
+    // de duplicados falsos.
+    return n.indexOf("INDICE_HOUSE") !== -1 || n === "HOUSE_ACTIVO";
 }
 
 // Cualquier pestaña con "MACHO" en el nombre: o es la lista FEMAD, o es una
