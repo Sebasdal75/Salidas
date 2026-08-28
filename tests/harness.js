@@ -1616,6 +1616,56 @@ ok("los dos vacíos no piden crecer",
    filasNecesarias(filaQueMarcaElAlto(0, 0), 1200) === 0);
 ok("undefined no produce NaN", filaQueMarcaElAlto(undefined, 500) === 500);
 
+console.log("\n=== 5z3. El trigger simple no puede fiarse de una propiedad ===");
+// EL PEOR FALLO DEL ARCHIVO, Y ESTUVO AHÍ MESES:
+//
+// El trigger simple se apartaba en cuanto una PROPIEDAD decía que el instalable
+// estaba puesto. Pero esa propiedad no sabe si el instalable sigue vivo. Google
+// desactiva los disparadores de una cuenta al agotarse su cuota diaria, y
+// también tras una racha de errores. Entonces el instalable no corre, la
+// propiedad sigue diciendo «está puesto», y el simple se aparta educadamente:
+// NADIE procesa los escaneos, y no hay ni un error en ninguna parte.
+//
+// Ahora el instalable deja un latido y el simple solo se aparta si es reciente.
+const MIN = 60 * 1000;
+let ahora = 1000000000;
+
+// Marcado como instalado Y latiendo hace poco: el simple se aparta, bien.
+global.PropertiesService = { getScriptProperties: () => ({
+    getProperty: (k) => (k === 'TRIGGER_EDICION_INSTALADO' ? '1'
+                       : k === 'TRIGGER_ULTIMO_LATIDO' ? String(ahora - 30 * 1000) : null)
+}) };
+globalTriggerInstalable = null;
+ok("con latido fresco, el simple se aparta", instalableRespondiendo(ahora));
+
+// EL CASO DEL FALLO: marcado como instalado pero SIN latir hace rato.
+global.PropertiesService = { getScriptProperties: () => ({
+    getProperty: (k) => (k === 'TRIGGER_EDICION_INSTALADO' ? '1'
+                       : k === 'TRIGGER_ULTIMO_LATIDO' ? String(ahora - 10 * MIN) : null)
+}) };
+globalTriggerInstalable = null;
+ok("sin latido, el simple RECOGE el trabajo", !instalableRespondiendo(ahora));
+
+// Marcado como instalado y sin haber latido nunca: tampoco se fía.
+global.PropertiesService = { getScriptProperties: () => ({
+    getProperty: (k) => (k === 'TRIGGER_EDICION_INSTALADO' ? '1' : null)
+}) };
+globalTriggerInstalable = null;
+ok("nunca ha latido: el simple tampoco se aparta", !instalableRespondiendo(ahora));
+
+// Sin instalable declarado, el simple trabaja siempre.
+global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
+globalTriggerInstalable = null;
+ok("sin instalable, el simple trabaja", !instalableRespondiendo(ahora));
+
+// Ante cualquier fallo al leer, procesar: procesar dos veces es molesto -y el
+// lock lo serializa- pero no procesar ninguna vez pierde el trabajo del turno.
+global.PropertiesService = { getScriptProperties: () => { throw new Error("sin permiso"); } };
+globalTriggerInstalable = null;
+ok("si no puede leer nada, procesa igual", !instalableRespondiendo(ahora));
+global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
+globalTriggerInstalable = null;
+
 console.log("\n=== 6. Índice de houses (módulo en pruebas) ===");
 // Cinco guías reales con dígito verificador bueno: si el fixture llevara guías
 // inválidas, `filasDeInbound` las tiraría y los tests pasarían por el motivo

@@ -654,13 +654,61 @@ function obtenerUsuarioActual() {
 //
 // Si el instalable está activo, el simple se aparta para no duplicar trabajo.
 // =========================================================================
+// EL FALLO QUE ESTO ARREGLA, Y ES EL PEOR DE TODO EL ARCHIVO:
+//
+// El trigger simple se apartaba en cuanto una PROPIEDAD decía que el instalable
+// estaba puesto. Pero esa propiedad no sabe si el instalable sigue vivo. Google
+// desactiva los disparadores de una cuenta cuando se agota su cuota diaria, y
+// también los apaga tras una racha de errores. Cuando eso pasa:
+//
+//   · el instalable ya no corre,
+//   · la propiedad sigue diciendo «está puesto»,
+//   · y el simple se aparta educadamente.
+//
+// Resultado: NADIE procesa los escaneos. La guía entra en la columna A porque
+// la teclea el escáner, la columna B se queda vacía, y no hay ni un error en
+// ninguna parte. Solo funciona «Forzar Actualización», que es de menú.
+//
+// Ahora el instalable deja un LATIDO cada vez que corre, y el simple solo se
+// aparta si ese latido es reciente. Si el instalable deja de responder, el
+// simple recoge el trabajo por su cuenta a los pocos minutos, sin que nadie
+// tenga que darse cuenta de nada.
+//
+// No se puede preguntar por los disparadores de verdad (`getProjectTriggers`)
+// desde un trigger simple: corre sin autorización. El latido es la única señal
+// que ahí dentro se puede leer.
+const PROP_LATIDO = 'TRIGGER_ULTIMO_LATIDO';
+const MINUTOS_SIN_LATIDO = 3;
+
 function onEdit(e) {
-    if (triggerInstalableActivo()) return;
+    if (instalableRespondiendo(Date.now())) return;
     procesarEdicion(e);
 }
 
 function alEditar(e) {
+    latir();
     procesarEdicion(e);
+}
+
+function latir() {
+    try {
+        PropertiesService.getScriptProperties().setProperty(PROP_LATIDO, String(Date.now()));
+    } catch (err) { /* el latido nunca puede tumbar un escaneo */ }
+}
+
+// Decide si conviene apartarse. Ante cualquier duda devuelve false: procesar dos
+// veces es molesto —y el lock del documento lo serializa—, pero no procesar
+// ninguna vez pierde el trabajo del turno.
+function instalableRespondiendo(ahora) {
+    if (!triggerInstalableActivo()) return false;
+    let ultimo = 0;
+    try {
+        ultimo = Number(PropertiesService.getScriptProperties().getProperty(PROP_LATIDO) || 0);
+    } catch (err) {
+        return false;
+    }
+    if (!ultimo) return false;
+    return (ahora - ultimo) / 60000 < MINUTOS_SIN_LATIDO;
 }
 
 function triggerInstalableActivo() {
@@ -674,6 +722,43 @@ function triggerInstalableActivo() {
     return globalTriggerInstalable;
 }
 
+// Enseña la VERDAD sobre los disparadores, no lo que dicen las propiedades.
+// Desde el menú sí se puede preguntar por los de verdad.
+function revisarDisparadores() {
+    const ui = SpreadsheetApp.getUi();
+    let triggers = ScriptApp.getProjectTriggers();
+    let nombres = triggers.map(t => t.getHandlerFunction());
+    let hayEdicion = nombres.indexOf('alEditar') !== -1;
+    let marcado = triggerInstalableActivo();
+
+    let ultimo = Number(PropertiesService.getScriptProperties().getProperty(PROP_LATIDO) || 0);
+    let hace = ultimo ? ((Date.now() - ultimo) / 60000).toFixed(1) + " min" : "nunca";
+
+    let veredicto;
+    if (hayEdicion) {
+        veredicto = "✅ El disparador de edición está puesto." +
+            (ultimo && (Date.now() - ultimo) / 60000 > MINUTOS_SIN_LATIDO
+                ? "\n\n⚠️ Pero lleva " + hace + " sin correr. Si se está escaneando, " +
+                  "Google lo tiene frenado: el trigger simple debería estar cubriendo."
+                : "");
+    } else if (marcado) {
+        veredicto = "❌ AQUÍ ESTÁ EL PROBLEMA.\n\nEl disparador de edición NO existe, " +
+            "pero el script lo tenía marcado como puesto. Reinstálalo en " +
+            "«⚙️ Disparadores → Trigger avanzado».";
+    } else {
+        veredicto = "⚠️ No hay disparador instalable. Funciona el trigger simple " +
+            "(límite de 30 s y sin identidad del editor). Para el historial con " +
+            "usuario, instala el avanzado.";
+    }
+
+    ui.alert("⚙️ Estado de los disparadores",
+        "Disparadores que existen de verdad:\n" +
+        (nombres.length ? "  · " + nombres.join("\n  · ") : "  (ninguno)") + "\n\n" +
+        "El script cree que el instalable está: " + (marcado ? "SÍ" : "NO") + "\n" +
+        "Última vez que corrió: " + hace + "\n\n" + veredicto,
+        ui.ButtonSet.OK);
+}
+
 function instalarTriggerAvanzado() {
     const ss = obtenerArchivo();
     ScriptApp.getProjectTriggers().forEach(t => {
@@ -682,6 +767,7 @@ function instalarTriggerAvanzado() {
     ScriptApp.newTrigger('alEditar').forSpreadsheet(ss).onEdit().create();
     PropertiesService.getScriptProperties().setProperty(PROP_TRIGGER, '1');
     globalTriggerInstalable = true;
+    latir();   // para que el primer escaneo no lo procesen los dos a la vez
 
     // Red de seguridad: recoge los escaneos que se perdieron por lock ocupado.
     ScriptApp.getProjectTriggers().forEach(t => {
@@ -3811,7 +3897,9 @@ function onOpen() {
         .addItem('Trigger avanzado (6 min, sin usuario)', 'instalarTriggerAvanzado')
         .addItem('Trigger simple + usuario en el historial', 'instalarTriggerConUsuario')
         .addSeparator()
-        .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado'))
+        .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado')
+        .addSeparator()
+        .addItem('🩺 Revisar los disparadores', 'revisarDisparadores'))
 
     .addSubMenu(ui.createMenu('🔧 Mantenimiento')
         .addItem('Reconstruir caché de ESTA pestaña', 'reconstruirCacheDeHojaActiva')
