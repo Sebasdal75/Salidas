@@ -1679,6 +1679,12 @@ let colsInv = detectarColumnasInbound(["Guía corta", "Guía"]);
 ok("da igual el orden: la corta sigue siendo house", colsInv.house === 0);
 ok("y la guía sigue siendo la otra", colsInv.guia === 1);
 
+// El inbound REAL, tal como quedó: FECHA, GUIA, GUIA CORTA.
+let colsReal = detectarColumnasInbound(["FECHA", "GUIA", "GUIA CORTA"]);
+ok("FECHA no se confunde con la guía", colsReal.guia === 1);
+ok("GUIA CORTA sigue siendo la house", colsReal.house === 2);
+ok("y la fecha es la columna A", colsReal.fecha === 0);
+
 // La prealerta: Tracking trae UNA guía, Additionals las demás de esa misma
 // house, separadas por comas.
 let colsPre = detectarColumnasInbound(["Tracking", "Shipment", "Additionals"]);
@@ -2087,8 +2093,16 @@ ok("null no revienta", queApuntaElVinculo(null) === "");
 // La marca va entre barras: una «x» suelta en el nombre del archivo no cuenta.
 ok("no se confunde con una x en el nombre",
    queApuntaElVinculo("https://x.sharepoint.com/g/personal/y/reporte-x-final.csv") === "");
-ok("el aviso del Excel manda a exportar a CSV",
+// EL FALSO POSITIVO QUE ESTO CORRIGE: SharePoint pone «/:x:/» a TODO lo que
+// abre con Excel, y un CSV abre con Excel. La marca NO distingue un .xlsx de un
+// .csv, así que el aviso tiene que sonar a sospecha, no a veredicto — y quien
+// lo use debe callarlo en cuanto el contenido se lea como CSV.
+ok("el aviso del Excel menciona el CSV",
    avisoDelTipoDeVinculo(URL_REAL).indexOf("CSV") !== -1);
+ok("y no afirma que sea un Excel",
+   avisoDelTipoDeVinculo(URL_REAL).indexOf("PODRÍA") !== -1);
+ok("avisa de que puede ser falsa alarma",
+   avisoDelTipoDeVinculo(URL_REAL).toLowerCase().indexOf("falsa alarma") !== -1);
 ok("un vínculo sin marca no genera aviso",
    avisoDelTipoDeVinculo("https://x.sharepoint.com/algo") === "");
 
@@ -2161,6 +2175,11 @@ ok("y el aviso dice cuántos MB son",
 // Ya no manda a quitar columnas: si solo quedan dos, el consejo sería inútil.
 ok("y manda a recortar la historia, no las columnas",
    avisoDeTamano(52260081).indexOf("meses") !== -1);
+// Y deja claro que el techo lo pone Google, no yo: con 49,4 MB el usuario está
+// a 600 KB del límite de UrlFetchApp, así que subir mi umbral solo movería el
+// fallo a un sitio peor.
+ok("dice que el límite es de Google", avisoDeTamano(52260081).indexOf("50 MB") !== -1);
+ok("el archivo real de 49,4 MB se rechaza", excedeElLimite(49.4 * UN_MB));
 ok("justo por debajo del límite pasa", !excedeElLimite(44 * UN_MB));
 
 console.log("\n--- 6k. Leer un CSV enorme por bloques ---");

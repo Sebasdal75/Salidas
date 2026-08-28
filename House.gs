@@ -156,10 +156,12 @@ function avisoDeTamano(caracteres) {
     let cabeza = "El archivo pesa " + mb.toFixed(1) + " MB.\n\n";
     if (mb >= MB_LIMITE) {
         return cabeza +
-            "Es demasiado para Apps Script: se quedaría sin tiempo a media lectura.\n\n" +
-            "Si ya está reducido a las columnas de guía y house, entonces lo que sobra " +
-            "es HISTORIA: exporta solo los últimos meses. Una guía que se escanea hoy " +
-            "se prealertó hace días, no hace dos años.";
+            "Google corta las descargas en 50 MB, así que este techo NO es cosa mía: " +
+            "subir el umbral solo movería el fallo a un sitio peor.\n\n" +
+            "Y lo que sobra aquí no son columnas, es HISTORIA. Filtra la consulta de " +
+            "Power Query a los últimos 6 meses y exporta eso. Una guía que se escanea " +
+            "hoy se prealertó hace días, no hace dos años, así que no pierdes ninguna " +
+            "búsqueda real — y el archivo completo sigue en Excel para tus macros.";
     }
     return cabeza + "Va a tardar. Si falla, exporta solo los últimos meses en vez de " +
            "toda la historia.";
@@ -898,9 +900,14 @@ function queApuntaElVinculo(url) {
 function avisoDelTipoDeVinculo(url) {
     let tipo = queApuntaElVinculo(url);
     if (tipo === "excel") {
-        return "⚠️ Este vínculo apunta a un LIBRO DE EXCEL (la marca «/:x:/» de la " +
-               "URL lo dice). Aunque la descarga funcionara, llegaría el binario de " +
-               "Excel y no se puede leer. Exporta a CSV y comparte el vínculo del CSV.";
+        // OJO: SharePoint pone «/:x:/» a TODO lo que abre con Excel, y un CSV
+        // abre con Excel. La marca NO distingue un .xlsx de un .csv, así que
+        // esto es una sospecha, no un hecho. Quien la use tiene que callarla en
+        // cuanto el contenido descargado se reconozca como CSV, o acusa de
+        // Excel a un archivo perfectamente bueno.
+        return "⚠️ Este vínculo PODRÍA apuntar a un libro de Excel (la marca «/:x:/» de " +
+               "la URL). Ojo: esa marca la lleva también un CSV, así que puede ser una " +
+               "falsa alarma; lo que manda es lo que baje.";
     }
     if (tipo === "carpeta") {
         return "⚠️ Este vínculo apunta a una CARPETA (la marca «/:f:/»), no a un " +
