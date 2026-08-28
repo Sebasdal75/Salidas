@@ -4710,6 +4710,18 @@ function forzarActualizacionHojaActiva() {
 
     ss.toast('⏳ Sincronizando datos, por favor espera...', 'Actualizando', 3);
 
+    // Estirar la hoja también desde aquí, no solo desde el escaneo.
+    //
+    // El crecimiento automático vive dentro de `procesarEdicion`, o sea que
+    // depende de que el disparador de edición funcione. Y cuando ese disparador
+    // se cae —Google lo frena por cuota, o se queda marcado como puesto sin
+    // estarlo— la hoja deja de crecer justo cuando más falta hace: el operador
+    // sigue escaneando y se acerca al final de la rejilla sin que nada avise.
+    //
+    // «Forzar Actualización» es lo que sí funciona siempre, porque es de menú.
+    // Que estire la hoja de paso hace que el fallo tenga arreglo a mano.
+    asegurarFilasDeEscaneo(hoja, hoja.getLastRow(), nombreHoja);
+
     // Podar primero las columnas de pestañas renombradas o borradas: si no, la
     // hoja se compararía contra su propio pasado y saldría toda duplicada.
     podarCacheHuerfano(ss);
