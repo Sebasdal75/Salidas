@@ -2035,5 +2035,24 @@ ok("el aviso del Excel manda a exportar a CSV",
 ok("un vínculo sin marca no genera aviso",
    avisoDelTipoDeVinculo("https://x.sharepoint.com/algo") === "");
 
+// El segundo camino, cuando download=1 devuelve la página puente en vez del
+// archivo. La ruta de descarga directa no pasa por el visor web, que es lo que
+// mete el rodeo de la cookie y el JavaScript.
+let alt = urlDescargaAlternativa(
+    "https://terminalmx-my.sharepoint.com/:t:/g/personal/sebastian_lopez_terminal_com_mx/" +
+    "IQDNB7BQPebj21XA?e=JAoCeD");
+ok("conserva el servidor",
+   alt.indexOf("https://terminalmx-my.sharepoint.com/") === 0);
+ok("conserva la ruta personal",
+   alt.indexOf("/personal/sebastian_lopez_terminal_com_mx/") !== -1);
+ok("apunta a download.aspx", alt.indexOf("/_layouts/15/download.aspx?share=") !== -1);
+ok("y lleva el token, sin el ?e=", alt.indexOf("share=IQDNB7BQPebj21XA") !== -1 &&
+   alt.indexOf("JAoCeD") === -1);
+ok("funciona igual con un vínculo de Excel",
+   urlDescargaAlternativa("https://x.sharepoint.com/:x:/g/personal/y/TOK") !== "");
+ok("una URL que no tiene esa forma devuelve vacío",
+   urlDescargaAlternativa("https://1drv.ms/x/s!ABC") === "");
+ok("null no revienta", urlDescargaAlternativa(null) === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

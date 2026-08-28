@@ -734,6 +734,23 @@ function avisoDelTipoDeVinculo(url) {
     return "";
 }
 
+// El segundo intento para SharePoint, cuando `download=1` devuelve la página
+// puente en vez del archivo.
+//
+// Un vínculo de compartir tiene esta forma:
+//   https://TENANT/:t:/g/personal/USUARIO/TOKEN?e=xxx
+// y SharePoint también sirve el mismo archivo por la ruta de descarga directa:
+//   https://TENANT/personal/USUARIO/_layouts/15/download.aspx?share=TOKEN
+//
+// Esa segunda no pasa por el visor web, que es lo que mete el rodeo de la
+// cookie y el JavaScript. Devuelve "" si la URL no tiene esta forma.
+function urlDescargaAlternativa(url) {
+    let u = String(url === undefined || url === null ? "" : url).trim();
+    let m = u.match(/^(https?:\/\/[^/]+)\/:[a-z]:\/[a-z]+\/(personal\/[^/]+)\/([^/?#]+)/i);
+    if (!m) return "";
+    return m[1] + "/" + m[2] + "/_layouts/15/download.aspx?share=" + m[3];
+}
+
 function urlDescargaOneDrive(url) {
     let u = String(url === undefined || url === null ? "" : url).trim();
     if (u === "") return "";
@@ -780,6 +797,40 @@ function clasificarDescarga(texto) {
     return "csv";
 }
 
+// Baja el archivo probando los dos caminos. Devuelve lo que consiga y por dónde
+// lo consiguió, para que el diagnóstico pueda decirlo.
+function bajarDeOneDrive(url) {
+    let intentos = [{ via: "download=1", url: urlDescargaOneDrive(url) }];
+    let alterna = urlDescargaAlternativa(url);
+    if (alterna) intentos.push({ via: "download.aspx", url: alterna });
+
+    let ultimo = null;
+    for (let i = 0; i < intentos.length; i++) {
+        let r;
+        try {
+            r = UrlFetchApp.fetch(intentos[i].url,
+                                  { muteHttpExceptions: true, followRedirects: true });
+        } catch (err) {
+            ultimo = { via: intentos[i].via, url: intentos[i].url, error: String(err) };
+            continue;
+        }
+        let texto = "";
+        try { texto = normalizarSaltos(r.getContentText()); } catch (err) { texto = ""; }
+        let cabeceras = r.getAllHeaders() || {};
+        let res = {
+            via: intentos[i].via,
+            url: intentos[i].url,
+            codigo: r.getResponseCode(),
+            tipo: cabeceras['Content-Type'] || cabeceras['content-type'] || "(sin tipo)",
+            texto: texto,
+            clase: clasificarDescarga(texto)
+        };
+        if (res.codigo === 200 && res.clase === "csv") return res;   // servido
+        ultimo = res;
+    }
+    return ultimo;
+}
+
 function explicarDescargaMala(clase) {
     if (clase === "excel") {
         return "Lo que bajó es un LIBRO DE EXCEL, no un CSV.\n\n" +
@@ -816,35 +867,30 @@ function probarVinculoOneDrive() {
     // El aviso del tipo va ANTES de descargar: si el vínculo apunta a un libro
     // de Excel o a una carpeta, el viaje sobra.
     let avisoTipo = avisoDelTipoDeVinculo(url);
-    let destino = urlDescargaOneDrive(url);
-    let resp;
-    try {
-        resp = UrlFetchApp.fetch(destino, { muteHttpExceptions: true, followRedirects: true });
-    } catch (err) {
+    let r = bajarDeOneDrive(url);
+    if (!r) {
+        ui.alert("🔎 Probar el vínculo", "No se pudo intentar la descarga.", ui.ButtonSet.OK);
+        return;
+    }
+    if (r.error) {
         ui.alert("🔎 Probar el vínculo",
-                 "URL usada:\n" + destino + "\n\nNi siquiera se pudo conectar:\n\n" + err,
+                 "URL usada:\n" + r.url + "\n\nNi siquiera se pudo conectar:\n\n" + r.error,
                  ui.ButtonSet.OK);
         return;
     }
 
-    let codigo = resp.getResponseCode();
-    let cabeceras = resp.getAllHeaders() || {};
-    let tipo = cabeceras['Content-Type'] || cabeceras['content-type'] || "(sin tipo)";
-    let texto = "";
-    try { texto = resp.getContentText(); } catch (err) { texto = ""; }
-    let clase = clasificarDescarga(texto);
-
-    let muestra = texto.substring(0, 200).replace(/[\r\n]+/g, " ⏎ ");
+    let muestra = r.texto.substring(0, 200).replace(/[\r\n]+/g, " ⏎ ");
     ui.alert("🔎 Probar el vínculo",
         (avisoTipo ? avisoTipo + "\n\n" : "") +
-        "URL usada:\n" + destino + "\n\n" +
-        "Código HTTP: " + codigo + "\n" +
-        "Tipo de contenido: " + tipo + "\n" +
-        "Tamaño: " + texto.length + " caracteres\n" +
-        "Lo que parece ser: " + clase.toUpperCase() + "\n\n" +
+        "Camino usado: " + r.via + "\n" +
+        "URL usada:\n" + r.url + "\n\n" +
+        "Código HTTP: " + r.codigo + "\n" +
+        "Tipo de contenido: " + r.tipo + "\n" +
+        "Tamaño: " + r.texto.length + " caracteres\n" +
+        "Lo que parece ser: " + r.clase.toUpperCase() + "\n\n" +
         "Primeros 200 caracteres:\n" + (muestra || "(nada)") + "\n\n" +
-        (clase === "csv" ? "✅ Esto sí se puede importar."
-                         : "❌ " + explicarDescargaMala(clase)),
+        (r.clase === "csv" ? "✅ Esto sí se puede importar."
+                           : "❌ " + explicarDescargaMala(r.clase)),
         ui.ButtonSet.OK);
 }
 
@@ -887,26 +933,25 @@ function importarInboundDesdeOneDrive() {
         return;
     }
 
-    let texto;
-    try {
-        let resp = UrlFetchApp.fetch(urlDescargaOneDrive(url),
-                                     { muteHttpExceptions: true, followRedirects: true });
-        if (resp.getResponseCode() !== 200) {
-            ui.alert("☁️ OneDrive", "Microsoft respondió " + resp.getResponseCode() +
-                     ".\n\nRevisa que el vínculo siga vivo.", ui.ButtonSet.OK);
-            return;
-        }
-        texto = normalizarSaltos(resp.getContentText());
-    } catch (err) {
-        ui.alert("☁️ OneDrive", "No se pudo descargar:\n\n" + err, ui.ButtonSet.OK);
+    let r = bajarDeOneDrive(url);
+    if (!r || r.error) {
+        ui.alert("☁️ OneDrive", "No se pudo descargar:\n\n" +
+                 ((r && r.error) || "sin respuesta"), ui.ButtonSet.OK);
         return;
     }
-
-    let clase = clasificarDescarga(texto);
-    if (clase !== "csv") {
-        ui.alert("☁️ OneDrive", explicarDescargaMala(clase), ui.ButtonSet.OK);
+    if (r.codigo !== 200) {
+        ui.alert("☁️ OneDrive", "Microsoft respondió " + r.codigo +
+                 ".\n\nRevisa que el vínculo siga vivo.", ui.ButtonSet.OK);
         return;
     }
+    if (r.clase !== "csv") {
+        ui.alert("☁️ OneDrive",
+                 explicarDescargaMala(r.clase) + "\n\n" +
+                 (avisoDelTipoDeVinculo(url) || "") +
+                 "\n\nUsa «Probar el vínculo» para ver el detalle.", ui.ButtonSet.OK);
+        return;
+    }
+    let texto = r.texto;
 
     let primeraLinea = texto.split(/\r?\n/)[0] || "";
     let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
