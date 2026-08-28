@@ -1036,50 +1036,100 @@ function probarVinculoOneDrive() {
     const ui = SpreadsheetApp.getUi();
     if (!exigirModoPrueba(ss)) return;
 
-    let url = PropertiesService.getScriptProperties().getProperty(PROP_URL_ONEDRIVE);
-    if (!url) {
-        ui.alert("🔎 Probar el vínculo", "No hay vínculo guardado.", ui.ButtonSet.OK);
+    let lista = urlsDeOneDrive();
+    if (lista.length === 0) {
+        ui.alert("🔎 Probar el vínculo", "No hay ningún vínculo guardado.", ui.ButtonSet.OK);
         return;
     }
 
-    // El aviso del tipo va ANTES de descargar: si el vínculo apunta a un libro
-    // de Excel o a una carpeta, el viaje sobra.
-    let avisoTipo = avisoDelTipoDeVinculo(url);
-    let r = bajarDeOneDrive(url);
-    if (!r) {
-        ui.alert("🔎 Probar el vínculo", "No se pudo intentar la descarga.", ui.ButtonSet.OK);
-        return;
-    }
-    if (r.error) {
-        ui.alert("🔎 Probar el vínculo",
-                 "URL usada:\n" + r.url + "\n\nNi siquiera se pudo conectar:\n\n" + r.error,
-                 ui.ButtonSet.OK);
-        return;
-    }
+    let partes = [];
+    lista.forEach(entrada => {
+        let etiqueta = nombreDeOrigen(entrada.tipo) || "SIN ETIQUETA";
+        let avisoTipo = avisoDelTipoDeVinculo(entrada.url);
+        let r = bajarDeOneDrive(entrada.url);
 
-    let muestra = r.texto.substring(0, 200).replace(/[\r\n]+/g, " ⏎ ");
-    ui.alert("🔎 Probar el vínculo",
-        (avisoTipo ? avisoTipo + "\n\n" : "") +
-        "Camino usado: " + r.via + "\n" +
-        "URL usada:\n" + r.url + "\n\n" +
-        "Código HTTP: " + r.codigo + "\n" +
-        "Tipo de contenido: " + r.tipo + "\n" +
-        "Tamaño: " + r.texto.length + " caracteres\n" +
-        "Lo que parece ser: " + r.clase.toUpperCase() + "\n\n" +
-        "Primeros 200 caracteres:\n" + (muestra || "(nada)") + "\n\n" +
-        (r.clase === "csv"
-            ? (excedeElLimite(r.texto.length)
-                ? "❌ " + avisoDeTamano(r.texto.length)
-                : (avisoDeTamano(r.texto.length) ? "⚠️ " + avisoDeTamano(r.texto.length) + "\n\n" : "") +
-                  (cabecerasGenericas(Utilities.parseCsv(
-                        r.texto.split(/\n/).slice(0, 2).join("\n"),
-                        separadorCsv(r.texto.split(/\n/)[0] || ""))[0])
-                    ? "❌ Las cabeceras son genéricas («Column1, Column2…»): el CSV salió " +
-                      "de Power Query sin promover los encabezados. La primera fila tiene " +
-                      "que decir GUIA y HOUSE."
-                    : "✅ Esto sí se puede importar."))
-            : "❌ " + explicarDescargaMala(r.clase)),
-        ui.ButtonSet.OK);
+        if (!r || r.error) {
+            partes.push("── " + etiqueta + " ──\n❌ No se pudo conectar:\n" +
+                        ((r && r.error) || "sin respuesta"));
+            return;
+        }
+
+        let detalle = "── " + etiqueta + " ──\n" +
+            (avisoTipo ? avisoTipo + "\n" : "") +
+            "Camino: " + r.via + "\n" +
+            "HTTP " + r.codigo + " · " + r.tipo + "\n" +
+            "Tamaño: " + (r.texto.length / 1048576).toFixed(1) + " MB\n" +
+            "Parece ser: " + r.clase.toUpperCase() + "\n";
+
+        if (r.clase !== "csv") {
+            partes.push(detalle + "❌ " + explicarDescargaMala(r.clase));
+            return;
+        }
+        if (excedeElLimite(r.texto.length)) {
+            partes.push(detalle + "❌ " + avisoDeTamano(r.texto.length));
+            return;
+        }
+
+        // Con la cabecera basta para saber si el archivo va a servir: qué
+        // columnas trae y si hay fecha, que es lo que decide el reparto entre el
+        // índice caliente y el frío.
+        let primeraLinea = r.texto.split("\n")[0] || "";
+        let cab = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea))[0] || [];
+        let cols = detectarColumnasInbound(cab);
+        detalle += "Cabeceras: " + cab.slice(0, 8).join(" | ") + "\n" +
+                   "Guía: " + (cols.guia === -1 ? "(ninguna; buscaré las 1Z en el texto)"
+                                                : cab[cols.guia]) + "\n" +
+                   "House: " + (cols.house === -1 ? "❌ NO LA ENCUENTRO" : cab[cols.house]) + "\n" +
+                   "Fecha: " + (cols.fecha === -1 ? "⚠️ ninguna" : cab[cols.fecha]) + "\n";
+
+        if (cols.house === -1) {
+            partes.push(detalle + "❌ Sin columna de house no se puede importar." +
+                (cabecerasGenericas(cab) ? " Las cabeceras son genéricas: promueve los " +
+                 "encabezados en Power Query." : ""));
+            return;
+        }
+        if (cols.fecha === -1) {
+            partes.push(detalle + "⚠️ Se puede importar, pero sin fecha todo cae en el " +
+                        "índice caliente.");
+            return;
+        }
+        partes.push(detalle + "✅ Listo para importar.");
+    });
+
+    ui.alert("🔎 Probar los vínculos", partes.join("\n\n"), ui.ButtonSet.OK);
+}
+
+function parsearUrlsGuardadas(txt) {
+    return String(txt === undefined || txt === null ? "" : txt).split("\n")
+        .map(l => l.trim()).filter(l => l !== "")
+        .map(l => {
+            let corte = l.indexOf("|");
+            if (corte === -1) return { tipo: ORIGEN_DESCONOCIDO, url: l };
+            let etq = l.substring(0, corte).trim().toUpperCase();
+            return {
+                tipo: etq === "INBOUND" ? ORIGEN_INBOUND
+                    : etq === "PREALERTA" ? ORIGEN_PREALERTA : ORIGEN_DESCONOCIDO,
+                url: l.substring(corte + 1).trim()
+            };
+        })
+        .filter(e => e.url !== "");
+}
+
+function serializarUrlsGuardadas(lista) {
+    return (lista || []).map(e => nombreDeOrigen(e.tipo) + "|" + e.url).join("\n");
+}
+
+function urlsDeOneDrive() {
+    return parsearUrlsGuardadas(
+        PropertiesService.getScriptProperties().getProperty(PROP_URL_ONEDRIVE));
+}
+
+function quitarUrlsOneDrive() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+    PropertiesService.getScriptProperties().deleteProperty(PROP_URL_ONEDRIVE);
+    ui.alert("🔗 Vínculos", "Borrados todos.", ui.ButtonSet.OK);
 }
 
 function configurarUrlOneDrive() {
@@ -1087,25 +1137,46 @@ function configurarUrlOneDrive() {
     const ui = SpreadsheetApp.getUi();
     if (!exigirModoPrueba(ss)) return;
 
-    let actual = PropertiesService.getScriptProperties().getProperty(PROP_URL_ONEDRIVE);
-    let r = ui.prompt("🔗 Vínculo de OneDrive",
-        "Pega el vínculo para compartir del CSV.\n\n" +
-        "Tiene que ser de «Cualquiera con el vínculo» — con «puede ver» basta.\n" +
-        "Si lo restringes a tu organización, el script recibe una página de " +
-        "inicio de sesión en vez del archivo.\n\n" +
-        "⚠️ Ese vínculo es la llave del archivo: que el CSV lleve solo 1Z y HOUSE.\n\n" +
-        (actual ? "Ahora mismo hay uno guardado. Deja vacío para borrarlo." : ""),
+    let lista = urlsDeOneDrive();
+    let resumen = lista.length === 0 ? "No hay ninguno guardado todavía."
+        : "Guardados ahora (" + lista.length + "):\n" +
+          lista.map(e => "  · " + (nombreDeOrigen(e.tipo) || "SIN ETIQUETA")).join("\n");
+
+    let r = ui.prompt("🔗 Añadir vínculo de OneDrive",
+        "Pega el vínculo para compartir de UN CSV. Se AÑADE a los que ya hay, " +
+        "así que puedes guardar el inbound y la prealerta.\n\n" +
+        "Tiene que ser de «Cualquiera con el vínculo» — con «puede ver» basta.\n\n" +
+        resumen,
         ui.ButtonSet.OK_CANCEL);
     if (r.getSelectedButton() !== ui.Button.OK) return;
 
     let url = r.getResponseText().trim();
     if (url === "") {
-        PropertiesService.getScriptProperties().deleteProperty(PROP_URL_ONEDRIVE);
-        ui.alert("🔗 Vínculo", "Borrado.", ui.ButtonSet.OK);
+        ui.alert("🔗 Vínculo", "No pegaste nada. No se cambió nada.\n\n" +
+                 "Para borrar los guardados usa «Quitar los vínculos».", ui.ButtonSet.OK);
         return;
     }
-    PropertiesService.getScriptProperties().setProperty(PROP_URL_ONEDRIVE, url);
-    ui.alert("🔗 Vínculo", "Guardado en las propiedades del script, fuera del código.",
+
+    // La etiqueta se pregunta porque la URL de descarga es un token y NO lleva
+    // el nombre del archivo dentro. Sin ella los dos entrarían como
+    // «desconocido» y ninguno podría corregir al otro: la regla de que el
+    // inbound manda sobre la prealerta se quedaría muerta y en silencio.
+    let esInbound = ui.alert("🔗 ¿Qué archivo es?",
+        "¿Este vínculo es el INBOUND?\n\n" +
+        "Sí = INBOUND (lo que llegó de verdad; corrige a la prealerta)\n" +
+        "No = PREALERTA (lo que dijeron que iba a llegar)",
+        ui.ButtonSet.YES_NO);
+
+    lista = lista.filter(e => e.url !== url);
+    lista.push({ tipo: esInbound === ui.Button.YES ? ORIGEN_INBOUND : ORIGEN_PREALERTA,
+                 url: url });
+    PropertiesService.getScriptProperties()
+        .setProperty(PROP_URL_ONEDRIVE, serializarUrlsGuardadas(lista));
+
+    ui.alert("🔗 Vínculo",
+             "Guardado como " + nombreDeOrigen(lista[lista.length - 1].tipo) +
+             ".\n\nVínculos guardados: " + lista.length +
+             "\n\nEstán en las propiedades del script, fuera del código.",
              ui.ButtonSet.OK);
 }
 
@@ -1114,73 +1185,73 @@ function importarInboundDesdeOneDrive() {
     const ui = SpreadsheetApp.getUi();
     if (!exigirModoPrueba(ss)) return;
 
-    let url = PropertiesService.getScriptProperties().getProperty(PROP_URL_ONEDRIVE);
-    if (!url) {
-        ui.alert("☁️ OneDrive", "No hay vínculo guardado.\n\nUsa «Configurar vínculo de " +
-                 "OneDrive» primero.", ui.ButtonSet.OK);
+    let lista = urlsDeOneDrive();
+    if (lista.length === 0) {
+        ui.alert("☁️ OneDrive", "No hay ningún vínculo guardado.\n\nUsa «Añadir " +
+                 "vínculo de OneDrive» primero.", ui.ButtonSet.OK);
         return;
     }
 
-    let r = bajarDeOneDrive(url);
-    if (!r || r.error) {
-        ui.alert("☁️ OneDrive", "No se pudo descargar:\n\n" +
-                 ((r && r.error) || "sin respuesta"), ui.ButtonSet.OK);
-        return;
-    }
-    if (r.codigo !== 200) {
-        ui.alert("☁️ OneDrive", "Microsoft respondió " + r.codigo +
-                 ".\n\nRevisa que el vínculo siga vivo.", ui.ButtonSet.OK);
-        return;
-    }
-    if (r.clase !== "csv") {
-        ui.alert("☁️ OneDrive",
-                 explicarDescargaMala(r.clase) + "\n\n" +
-                 (avisoDelTipoDeVinculo(url) || "") +
-                 "\n\nUsa «Probar el vínculo» para ver el detalle.", ui.ButtonSet.OK);
-        return;
-    }
-    let texto = r.texto;
+    // Se bajan TODOS y se fusionan de una sola vez. Importarlos por separado
+    // daría el mismo resultado -la regla del inbound no depende del orden- pero
+    // así el resumen sale junto y el índice se reescribe una vez en vez de dos.
+    let nuevas = [], problemas = [], sinFecha = [];
+    for (let i = 0; i < lista.length; i++) {
+        let etiqueta = nombreDeOrigen(lista[i].tipo) || "SIN ETIQUETA";
+        let r = bajarDeOneDrive(lista[i].url);
 
-    // El tamaño se mira ANTES de parsear: si no va a caber, decirlo ahora vale
-    // mucho más que un error de tiempo agotado dentro de seis minutos.
-    if (excedeElLimite(texto.length)) {
-        ui.alert("☁️ OneDrive", avisoDeTamano(texto.length), ui.ButtonSet.OK);
+        if (!r || r.error) {
+            problemas.push(etiqueta + ": no se pudo descargar (" +
+                           ((r && r.error) || "sin respuesta") + ")");
+            continue;
+        }
+        if (r.codigo !== 200) {
+            problemas.push(etiqueta + ": Microsoft respondió " + r.codigo);
+            continue;
+        }
+        if (r.clase !== "csv") {
+            problemas.push(etiqueta + ": lo que bajó no es un CSV, parece " + r.clase);
+            continue;
+        }
+        if (excedeElLimite(r.texto.length)) {
+            problemas.push(etiqueta + ": " + (r.texto.length / 1048576).toFixed(1) +
+                           " MB, demasiado grande");
+            continue;
+        }
+
+        let primeraLinea = r.texto.split("\n")[0] || "";
+        let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
+        let cols = detectarColumnasInbound(datos[0] || []);
+        if (cols.house === -1) {
+            problemas.push(etiqueta + ": no encuentro la columna de la house" +
+                (cabecerasGenericas(datos[0]) ? " (las cabeceras son «Column1, Column2…»: " +
+                 "promueve los encabezados en Power Query)" : "") +
+                ". Cabeceras: " + (datos[0] || []).slice(0, 8).join(" | "));
+            continue;
+        }
+        if (cols.fecha === -1) sinFecha.push(etiqueta);
+
+        // El tipo va por la etiqueta que se eligió al guardar el vínculo, no por
+        // la URL: la de descarga es un token y no lleva el nombre del archivo.
+        filasDeCsvCompleto(r.texto, cols, nombreDeOrigen(lista[i].tipo))
+            .forEach(f => nuevas.push(f));
+    }
+
+    if (nuevas.length === 0) {
+        ui.alert("☁️ OneDrive", "No se pudo leer ningún archivo.\n\n" +
+                 problemas.join("\n\n"), ui.ButtonSet.OK);
         return;
     }
 
-    let primeraLinea = texto.split("\n")[0] || "";
-    let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
-    let cols = detectarColumnasInbound(datos[0] || []);
-    if (cols.house === -1) {
-        ui.alert("☁️ OneDrive",
-                 (cabecerasGenericas(datos[0]) ?
-                    "El CSV salió de Power Query SIN promover los encabezados: la " +
-                    "primera fila dice «Column1, Column2, Column3…» en vez de los " +
-                    "nombres reales.\n\nEn Power Query, «Usar la primera fila como " +
-                    "encabezado», y vuelve a exportar.\n\n"
-                  : "El archivo llegó bien, pero no encuentro la columna de la HOUSE.\n\n") +
-                 "Cabeceras encontradas: " + (datos[0] || []).slice(0, 12).join(" | ") + "\n\n" +
-                 "Necesito una que se llame HOUSE, HAWB, HBL o CASA. La de la guía es " +
-                 "opcional: si no está, busco las 1Z dentro del texto de cada fila.",
-                 ui.ButtonSet.OK);
-        return;
-    }
-
-    // El tipo se saca de la propia URL, que suele llevar el nombre del archivo.
-    // Si no se reconoce, esas houses no podrán ganar un choque: es preferible a
-    // dejar que una prealerta pise a un inbound por accidente.
-    let resumen = volcarAlIndice(ss, filasDeCsvCompleto(texto, cols, url));
-    if (cols.fecha === -1) resumen += "\n\n" + AVISO_SIN_FECHA;
-    if (tipoDeOrigen(url) === ORIGEN_DESCONOCIDO) {
-        resumen += "\n\n⚠️ No sé si este archivo es inbound o prealerta: la URL no lo " +
-                   "dice. Sus houses no podrán corregir a otras si chocan.";
-    }
+    let resumen = volcarAlIndice(ss, nuevas);
+    resumen = "Archivos leídos: " + (lista.length - problemas.length) + " de " +
+              lista.length + "\n\n" + resumen;
+    if (sinFecha.length) resumen += "\n\n" + AVISO_SIN_FECHA + "\n\nSin fecha: " +
+                                    sinFecha.join(", ");
+    if (problemas.length) resumen += "\n\n❌ Con problemas:\n" + problemas.join("\n");
     ui.alert("☁️ OneDrive", resumen, ui.ButtonSet.OK);
 }
 
-// -------------------------------------------------------------------------
-// RELLENAR: el disparador de cada minuto
-// -------------------------------------------------------------------------
 function rellenarHousesPendientes() {
     const ss = obtenerArchivo();
     if (!esArchivoDePrueba(ss.getName())) return;   // silencioso: es un trigger

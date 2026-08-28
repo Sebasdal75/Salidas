@@ -2111,6 +2111,36 @@ ok("una URL que no tiene esa forma devuelve vacío",
    urlDescargaAlternativa("https://1drv.ms/x/s!ABC") === "");
 ok("null no revienta", urlDescargaAlternativa(null) === "");
 
+console.log("\n--- 6i2. Varios vínculos, cada uno etiquetado ---");
+// Son dos archivos, hacen falta dos vínculos. Y la etiqueta no es comodidad:
+// la URL de descarga de SharePoint es un TOKEN y no lleva el nombre del archivo
+// dentro. Con los CSV de Drive el tipo sale del nombre; aquí no hay nombre.
+// Sin etiqueta los dos entrarían como «desconocido» y NINGUNO podría corregir
+// al otro: la regla de que el inbound manda se quedaría muerta y en silencio.
+const TOKEN_URL = "https://terminalmx-my.sharepoint.com/personal/x/_layouts/15/" +
+                  "download.aspx?share=IQAqSNTGDUCRQ4nLLcudTvb";
+ok("la URL de descarga NO dice de qué archivo es",
+   tipoDeOrigen(TOKEN_URL) === origenDesconocido());
+
+let guardadas = [{tipo: origenInbound(), url: "https://a/1"},
+                 {tipo: origenPrealerta(), url: "https://b/2"}];
+let serie2 = serializarUrlsGuardadas(guardadas);
+let vuelta = parsearUrlsGuardadas(serie2);
+ok("guarda y recupera los dos", vuelta.length === 2);
+ok("conserva la etiqueta del inbound", vuelta[0].tipo === origenInbound());
+ok("conserva la de la prealerta", vuelta[1].tipo === origenPrealerta());
+ok("y las URLs intactas", vuelta[0].url === "https://a/1" && vuelta[1].url === "https://b/2");
+// Una URL con «|» dentro no puede partir mal: solo cuenta el PRIMER separador.
+ok("una URL con | dentro sobrevive",
+   parsearUrlsGuardadas("INBOUND|https://a/x?p=1|2")[0].url === "https://a/x?p=1|2");
+ok("una línea sin etiqueta queda como desconocida",
+   parsearUrlsGuardadas("https://a/1")[0].tipo === origenDesconocido());
+ok("las líneas vacías se ignoran",
+   parsearUrlsGuardadas("INBOUND|https://a/1\n\n   \n").length === 1);
+ok("vacío da lista vacía", parsearUrlsGuardadas("").length === 0);
+ok("null tampoco revienta", parsearUrlsGuardadas(null).length === 0);
+ok("lista vacía se serializa vacía", serializarUrlsGuardadas([]) === "");
+
 console.log("\n--- 6j. Los dos límites del CSV real ---");
 // EL CASO REAL: el inbound concentrado bajó con 52.260.081 caracteres. Apps
 // Script no aguanta eso: se queda sin tiempo a media pasada de parseCsv y el
