@@ -1828,6 +1828,28 @@ ok("filasDeInbound marca el origen",
    filasDeInbound(crudoInb, detectarColumnasInbound(crudoInb[0]), "INBOUND_1.csv")[0].origen
    === origenInbound());
 
+console.log("\n--- 6e2. «Esto ya lo importé» va por ID Y fecha ---");
+// EL FALLO QUE ESTO EVITA: Drive conserva el mismo ID cuando se sube una
+// version nueva encima de un archivo. Y el inbound se actualiza a diario,
+// reemplazando el de ayer. Con la memoria por ID a secas, el primer inbound
+// entraba y todos los siguientes se saltaban EN SILENCIO: el índice congelado
+// en el día uno, y la importación diciendo «no había archivos nuevos», que
+// suena exactamente igual que todo va bien.
+let ayer = new Date(2026, 7, 26, 8, 0, 0);
+let hoyMod = new Date(2026, 7, 27, 8, 0, 0);
+ok("el mismo archivo sin tocar da la misma marca",
+   marcaDeArchivo("ID1", ayer) === marcaDeArchivo("ID1", ayer));
+ok("actualizado da OTRA marca (por eso se reimporta)",
+   marcaDeArchivo("ID1", ayer) !== marcaDeArchivo("ID1", hoyMod));
+ok("dos archivos distintos nunca se confunden",
+   marcaDeArchivo("ID1", ayer) !== marcaDeArchivo("ID2", ayer));
+ok("sin fecha sigue dando algo estable",
+   marcaDeArchivo("ID1", null) === marcaDeArchivo("ID1", null));
+ok("la marca lleva el ID dentro", marcaDeArchivo("ID1", ayer).indexOf("ID1") === 0);
+// El separador no puede aparecer en un ID de Drive, o dos marcas distintas
+// podrían leerse como la misma al guardarlas juntas.
+ok("el separador es @", marcaDeArchivo("ID1", ayer).indexOf("@") === 3);
+
 console.log("\n--- 6f. Caliente y frío ---");
 // El corte es lo que hace que el relleno de cada minuto sea barato: se cargan
 // unos miles de filas, no la base entera.

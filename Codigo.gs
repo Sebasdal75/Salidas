@@ -3840,6 +3840,7 @@ function onOpen() {
               .addSeparator()
               .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
               .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
+              .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
               .addSeparator()
               .addItem('Rellenar solo, cada minuto', 'instalarTriggerHouse')
               .addItem('Dejar de rellenar solo', 'quitarTriggerHouse'));

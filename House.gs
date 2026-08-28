@@ -462,6 +462,40 @@ function mapaDeIndice(filas) {
 // -------------------------------------------------------------------------
 // IMPORTAR: de los CSV de Drive al índice
 // -------------------------------------------------------------------------
+
+// La memoria de «esto ya lo importé» va por ID **y fecha de modificación**, no
+// solo por ID.
+//
+// EL FALLO QUE ESTO EVITA: Drive conserva el mismo ID cuando se sube una
+// versión nueva encima de un archivo. Y el inbound se actualiza a diario, casi
+// siempre reemplazando el de ayer. Con la memoria por ID a secas, el primer
+// inbound se importaba y todos los siguientes se saltaban en silencio: el
+// índice se quedaría congelado en el día uno mientras la importación seguiría
+// diciendo «no había archivos nuevos», que suena a que todo va bien.
+function marcaDeArchivo(id, fechaMod) {
+    let sello = "";
+    if (fechaMod instanceof Date && !isNaN(fechaMod.getTime())) {
+        sello = String(fechaMod.getTime());
+    } else if (fechaMod !== undefined && fechaMod !== null) {
+        sello = String(fechaMod);
+    }
+    return String(id) + "@" + sello;
+}
+
+// Olvida lo importado para que el próximo botón lea la carpeta entera otra vez.
+// Reimportar es seguro —el índice no duplica y el inbound sigue mandando— así
+// que esto solo cuesta tiempo, nunca datos.
+function olvidarArchivosImportados() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+    PropertiesService.getScriptProperties().deleteProperty(PROP_ARCHIVOS_IMPORTADOS);
+    ui.alert("🔁 Reimportar todo",
+             "Listo. La próxima importación volverá a leer todos los CSV de la " +
+             "carpeta.\n\nNo se pierde nada: las guías que ya estaban no se duplican.",
+             ui.ButtonSet.OK);
+}
+
 function importarInboundAlIndice() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
@@ -482,7 +516,8 @@ function importarInboundAlIndice() {
 
     while (archivos.hasNext()) {
         let f = archivos.next();
-        if (yaImportados.indexOf(f.getId()) !== -1) continue;
+        let marca = marcaDeArchivo(f.getId(), f.getLastUpdated());
+        if (yaImportados.indexOf(marca) !== -1) continue;
 
         let nombre = f.getName();
         if (!/\.csv$/i.test(nombre)) {
@@ -507,7 +542,7 @@ function importarInboundAlIndice() {
         let deEste = filasDeInbound(datos, cols, nombre);
         if (tipoDeOrigen(nombre) === ORIGEN_DESCONOCIDO) sinTipo.push(nombre);
         deEste.forEach(r => nuevas.push(r));
-        leidos.push(f.getId());
+        leidos.push(marca);
     }
 
     if (nuevas.length === 0 && leidos.length === 0) {
