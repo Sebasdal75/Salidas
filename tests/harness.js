@@ -1663,6 +1663,25 @@ ok("pero un master solo no se acepta como guía", colsE.guia === -1);
 let colsC = detectarColumnasInbound(["COLUMNA1", "COLUMNA2"]);
 ok("sin columnas reconocibles avisa con -1", colsC.guia === -1 && colsC.house === -1);
 
+// «CSV (delimitado por comas)» guarda en la codificación vieja de Windows, no
+// en UTF-8. Al leerlo, una cabecera «GUÍA» llega rota: no casa ni con «GUÍA» ni
+// con «GUIA», y el módulo juraría que falta la columna estando ahí.
+ok("quita el acento", sinAcentos("GUÍA") === "GUIA");
+ok("respeta lo que no lo lleva", sinAcentos("HOUSE") === "HOUSE");
+// La ñ TAMBIÉN se descompone y pierde la virgulilla: «AÑO» sale «ANO». No es
+// deseable, pero da igual y no se arregla a propósito: ninguna palabra que se
+// busque en las cabeceras lleva ñ, y lo que importa aquí es que el archivo
+// bien exportado y el mal exportado den EXACTAMENTE lo mismo. Añadir una
+// excepción para la ñ rompería justo eso.
+ok("la ñ también se descompone (aceptado)", sinAcentos("AÑO") === "ANO");
+ok("null no revienta", sinAcentos(null) === "");
+ok("una cabecera con acento se reconoce igual",
+   detectarColumnasInbound(["GUÍA", "HOUSE"]).guia === 0);
+ok("y sin acento también",
+   detectarColumnasInbound(["GUIA", "HOUSE"]).guia === 0);
+ok("«NÚMERO DE GUÍA» también",
+   detectarColumnasInbound(["NÚMERO DE GUÍA", "HOUSE AWB"]).guia === 0);
+
 console.log("\n--- 6c. De CSV crudo a filas limpias ---");
 // El reporte trae totales, renglones vacíos y basura. Nada de eso entra al
 // índice: engorda la carga sin servir para buscar.

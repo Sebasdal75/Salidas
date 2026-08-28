@@ -88,6 +88,31 @@ function exigirModoPrueba(ss) {
 // LECTURA DEL CSV DE INBOUND
 // -------------------------------------------------------------------------
 
+// Los acentos fuera antes de comparar cabeceras.
+//
+// «CSV (delimitado por comas)» guarda en la codificación vieja de Windows, no
+// en UTF-8. Al leerlo, una cabecera «GUÍA» llega rota y no casa ni con «GUÍA»
+// ni con «GUIA»: el archivo entra bien pero el módulo jura que le falta la
+// columna. Comparando sin acentos, el caso bueno y el malo dan lo mismo.
+function sinAcentos(txt) {
+    return String(txt === undefined || txt === null ? "" : txt)
+        .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+// Lo mismo por el otro lado: se intenta UTF-8 y, si sale el carácter de
+// sustitución —la señal de que el archivo NO era UTF-8—, se reintenta con la
+// codificación de Windows. Así un CSV exportado con la opción equivocada se lee
+// igual en vez de fallar con un error que apunta al sitio equivocado.
+function textoDeArchivo(archivo) {
+    let t = archivo.getBlob().getDataAsString();
+    if (t.indexOf("�") === -1) return t;
+    try {
+        return archivo.getBlob().getDataAsString("windows-1252");
+    } catch (err) {
+        return t;
+    }
+}
+
 // Excel en México exporta CSV con punto y coma tan a menudo como con coma, y
 // equivocarse deja UNA sola columna con toda la fila dentro. Se decide contando
 // en la línea de cabeceras, que es la que no lleva texto libre.
@@ -111,7 +136,7 @@ function separadorCsv(primeraLinea) {
 // La house se busca ANTES que la guía: «HOUSE AWB» contiene «AWB», y si se
 // mirara la guía primero se llevaría esa columna por delante.
 function detectarColumnasInbound(headers) {
-    let norm = (headers || []).map(h => String(h).trim().toUpperCase());
+    let norm = (headers || []).map(h => sinAcentos(String(h).trim().toUpperCase()));
     let buscar = (claves, excluir) => {
         for (let i = 0; i < norm.length; i++) {
             let h = norm[i];
@@ -120,6 +145,7 @@ function detectarColumnasInbound(headers) {
         }
         return -1;
     };
+    // Las claves van SIN acentos porque las cabeceras se comparan sin ellos.
     const NO_ES_GUIA = ["HOUSE", "HAWB", "HBL", "CASA", "MASTER", "MAWB"];
     let house = buscar(["HOUSE", "HAWB", "HBL", "CASA"]);
 
@@ -129,7 +155,7 @@ function detectarColumnasInbound(headers) {
     // «1Z», ganaría por aparecer antes en el reporte y el índice se llenaría de
     // guías madre —una sola para cientos de bultos—, que nunca casarían con
     // nada. Solo se acepta «AWB» cuando no hay ninguna columna mejor.
-    let guia = buscar(["1Z", "TRACKING", "GUIA", "GUÍA", "RASTREO"], NO_ES_GUIA);
+    let guia = buscar(["1Z", "TRACKING", "GUIA", "RASTREO"], NO_ES_GUIA);
     if (guia === -1) guia = buscar(["AWB"], NO_ES_GUIA);
 
     let fecha = buscar(["FECHA", "DATE", "ARRIBO", "PREALERT"]);
@@ -525,7 +551,7 @@ function importarInboundAlIndice() {
             continue;
         }
 
-        let texto = f.getBlob().getDataAsString();
+        let texto = textoDeArchivo(f);
         let primeraLinea = texto.split(/\r?\n/)[0] || "";
         let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
         let cols = detectarColumnasInbound(datos[0] || []);
