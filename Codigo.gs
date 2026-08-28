@@ -439,13 +439,43 @@ function filasNecesarias(filaTocada, maxActual) {
 
 // Estira la hoja si el escaneo se está acercando al final. Devuelve cuántas
 // filas se añadieron (0 si no hizo falta), que es lo que mira la medición.
+// CRECER NUNCA PUEDE TUMBAR UN ESCANEO.
+//
+// `perf` no captura excepciones, así que un fallo aquí se llevaba por delante
+// todo `procesarEdicion`: la fila se quedaba sin estado, sin color y sin hora,
+// y no aparecía ningún error en ninguna parte. El síntoma era exactamente
+// «escaneo y la columna B se queda vacía; solo funciona Forzar Actualización».
+//
+// Y falla de verdad: Google Sheets tiene un tope de 10 millones de celdas por
+// archivo, e `insertRowsAfter` revienta al pasarlo. Basta una pestaña grande de
+// más —un índice importado, un histórico— para que TODOS los escaneos del
+// archivo dejen de procesarse por no poder añadir cincuenta filas.
+//
+// Estirar la hoja es una comodidad. Procesar el escaneo es el trabajo. Si hay
+// que elegir, se procesa el escaneo y el fallo queda anotado para el
+// diagnóstico.
+const PROP_FALLO_CRECER = 'FALLO_AL_CRECER';
+
+function anotarFalloAlCrecer(nombre, max, err) {
+    try {
+        PropertiesService.getScriptProperties().setProperty(PROP_FALLO_CRECER,
+            Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "dd/MM HH:mm") +
+            " · «" + nombre + "» (" + max + " filas): " + String(err).substring(0, 200));
+    } catch (e) { /* anotar jamás puede tumbar nada */ }
+}
+
 function asegurarFilasDeEscaneo(hoja, filaTocada, nombreHoja) {
     let max = hoja.getMaxRows();
     let destino = filasNecesarias(filaTocada, max);
     if (destino === 0) return 0;
 
     let aAnadir = destino - max;
-    hoja.insertRowsAfter(max, aAnadir);
+    try {
+        hoja.insertRowsAfter(max, aAnadir);
+    } catch (err) {
+        anotarFalloAlCrecer(hoja.getName(), max, err);
+        return 0;
+    }
 
     // Las filas nuevas nacen SIN validación de datos, y esa validación es la
     // que hace sonar el escáner Zebra. Sin esto, el operador cruzaría la
@@ -462,9 +492,15 @@ function asegurarFilasDeEscaneo(hoja, filaTocada, nombreHoja) {
     // separándose: el día que uno cambie, las filas nuevas se quedarían sin la
     // O y nadie lo vería hasta que el escáner enmudeciera ahí abajo.
     let clave = nombreHoja ? claveHoja(nombreHoja) : claveHoja(hoja.getName());
-    columnasValidables(clave, hoja.getMaxColumns()).forEach(col => {
-        aplicarValidacionRetenida(hoja, col, max + 1, aAnadir);
-    });
+    try {
+        columnasValidables(clave, hoja.getMaxColumns()).forEach(col => {
+            aplicarValidacionRetenida(hoja, col, max + 1, aAnadir);
+        });
+    } catch (err) {
+        // Las filas ya están puestas; lo que falta es la validación. Peor sería
+        // perder el escaneo por no haber podido poner una regla.
+        anotarFalloAlCrecer(hoja.getName() + " (validación)", max, err);
+    }
 
     return aAnadir;
 }
@@ -736,6 +772,54 @@ function triggerInstalableActivo() {
         }
     }
     return globalTriggerInstalable;
+}
+
+// El tope de celdas del archivo, que es un limite duro de Google y la causa mas
+// silenciosa de que un archivo «deje de funcionar»: `insertRowsAfter` revienta
+// al pasarlo, y ese reventon se llevaba por delante el escaneo entero.
+const TOPE_CELDAS_SHEETS = 10000000;
+
+function celdasDeLasHojas(ss) {
+    return ss.getSheets().map(h => ({
+        nombre: h.getName(),
+        filas: h.getMaxRows(),
+        columnas: h.getMaxColumns(),
+        celdas: h.getMaxRows() * h.getMaxColumns()
+    })).sort((a, b) => b.celdas - a.celdas);
+}
+
+function revisarEspacioDelArchivo() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    let hojas = celdasDeLasHojas(ss);
+    let total = hojas.reduce((n, h) => n + h.celdas, 0);
+    let libre = TOPE_CELDAS_SHEETS - total;
+    let pct = Math.round(total * 100 / TOPE_CELDAS_SHEETS);
+
+    let fallo = PropertiesService.getScriptProperties().getProperty(PROP_FALLO_CRECER);
+
+    let veredicto;
+    if (libre < 60000) {
+        veredicto = "❌ NO QUEDA SITIO.\n\nAñadir filas es imposible, así que las hojas " +
+            "no pueden crecer solas. Borra o recorta las pestañas más grandes de la " +
+            "lista de arriba —sobre todo las que no sean de operación.";
+    } else if (pct >= 80) {
+        veredicto = "⚠️ Vas al " + pct + "% del tope. Todavía crece, pero conviene " +
+            "recortar antes de que se pare.";
+    } else {
+        veredicto = "✅ Espacio de sobra.";
+    }
+
+    ui.alert("📏 Espacio del archivo",
+        "Celdas usadas: " + total.toLocaleString() + " de " +
+        TOPE_CELDAS_SHEETS.toLocaleString() + "  (" + pct + "%)\n" +
+        "Libres: " + libre.toLocaleString() + "\n\n" +
+        "Las pestañas más grandes:\n" +
+        hojas.slice(0, 8).map(h => "  · " + h.nombre + ": " +
+            h.celdas.toLocaleString() + "  (" + h.filas + " × " + h.columnas + ")").join("\n") +
+        "\n\n" + veredicto +
+        (fallo ? "\n\n🚨 Último fallo al estirar una hoja:\n" + fallo : ""),
+        ui.ButtonSet.OK);
 }
 
 // Enseña la VERDAD sobre los disparadores, no lo que dicen las propiedades.
@@ -3900,6 +3984,7 @@ function onOpen() {
         .addItem('Diagnóstico del sistema', 'diagnosticoSistema')
         .addItem('Medir velocidad de escaneo', 'medirRendimiento')
         .addItem('Prueba: ¿qué cuesta abrir el caché?', 'probarCosteCache')
+        .addItem('📏 Espacio del archivo (tope de celdas)', 'revisarEspacioDelArchivo')
         .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos'))
 
     .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
