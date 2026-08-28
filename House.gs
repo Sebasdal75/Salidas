@@ -127,6 +127,50 @@ function normalizarSaltos(texto) {
         .replace(/\r\n?/g, "\n");
 }
 
+// -------------------------------------------------------------------------
+// LOS DOS LÍMITES QUE HAY QUE AVISAR ANTES DE INTENTARLO
+// -------------------------------------------------------------------------
+
+// Apps Script no aguanta un CSV de decenas de MB: se queda sin tiempo o sin
+// memoria a media pasada de `parseCsv`, y lo que se ve es un error críptico
+// SEIS MINUTOS después, sin ninguna pista de que el problema era el tamaño.
+//
+// El arreglo no es de código, es de export: sacar solo las dos columnas que se
+// usan —la guía y la house— en vez del reporte entero. Un inbound completo trae
+// pesos, consignatarios, direcciones y fechas que aquí no pintan nada.
+const MB_AVISO = 10;
+const MB_LIMITE = 25;
+
+function avisoDeTamano(caracteres) {
+    let mb = caracteres / (1024 * 1024);
+    if (mb < MB_AVISO) return "";
+    let cabeza = "El archivo pesa " + mb.toFixed(1) + " MB.\n\n";
+    if (mb >= MB_LIMITE) {
+        return cabeza +
+            "Es demasiado para Apps Script: se quedaría sin tiempo a media lectura " +
+            "y el error no diría que el problema es el tamaño.\n\n" +
+            "Exporta SOLO dos columnas —la guía y la house— en vez del reporte " +
+            "entero. Los pesos, consignatarios y direcciones no se usan aquí.";
+    }
+    return cabeza + "Va a tardar, y no está lejos del límite. Si falla, exporta solo " +
+           "las columnas de guía y house.";
+}
+
+function excedeElLimite(caracteres) {
+    return caracteres / (1024 * 1024) >= MB_LIMITE;
+}
+
+// Power Query exporta «Column1, Column2, Column3…» cuando no se promueven los
+// encabezados. Las columnas se buscan por NOMBRE a propósito —para no romperse
+// en silencio si el reporte cambia de forma—, así que con nombres genéricos no
+// hay por dónde agarrar. Decirlo así ahorra buscar el fallo en otro sitio.
+function cabecerasGenericas(headers) {
+    let hs = (headers || []).map(h => String(h).trim().toUpperCase());
+    if (hs.length === 0) return false;
+    let genericas = hs.filter(h => /^COLUMN\s*\d+$/.test(h) || h === "").length;
+    return genericas >= Math.max(2, Math.ceil(hs.length / 2));
+}
+
 // Excel en México exporta CSV con punto y coma tan a menudo como con coma, y
 // equivocarse deja UNA sola columna con toda la fila dentro. Se decide contando
 // en la línea de cabeceras, que es la que no lleva texto libre.
@@ -889,8 +933,18 @@ function probarVinculoOneDrive() {
         "Tamaño: " + r.texto.length + " caracteres\n" +
         "Lo que parece ser: " + r.clase.toUpperCase() + "\n\n" +
         "Primeros 200 caracteres:\n" + (muestra || "(nada)") + "\n\n" +
-        (r.clase === "csv" ? "✅ Esto sí se puede importar."
-                           : "❌ " + explicarDescargaMala(r.clase)),
+        (r.clase === "csv"
+            ? (excedeElLimite(r.texto.length)
+                ? "❌ " + avisoDeTamano(r.texto.length)
+                : (avisoDeTamano(r.texto.length) ? "⚠️ " + avisoDeTamano(r.texto.length) + "\n\n" : "") +
+                  (cabecerasGenericas(Utilities.parseCsv(
+                        r.texto.split(/\n/).slice(0, 2).join("\n"),
+                        separadorCsv(r.texto.split(/\n/)[0] || ""))[0])
+                    ? "❌ Las cabeceras son genéricas («Column1, Column2…»): el CSV salió " +
+                      "de Power Query sin promover los encabezados. La primera fila tiene " +
+                      "que decir GUIA y HOUSE."
+                    : "✅ Esto sí se puede importar."))
+            : "❌ " + explicarDescargaMala(r.clase)),
         ui.ButtonSet.OK);
 }
 
@@ -953,13 +1007,25 @@ function importarInboundDesdeOneDrive() {
     }
     let texto = r.texto;
 
-    let primeraLinea = texto.split(/\r?\n/)[0] || "";
+    // El tamaño se mira ANTES de parsear: si no va a caber, decirlo ahora vale
+    // mucho más que un error de tiempo agotado dentro de seis minutos.
+    if (excedeElLimite(texto.length)) {
+        ui.alert("☁️ OneDrive", avisoDeTamano(texto.length), ui.ButtonSet.OK);
+        return;
+    }
+
+    let primeraLinea = texto.split(/\n/)[0] || "";
     let datos = Utilities.parseCsv(texto, separadorCsv(primeraLinea));
     let cols = detectarColumnasInbound(datos[0] || []);
     if (cols.house === -1) {
         ui.alert("☁️ OneDrive",
-                 "El archivo llegó bien, pero no encuentro la columna de la HOUSE.\n\n" +
-                 "Cabeceras encontradas: " + (datos[0] || []).join(" | ") + "\n\n" +
+                 (cabecerasGenericas(datos[0]) ?
+                    "El CSV salió de Power Query SIN promover los encabezados: la " +
+                    "primera fila dice «Column1, Column2, Column3…» en vez de los " +
+                    "nombres reales.\n\nEn Power Query, «Usar la primera fila como " +
+                    "encabezado», y vuelve a exportar.\n\n"
+                  : "El archivo llegó bien, pero no encuentro la columna de la HOUSE.\n\n") +
+                 "Cabeceras encontradas: " + (datos[0] || []).slice(0, 12).join(" | ") + "\n\n" +
                  "Necesito una que se llame HOUSE, HAWB, HBL o CASA. La de la guía es " +
                  "opcional: si no está, busco las 1Z dentro del texto de cada fila.",
                  ui.ButtonSet.OK);

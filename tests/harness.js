@@ -2054,5 +2054,34 @@ ok("una URL que no tiene esa forma devuelve vacío",
    urlDescargaAlternativa("https://1drv.ms/x/s!ABC") === "");
 ok("null no revienta", urlDescargaAlternativa(null) === "");
 
+console.log("\n--- 6j. Los dos límites del CSV real ---");
+// EL CASO REAL: el inbound concentrado bajó con 52.260.081 caracteres. Apps
+// Script no aguanta eso: se queda sin tiempo a media pasada de parseCsv y el
+// error aparece SEIS MINUTOS después sin decir que el problema era el tamaño.
+const UN_MB = 1024 * 1024;
+ok("un archivo pequeño no genera aviso", avisoDeTamano(2 * UN_MB) === "");
+ok("uno grande avisa pero deja pasar",
+   avisoDeTamano(15 * UN_MB) !== "" && !excedeElLimite(15 * UN_MB));
+ok("el de 52 MB se rechaza", excedeElLimite(52260081));
+ok("y el aviso dice cuántos MB son",
+   avisoDeTamano(52260081).indexOf("49.8 MB") !== -1);
+ok("y manda a exportar solo dos columnas",
+   avisoDeTamano(52260081).indexOf("dos columnas") !== -1);
+ok("justo por debajo del límite pasa", !excedeElLimite(24 * UN_MB));
+
+// Power Query exporta «Column1, Column2…» si no se promueven los encabezados.
+// Las columnas se buscan por NOMBRE a propósito, así que con nombres genéricos
+// no hay por dónde agarrar: decirlo evita buscar el fallo en otro sitio.
+ok("reconoce las cabeceras genéricas",
+   cabecerasGenericas(["Column1", "Column2", "Column3", "Column4"]));
+ok("con espacio también", cabecerasGenericas(["Column 1", "Column 2"]));
+ok("unas buenas NO son genéricas", !cabecerasGenericas(["GUIA", "HOUSE", "FECHA"]));
+ok("una genérica suelta entre buenas no cuenta",
+   !cabecerasGenericas(["GUIA", "HOUSE", "FECHA", "Column4"]));
+ok("mitad y mitad sí cuenta",
+   cabecerasGenericas(["GUIA", "HOUSE", "Column3", "Column4"]));
+ok("sin cabeceras no revienta", !cabecerasGenericas([]));
+ok("null tampoco", !cabecerasGenericas(null));
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
