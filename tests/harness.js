@@ -2014,5 +2014,26 @@ ok("y NO lleva download=1",
 ok("el base64 va url-safe, sin + ni / ni =",
    !/[+/=]/.test(base64DeVinculo("https://1drv.ms/x/s!AB+CD/EF")));
 
+// Los vínculos de SharePoint llevan escrito a qué apuntan. Saberlo ANTES de
+// descargar ahorra el viaje: compartir el libro de Excel es lo natural -es el
+// archivo con el que se trabaja- y es justo lo que no sirve.
+const URL_REAL = "https://terminalmx-my.sharepoint.com/:x:/g/personal/" +
+                 "sebastian_lopez_terminal_com_mx/IQDNB7BQPebj21XA?e=JAoCeD";
+ok("«/:x:/» es un libro de Excel", queApuntaElVinculo(URL_REAL) === "excel");
+ok("«/:f:/» es una carpeta",
+   queApuntaElVinculo("https://x.sharepoint.com/:f:/g/personal/y/ABC") === "carpeta");
+ok("«/:w:/» es Word",
+   queApuntaElVinculo("https://x.sharepoint.com/:w:/g/personal/y/ABC") === "word");
+ok("un vínculo sin marca no dice nada",
+   queApuntaElVinculo("https://x.sharepoint.com/algo/ABC") === "");
+ok("null no revienta", queApuntaElVinculo(null) === "");
+// La marca va entre barras: una «x» suelta en el nombre del archivo no cuenta.
+ok("no se confunde con una x en el nombre",
+   queApuntaElVinculo("https://x.sharepoint.com/g/personal/y/reporte-x-final.csv") === "");
+ok("el aviso del Excel manda a exportar a CSV",
+   avisoDelTipoDeVinculo(URL_REAL).indexOf("CSV") !== -1);
+ok("un vínculo sin marca no genera aviso",
+   avisoDelTipoDeVinculo("https://x.sharepoint.com/algo") === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

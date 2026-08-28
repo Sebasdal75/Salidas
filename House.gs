@@ -699,6 +699,41 @@ function base64DeVinculo(url) {
         .replace(/=+$/, '').replace(/\//g, '_').replace(/\+/g, '-');
 }
 
+// Los vínculos de SharePoint llevan escrito a qué apuntan, y saberlo antes de
+// descargar ahorra el viaje entero:
+//
+//   /:x:/  libro de Excel      /:w:/  Word      /:p:/  PowerPoint
+//   /:f:/  CARPETA             /:t:/  texto     /:b:/  cualquier otro
+//
+// Compartir el libro de Excel es lo natural —es el archivo con el que se
+// trabaja— pero es justo lo que no sirve: hay que compartir el CSV exportado.
+function queApuntaElVinculo(url) {
+    let u = String(url === undefined || url === null ? "" : url).toLowerCase();
+    if (u.indexOf("/:x:/") !== -1) return "excel";
+    if (u.indexOf("/:f:/") !== -1) return "carpeta";
+    if (u.indexOf("/:w:/") !== -1) return "word";
+    if (u.indexOf("/:p:/") !== -1) return "powerpoint";
+    if (u.indexOf("/:t:/") !== -1 || u.indexOf("/:b:/") !== -1) return "archivo";
+    return "";
+}
+
+function avisoDelTipoDeVinculo(url) {
+    let tipo = queApuntaElVinculo(url);
+    if (tipo === "excel") {
+        return "⚠️ Este vínculo apunta a un LIBRO DE EXCEL (la marca «/:x:/» de la " +
+               "URL lo dice). Aunque la descarga funcionara, llegaría el binario de " +
+               "Excel y no se puede leer. Exporta a CSV y comparte el vínculo del CSV.";
+    }
+    if (tipo === "carpeta") {
+        return "⚠️ Este vínculo apunta a una CARPETA (la marca «/:f:/»), no a un " +
+               "archivo. Comparte el CSV concreto.";
+    }
+    if (tipo === "word" || tipo === "powerpoint") {
+        return "⚠️ Este vínculo no apunta a una hoja de cálculo ni a un CSV.";
+    }
+    return "";
+}
+
 function urlDescargaOneDrive(url) {
     let u = String(url === undefined || url === null ? "" : url).trim();
     if (u === "") return "";
@@ -778,6 +813,9 @@ function probarVinculoOneDrive() {
         return;
     }
 
+    // El aviso del tipo va ANTES de descargar: si el vínculo apunta a un libro
+    // de Excel o a una carpeta, el viaje sobra.
+    let avisoTipo = avisoDelTipoDeVinculo(url);
     let destino = urlDescargaOneDrive(url);
     let resp;
     try {
@@ -798,6 +836,7 @@ function probarVinculoOneDrive() {
 
     let muestra = texto.substring(0, 200).replace(/[\r\n]+/g, " ⏎ ");
     ui.alert("🔎 Probar el vínculo",
+        (avisoTipo ? avisoTipo + "\n\n" : "") +
         "URL usada:\n" + destino + "\n\n" +
         "Código HTTP: " + codigo + "\n" +
         "Tipo de contenido: " + tipo + "\n" +
