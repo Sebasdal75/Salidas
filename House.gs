@@ -1386,7 +1386,12 @@ function importarInboundDesdeOneDrive() {
 
 function rellenarHousesPendientes() {
     const ss = obtenerArchivo();
-    if (!esArchivoDePrueba(ss.getName())) return;   // silencioso: es un trigger
+    // `moduloActivo`, NO `esArchivoDePrueba`: en el archivo real el módulo se
+    // enciende con el interruptor, no por el nombre. Mirar el nombre aquí hacía
+    // que el disparador se saliera en la primera línea en producción —y sin
+    // decir nada, porque un disparador no puede mostrar avisos—. El síntoma era
+    // «el automático no rellena» sin ningún error en ningún sitio.
+    if (!moduloActivo(ss)) { anotarRelleno("apagado en este archivo"); return; }
 
     // PRIMERO la comprobación barata. El índice no se abre hasta saber que hay
     // algo que rellenar, y casi todos los minutos no lo hay.
@@ -1400,19 +1405,64 @@ function rellenarHousesPendientes() {
         let faltan = celdasPorLlenar(datos, COL_HOUSE);
         if (faltan.length) pendientes.push({ hoja: hoja, faltan: faltan });
     });
-    if (pendientes.length === 0) return;
+    if (pendientes.length === 0) { anotarRelleno("nada que rellenar"); return; }
 
-    let mapa = mapaDeIndice(leerIndice(ss, HOJA_INDICE_HOUSE));
+    let indice = leerIndice(ss, HOJA_INDICE_HOUSE);
+    if (indice.length === 0) {
+        anotarRelleno("HAY " + pendientes.reduce((n, p) => n + p.faltan.length, 0) +
+                      " GUÍAS ESPERANDO PERO EL ÍNDICE ESTÁ VACÍO: falta importar");
+        return;
+    }
+    let mapa = mapaDeIndice(indice);
 
+    let puestas = 0, sinDato = 0;
     pendientes.forEach(p => {
-        let items = p.faltan.map(f => ({
-            fila: f.fila,
-            valor: mapa.get(f.guia) || TXT_HOUSE_SIN_DATO
-        }));
+        let items = p.faltan.map(f => {
+            let house = mapa.get(f.guia);
+            if (house) puestas++; else sinDato++;
+            return { fila: f.fila, valor: house || TXT_HOUSE_SIN_DATO };
+        });
         bloquesContiguos(items).forEach(b => {
             p.hoja.getRange(b.fila, COL_HOUSE, b.valores.length, 1).setValues(b.valores);
         });
     });
+    anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
+                  " · índice: " + indice.length + " guías");
+}
+
+// -------------------------------------------------------------------------
+// QUE EL DISPARADOR NO SEA MUDO
+//
+// Un disparador no puede mostrar avisos, así que cuando no hace lo que se
+// espera no hay NADA que mirar: ni error, ni mensaje, ni rastro. Eso ya costó
+// una tarde una vez —el guardia miraba el nombre del archivo en vez del
+// interruptor y se salía en la primera línea—. Dejando anotado qué hizo en cada
+// pasada, la próxima vez la respuesta está a un clic.
+// -------------------------------------------------------------------------
+const PROP_ULTIMO_RELLENO = 'HOUSE_ULTIMO_RELLENO';
+
+function anotarRelleno(texto) {
+    try {
+        PropertiesService.getScriptProperties().setProperty(PROP_ULTIMO_RELLENO,
+            Utilities.formatDate(new Date(), Session.getScriptTimeZone(),
+                                 "dd/MM HH:mm:ss") + " — " + texto);
+    } catch (err) { /* anotar nunca puede tumbar el relleno */ }
+}
+
+function estadoDelRelleno() {
+    const ui = SpreadsheetApp.getUi();
+    let ultimo = PropertiesService.getScriptProperties().getProperty(PROP_ULTIMO_RELLENO);
+    let hayTrigger = ScriptApp.getProjectTriggers()
+        .some(t => t.getHandlerFunction() === 'rellenarHousesPendientes');
+
+    ui.alert("🩺 Estado del relleno automático",
+        "Disparador instalado: " + (hayTrigger ? "SÍ" : "NO — actívalo en «Rellenar solo, " +
+        "cada minuto»") + "\n\n" +
+        "Índice en archivo aparte: " + (indiceEstaAparte() ? "SÍ" : "NO (vive en este " +
+        "archivo y lo engorda)") + "\n\n" +
+        "Última pasada:\n" + (ultimo || "ninguna todavía. Si el disparador está " +
+        "instalado, espera un minuto y vuelve a mirar."),
+        ui.ButtonSet.OK);
 }
 
 // Las que quedaron con la marca de «no está»: se buscan en el archivo frío, que

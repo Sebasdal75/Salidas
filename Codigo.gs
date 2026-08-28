@@ -3847,6 +3847,7 @@ function onOpen() {
               .addSeparator()
               .addItem('Rellenar solo, cada minuto', 'instalarTriggerHouse')
               .addItem('Dejar de rellenar solo', 'quitarTriggerHouse')
+              .addItem('🩺 ¿Qué hizo el relleno automático?', 'estadoDelRelleno')
               .addSeparator()
               .addItem('⛔ Apagar el módulo en este archivo',
                        'desactivarHousesEnEsteArchivo'));
