@@ -3820,41 +3820,43 @@ function onOpen() {
         .addItem('Reponer validación (todas las pestañas)', 'aplicarValidacionEnTodas')
         .addItem('Proteger hojas del sistema', 'protegerHojasSistema'));
 
-  // El submenú de houses solo aparece en la copia de pruebas. En producción no
-  // se ve siquiera, así que el módulo puede estar pegado sin que nadie lo
-  // active por curiosidad.
+  // EL SUBMENÚ DE HOUSES VA DENTRO DE UN try, Y NO ES PARANOIA.
   //
-  // El `typeof` no es paranoia: `esArchivoDePrueba` vive en House.gs, y si
-  // alguien pega solo este archivo —lo normal al actualizar producción— la
-  // llamada reventaría y con ella TODO el onOpen. El menú entero desaparecería
-  // y siete operadores se quedarían sin cierre, sin validación y sin
-  // diagnóstico, por un submenú de pruebas que ahí ni se usa.
-  if (typeof moduloActivo === 'function' &&
-      moduloActivo(SpreadsheetApp.getActiveSpreadsheet())) {
-      let enPruebas = esArchivoDePrueba(SpreadsheetApp.getActiveSpreadsheet().getName());
-      menu.addSeparator()
-          .addSubMenu(ui.createMenu(enPruebas ? '🧪 Houses (pruebas)' : '🏠 Houses')
-              .addItem('📇 Crear el archivo del índice', 'crearArchivoDelIndice')
-              .addItem('📥 Importar inbound desde Drive', 'importarInboundAlIndice')
-              .addItem('☁️ Importar inbound desde OneDrive', 'importarInboundDesdeOneDrive')
-              .addItem('🔗 Añadir vínculo de OneDrive', 'configurarUrlOneDrive')
-              .addItem('🔎 Probar los vínculos (diagnóstico)', 'probarVinculoOneDrive')
-              .addItem('🧹 Quitar los vínculos', 'quitarUrlsOneDrive')
-              .addSeparator()
-              .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
-              .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
-              .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
-              .addSeparator()
-              .addItem('Rellenar solo, cada minuto', 'instalarTriggerHouse')
-              .addItem('Dejar de rellenar solo', 'quitarTriggerHouse')
-              .addItem('🩺 ¿Qué hizo el relleno automático?', 'estadoDelRelleno')
-              .addSeparator()
-              .addItem('⛔ Apagar el módulo en este archivo',
-                       'desactivarHousesEnEsteArchivo'));
-  } else if (typeof activarHousesEnEsteArchivo === 'function') {
-      // Apagado: la única entrada visible es la de encenderlo, con su aviso.
-      menu.addSeparator()
-          .addItem('🏠 Activar el índice de houses…', 'activarHousesEnEsteArchivo');
+  // Ya pasó: un fallo aquí no se lleva por delante el submenú, se lleva TODO el
+  // menú —cierre del día, reponer validación, diagnóstico, forzar
+  // actualización—, y siete operadores se quedan sin nada. El módulo de houses
+  // es opcional; lo que hay encima no lo es.
+  //
+  // Falla si House.gs no está pegado, si tiene un error, o si algo de lo que
+  // usa no está disponible en un disparador simple como este.
+  try {
+      if (typeof moduloActivo === 'function' &&
+          moduloActivo(SpreadsheetApp.getActiveSpreadsheet())) {
+          menu.addSeparator()
+              .addSubMenu(ui.createMenu('🏠 Houses')
+                  .addItem('📇 Crear el archivo del índice', 'crearArchivoDelIndice')
+                  .addItem('📥 Importar inbound desde Drive', 'importarInboundAlIndice')
+                  .addItem('☁️ Importar inbound desde OneDrive', 'importarInboundDesdeOneDrive')
+                  .addItem('🔗 Añadir vínculo de OneDrive', 'configurarUrlOneDrive')
+                  .addItem('🔎 Probar los vínculos (diagnóstico)', 'probarVinculoOneDrive')
+                  .addItem('🧹 Quitar los vínculos', 'quitarUrlsOneDrive')
+                  .addSeparator()
+                  .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
+                  .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
+                  .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
+                  .addSeparator()
+                  .addItem('Rellenar solo, cada 5 minutos', 'instalarTriggerHouse')
+                  .addItem('Dejar de rellenar solo', 'quitarTriggerHouse')
+                  .addItem('🩺 ¿Qué hizo el relleno automático?', 'estadoDelRelleno')
+                  .addSeparator()
+                  .addItem('⛔ Apagar el módulo en este archivo',
+                           'desactivarHousesEnEsteArchivo'));
+      } else if (typeof activarHousesEnEsteArchivo === 'function') {
+          menu.addSeparator()
+              .addItem('🏠 Activar el índice de houses…', 'activarHousesEnEsteArchivo');
+      }
+  } catch (err) {
+      // El módulo de houses no está disponible. El menú principal sigue.
   }
 
   menu.addToUi();

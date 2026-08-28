@@ -1635,14 +1635,23 @@ ok("«PRUEBAS» en plural también entra", esArchivoDePrueba("WMS PRUEBAS"));
 // nombre; el archivo real necesita que alguien lo encienda a mano, porque que
 // un módulo empiece a escribir en la columna D de siete operadores tiene que
 // ser una decisión consciente y no el efecto de haber pegado un archivo.
-global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
-ok("una copia de pruebas se enciende sola", moduloActivo({ getName: () => "WMS PRUEBA" }));
-ok("el archivo real NO se enciende solo", !moduloActivo({ getName: () => "SALIDAS UPS" }));
-global.PropertiesService = {
-  getScriptProperties: () => ({ getProperty: (k) => (k === 'HOUSE_ACTIVADO' ? 'SI' : null) })
-};
-ok("...salvo que lo enciendan a mano", moduloActivo({ getName: () => "SALIDAS UPS" }));
-global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
+//
+// La marca es una PESTAÑA, no una propiedad del script: `onOpen` es un
+// disparador simple, corre sin autorización, y si el menú preguntara por algo
+// no disponible ahí reventaría el menú ENTERO.
+let libroSinMarca = { getName: () => "SALIDAS UPS", getSheetByName: () => null };
+let libroConMarca = { getName: () => "SALIDAS UPS",
+                      getSheetByName: (n) => (n === "HOUSE_ACTIVO" ? {} : null) };
+ok("una copia de pruebas se enciende sola",
+   moduloActivo({ getName: () => "WMS PRUEBA", getSheetByName: () => null }));
+ok("el archivo real NO se enciende solo", !moduloActivo(libroSinMarca));
+ok("...salvo que exista la pestaña de marca", moduloActivo(libroConMarca));
+// Ante cualquier fallo, apagado y sin reventar: quien pregunta puede ser el
+// menú, y el menú lo necesitan siete personas todos los días.
+ok("un libro roto no revienta el menú",
+   !moduloActivo({ getName: () => { throw new Error("boom"); } }));
+ok("un libro sin getSheetByName tampoco",
+   !moduloActivo({ getName: () => "SALIDAS UPS" }));
 
 console.log("\n--- 6b. Leer el CSV que salga de Power Query ---");
 // Excel en México exporta con punto y coma tan a menudo como con coma, y
@@ -1993,6 +2002,28 @@ let porLlenar = celdasPorLlenar(hojaSim, colHouse());
 ok("solo las que faltan", porLlenar.length === 2);
 ok("y con la fila de la HOJA, no el índice del array",
    porLlenar[0].fila === 2 && porLlenar[1].fila === 5);
+
+// EL DISPARADOR SOLO LEE LA COLA DE LA HOJA. Leerla entera cada vez era lo que
+// disparaba la cuota de disparadores de Google — y cuando esa cuota se agota,
+// Google desactiva TODOS los disparadores de la cuenta, incluido el del
+// escaneo. El sintoma es demoledor y no señala a su causa: la guía entra en la
+// columna A porque la teclea el escáner, y no la procesa nadie.
+ok("una hoja corta se lee entera", desdeQueFilaMirar(120, 500) === 1);
+ok("de una larga solo la cola", desdeQueFilaMirar(3000, 500) === 2501);
+ok("y la cola mide lo pedido", 3000 - desdeQueFilaMirar(3000, 500) + 1 === 500);
+ok("una hoja vacía no revienta", desdeQueFilaMirar(0, 500) === 1);
+
+// AL LEER SOLO LA COLA, EL ÍNDICE DEL ARRAY YA NO ES LA FILA. Confundirlos
+// escribiría houses cientos de filas más arriba, encima de guías que no son.
+let colaLeida = celdasPorLlenar(hojaSim, colHouse(), 2501);
+ok("las filas salen desplazadas por la cola",
+   colaLeida[0].fila === 2502 && colaLeida[1].fila === 2505);
+ok("sin desplazamiento se comporta como antes",
+   celdasPorLlenar(hojaSim, colHouse(), 1)[0].fila === 2);
+
+// La house es dato de reporte: que tarde cinco minutos no le importa a nadie;
+// que se pare el escaneo, sí.
+ok("el disparador NO va cada minuto", minutosEntreRellenos() >= 5);
 ok("un pedimento no pide house", !porLlenar.some(p => p.guia === "6100544"));
 // Sin esto se recargaría el índice entero cada minuto para volver a no
 // encontrar la misma guía.

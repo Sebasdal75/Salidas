@@ -82,7 +82,51 @@ const NOMBRE_ARCHIVO_INDICE = "WMS · Índice de houses";
 // las copias, pero en el archivo real hay que encenderlo a mano: que un módulo
 // empiece a escribir en la columna D de siete operadores tiene que ser una
 // decisión consciente, no el efecto de haber pegado un archivo.
-const PROP_ACTIVADO = 'HOUSE_ACTIVADO';
+// La marca de «encendido» es una PESTAÑA OCULTA, no una propiedad del script.
+//
+// `onOpen` es un disparador simple y corre sin autorización: hay servicios que
+// ahí no están disponibles. Si el menú preguntara por una propiedad del script,
+// podría reventar al abrir el archivo —y con él TODO el menú, no solo el
+// submenú de houses—. Mirar si existe una pestaña sí funciona siempre.
+//
+// Además así la marca viaja con el archivo: si alguien duplica la hoja, la
+// copia sabe cómo estaba, sin depender de propiedades que no se copian.
+const HOJA_MARCA_ACTIVO = "HOUSE_ACTIVO";
+
+// -------------------------------------------------------------------------
+// EL PRESUPUESTO DEL DISPARADOR
+//
+// Google limita el TIEMPO TOTAL de disparadores por cuenta al día. Cuando se
+// agota, desactiva los disparadores de la cuenta — incluido el del escaneo. El
+// síntoma es demoledor y no señala a su causa: la guía entra en la columna A
+// porque la teclea el escáner, y no la procesa nadie.
+//
+// Cada minuto recorriendo todas las pestañas son ~30 llamadas por vuelta; a
+// 150-250 ms cada una en este archivo, entre 2 y 4 HORAS de ejecución al día.
+// Eso se come la cuota antes de comer.
+//
+// Tres frenos, y ninguno le quita utilidad al módulo: la house es dato de
+// reporte, que aparezca en cinco minutos en vez de en uno no le importa a
+// nadie.
+const MINUTOS_ENTRE_RELLENOS = 5;
+
+// Solo se mira la COLA de cada hoja. Las houses de arriba ya están puestas: lo
+// que acaba de escanearse está abajo, siempre.
+const FILAS_A_MIRAR = 500;
+
+// Si una pasada se alarga, se corta y sigue en la siguiente. Más vale rellenar
+// la mitad cada vez que agotar la cuota y tumbar el escaneo.
+const SEGUNDOS_MAX_RELLENO = 30;
+
+function minutosEntreRellenos() { return MINUTOS_ENTRE_RELLENOS; }
+function filasAMirar() { return FILAS_A_MIRAR; }
+
+// Desde qué fila conviene leer una hoja: solo la cola.
+function desdeQueFilaMirar(ultimaFila, cuantas) {
+    let tramo = cuantas || FILAS_A_MIRAR;
+    if (!ultimaFila || ultimaFila < 1) return 1;
+    return Math.max(1, ultimaFila - tramo + 1);
+}
 
 function colHouse() { return COL_HOUSE; }
 function textoHouseSinDato() { return TXT_HOUSE_SIN_DATO; }
@@ -98,8 +142,14 @@ function esArchivoDePrueba(nombreArchivo) {
 // El módulo está vivo si el archivo es una copia de pruebas O si alguien lo
 // encendió a mano en este archivo.
 function moduloActivo(ss) {
-    if (esArchivoDePrueba(ss.getName())) return true;
-    return PropertiesService.getScriptProperties().getProperty(PROP_ACTIVADO) === 'SI';
+    try {
+        if (esArchivoDePrueba(ss.getName())) return true;
+        return ss.getSheetByName(HOJA_MARCA_ACTIVO) !== null;
+    } catch (err) {
+        // Ante la duda, apagado. Nunca reventar: quien pregunta puede ser el
+        // menú, y el menú lo necesitan siete personas todos los días.
+        return false;
+    }
 }
 
 // Devuelve true si se puede seguir. Si no, avisa y corta.
@@ -139,16 +189,23 @@ function activarHousesEnEsteArchivo() {
         ui.ButtonSet.YES_NO);
     if (r !== ui.Button.YES) return;
 
-    PropertiesService.getScriptProperties().setProperty(PROP_ACTIVADO, 'SI');
-    ui.alert("🏠 Houses", "Encendido.\n\nRecarga la hoja para que el menú deje de " +
-             "decir «(pruebas)», y no olvides crear el archivo del índice si aún no lo " +
-             "hiciste.", ui.ButtonSet.OK);
+    if (!ss.getSheetByName(HOJA_MARCA_ACTIVO)) {
+        let marca = ss.insertSheet(HOJA_MARCA_ACTIVO);
+        marca.getRange(1, 1).setValue(
+            "Esta pestaña es la marca de que el índice de houses está ENCENDIDO en " +
+            "este archivo. Borrarla lo apaga. No escribas nada más aquí.");
+        marca.hideSheet();
+    }
+    ui.alert("🏠 Houses", "Encendido.\n\nRecarga la hoja para que aparezca el menú " +
+             "completo, y no olvides crear el archivo del índice si aún no lo hiciste.",
+             ui.ButtonSet.OK);
 }
 
 function desactivarHousesEnEsteArchivo() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
-    PropertiesService.getScriptProperties().deleteProperty(PROP_ACTIVADO);
+    let marca = ss.getSheetByName(HOJA_MARCA_ACTIVO);
+    if (marca) ss.deleteSheet(marca);
     quitarTriggerHouse(true);
     ui.alert("🏠 Houses", "Apagado, y el disparador quitado.\n\nLo que ya está escrito " +
              "en la columna D se queda: apagar no borra nada.", ui.ButtonSet.OK);
@@ -679,8 +736,9 @@ function particionPorAntiguedad(filas, hoy, dias) {
 //
 // La marca de «no encontrada» cuenta como llena: si se reintentara, cada minuto
 // se volvería a cargar el índice entero para volver a no encontrarla.
-function celdasPorLlenar(datos, colDeHouse) {
+function celdasPorLlenar(datos, colDeHouse, filaInicial) {
     let idx = (colDeHouse || COL_HOUSE) - 1;
+    let base = filaInicial || 1;
     let salida = [];
     for (let i = 0; i < (datos || []).length; i++) {
         let fila = datos[i];
@@ -689,7 +747,10 @@ function celdasPorLlenar(datos, colDeHouse) {
         if (guia === "" || !esGuiaUPSValida(guia)) continue;
         let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
         if (house !== "") continue;
-        salida.push({ fila: i + 1, guia: guia });
+        // `base` importa: cuando solo se lee la cola de la hoja, el índice del
+        // array ya no es la fila. Confundirlos escribiría houses 400 filas más
+        // arriba, encima de guías que no son.
+        salida.push({ fila: base + i, guia: guia });
     }
     return salida;
 }
@@ -1394,17 +1455,30 @@ function rellenarHousesPendientes() {
     if (!moduloActivo(ss)) { anotarRelleno("apagado en este archivo"); return; }
 
     // PRIMERO la comprobación barata. El índice no se abre hasta saber que hay
-    // algo que rellenar, y casi todos los minutos no lo hay.
+    // algo que rellenar, y casi todas las pasadas no lo hay.
+    //
+    // Y solo se lee la COLA de cada hoja: lo que acaba de escanearse está
+    // abajo, siempre, y las houses de arriba ya están puestas. Leer la hoja
+    // entera cada vez era lo que disparaba la cuota de disparadores.
+    let arranque = Date.now();
+    let cortadoPorTiempo = false;
     let pendientes = [];
-    ss.getSheets().forEach(hoja => {
+    let hojas = ss.getSheets();
+    for (let h = 0; h < hojas.length; h++) {
+        if ((Date.now() - arranque) / 1000 > SEGUNDOS_MAX_RELLENO) {
+            cortadoPorTiempo = true;
+            break;
+        }
+        let hoja = hojas[h];
         let clave = claveHoja(hoja.getName());
-        if (!esHojaPrincipal(clave) && !esHojaInventario(clave)) return;
+        if (!esHojaPrincipal(clave) && !esHojaInventario(clave)) continue;
         let lr = hoja.getLastRow();
-        if (lr < 1) return;
-        let datos = hoja.getRange(1, 1, lr, COL_HOUSE).getValues();
-        let faltan = celdasPorLlenar(datos, COL_HOUSE);
+        if (lr < 1) continue;
+        let desde = desdeQueFilaMirar(lr, FILAS_A_MIRAR);
+        let datos = hoja.getRange(desde, 1, lr - desde + 1, COL_HOUSE).getValues();
+        let faltan = celdasPorLlenar(datos, COL_HOUSE, desde);
         if (faltan.length) pendientes.push({ hoja: hoja, faltan: faltan });
-    });
+    }
     if (pendientes.length === 0) { anotarRelleno("nada que rellenar"); return; }
 
     let indice = leerIndice(ss, HOJA_INDICE_HOUSE);
@@ -1427,7 +1501,9 @@ function rellenarHousesPendientes() {
         });
     });
     anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
-                  " · índice: " + indice.length + " guías");
+                  " · índice: " + indice.length + " guías" +
+                  (cortadoPorTiempo ? " · CORTADO por tiempo, sigue en la próxima" : "") +
+                  " · " + ((Date.now() - arranque) / 1000).toFixed(1) + " s");
 }
 
 // -------------------------------------------------------------------------
@@ -1560,8 +1636,14 @@ function instalarTriggerHouse() {
     if (!exigirModoPrueba(ss)) return;
 
     quitarTriggerHouse(true);
-    ScriptApp.newTrigger('rellenarHousesPendientes').timeBased().everyMinutes(1).create();
-    ui.alert("🏠 Houses", "Listo: las houses se rellenarán solas cada minuto.", ui.ButtonSet.OK);
+    ScriptApp.newTrigger('rellenarHousesPendientes').timeBased()
+        .everyMinutes(MINUTOS_ENTRE_RELLENOS).create();
+    ui.alert("🏠 Houses",
+        "Listo: las houses se rellenarán solas cada " + MINUTOS_ENTRE_RELLENOS +
+        " minutos.\n\nNo es cada minuto a propósito. Google limita el tiempo total de " +
+        "disparadores por cuenta al día, y si se agota desactiva TODOS los disparadores " +
+        "— incluido el del escaneo. La house es dato de reporte: que tarde cinco minutos " +
+        "no le importa a nadie; que se pare el escaneo, sí.", ui.ButtonSet.OK);
 }
 
 function quitarTriggerHouse(silencioso) {
