@@ -2162,6 +2162,67 @@ ok("pero la O sí pide su house",
 ok("y es la guía de la preforma, no la física",
    celdasPorLlenar(conPreforma, {guia: 15, house: 18})[0].guia === G2);
 
+console.log("\n--- 6g3b. Un marcador de bloque no pide house ---");
+// LO CAZÓ UN TEST MÍO: `claveGuiaHouse` quita los espacios ANTES de validar, así
+// que «SIN PEDIMENTO» se volvía «SINPEDIMENTO» -doce caracteres, sin espacios- y
+// `esGuiaUPSValida` lo aceptaba como guía corta, porque para ella cualquier cosa
+// de más de siete caracteres lo es. Los separadores de bloque acababan pidiendo
+// house, y peor: su house no se borraría nunca, por creerlos guías buenas.
+ok("«SIN PEDIMENTO» no es guía para house", esGuiaParaHouse("SIN PEDIMENTO") === "");
+ok("«COSTALES» tampoco", esGuiaParaHouse("COSTALES") === "");
+ok("«FIN» tampoco", esGuiaParaHouse("FIN") === "");
+ok("un pedimento de 7 dígitos tampoco", esGuiaParaHouse("6100544") === "");
+ok("vacío tampoco", esGuiaParaHouse("") === "");
+ok("null tampoco", esGuiaParaHouse(null) === "");
+ok("una 1Z sí, y normalizada", esGuiaParaHouse(" 1z-999-aa1-0123-456-784 ") === G1);
+ok("una guía corta de verdad sí", esGuiaParaHouse("AB1234567") === "AB1234567");
+
+console.log("\n--- 6g4. Si se borra la guía, se borra su house ---");
+// Una house sin guía es un dato falso ESPERANDO. Y el caso grave no es el
+// renglón huérfano: es que alguien escanee otra guía en esa misma fila. La
+// celda de house no está vacía, el relleno normal la salta —solo escribe en
+// vacías— y el renglón acaba enseñando la house de OTRA guía. Nadie lo nota
+// mirando la hoja, y con eso se despacha.
+let conHuerfana = [
+    [G1, "", "", "H-BUENA"],          // guía y su house: bien
+    ["", "", "", "H-HUERFANA"],       // borraron la guía, la house se quedó
+    ["SIN PEDIMENTO", "", "", "H-X"], // un marcador de bloque no es una guía
+    ["", "", "", ""],                 // fila limpia
+    [G2, "", "", ""]                  // guía sin house: eso lo llena el relleno
+];
+let sobran = celdasPorBorrar(conHuerfana, PAR_A);
+ok("encuentra las dos huérfanas", sobran.length === 2);
+ok("y son las filas 2 y 3", sobran[0].fila === 2 && sobran[1].fila === 3);
+ok("no toca la que sí tiene guía", !sobran.some(x => x.fila === 1));
+ok("ni la fila limpia", !sobran.some(x => x.fila === 4));
+ok("ni la que solo espera su house", !sobran.some(x => x.fila === 5));
+ok("una hoja sin huérfanas no da nada", celdasPorBorrar([[G1, "", "", "H"]], PAR_A).length === 0);
+ok("vacío no revienta", celdasPorBorrar([], PAR_A).length === 0);
+
+// EL OTRO LADO DEL MISMO PROBLEMA: sobrescriben una guía por otra. La celda de
+// house NO queda vacía, así que el relleno normal nunca la tocaría.
+let mapaPrueba = new Map([[G1, "H-UNO"], [G2, "H-DOS"]]);
+let conVieja = [[G2, "", "", "H-UNO"]];   // la guía es G2 pero lleva la house de G1
+let corregir = celdasPorCorregir(conVieja, PAR_A, 1, mapaPrueba);
+ok("detecta la house que ya no corresponde", corregir.length === 1);
+ok("y la cambia por la buena", corregir[0].valor === "H-DOS");
+ok("una house correcta no se toca",
+   celdasPorCorregir([[G1, "", "", "H-UNO"]], PAR_A, 1, mapaPrueba).length === 0);
+// NUNCA se borra por no encontrarla: una house puede venir del archivo frío,
+// que el disparador no abre. Vaciarla ahí la borraría cada cinco minutos.
+ok("si el índice no la conoce, no se toca",
+   celdasPorCorregir([[G3, "", "", "H-VIEJA"]], PAR_A, 1, mapaPrueba).length === 0);
+ok("la marca de «no está» tampoco se corrige",
+   celdasPorCorregir([[G1, "", "", textoHouseSinDato()]], PAR_A, 1, mapaPrueba).length === 0);
+ok("sin mapa no hace nada", celdasPorCorregir(conVieja, PAR_A, 1, null).length === 0);
+
+// Y funciona igual en el par de la preforma.
+let filaPre = [];
+for (let i = 0; i < 18; i++) filaPre.push("");
+filaPre[17] = "H-HUERFANA";   // house en la R sin guía en la O
+ok("también limpia la house de la preforma",
+   celdasPorBorrar([filaPre], {guia: 15, house: 18}).length === 1);
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

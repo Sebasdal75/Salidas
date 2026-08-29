@@ -693,6 +693,24 @@ function origenInbound() { return ORIGEN_INBOUND; }
 function origenPrealerta() { return ORIGEN_PREALERTA; }
 function origenDesconocido() { return ORIGEN_DESCONOCIDO; }
 
+// ¿Esta celda contiene una guía a la que ponerle house? Devuelve la guía
+// normalizada, o "" si no lo es.
+//
+// EL MARCADOR HAY QUE MIRARLO ANTES DE NORMALIZAR. `claveGuiaHouse` quita los
+// espacios, así que «SIN PEDIMENTO» se convierte en «SINPEDIMENTO» —doce
+// caracteres, sin espacios— y `esGuiaUPSValida` lo acepta como guía corta,
+// porque para ella cualquier cosa de más de siete caracteres lo es. Los
+// separadores de bloque acabarían pidiendo house, y peor: su house no se
+// borraría nunca por creerlos guías buenas.
+function esGuiaParaHouse(valorCrudo) {
+    let crudo = String(valorCrudo === undefined || valorCrudo === null ? "" : valorCrudo).trim();
+    if (crudo === "") return "";
+    if (esMarcadorEstructural(crudo)) return "";
+    let g = claveGuiaHouse(crudo);
+    if (g === "" || !esGuiaUPSValida(g)) return "";
+    return g;
+}
+
 // La misma normalización que usa el escaneo para la columna A, para que una
 // guía escrita con guiones en el reporte case con la escaneada sin ellos.
 function claveGuiaHouse(v) {
@@ -794,14 +812,63 @@ function celdasPorLlenar(datos, par, filaInicial) {
     for (let i = 0; i < (datos || []).length; i++) {
         let fila = datos[i];
         if (!fila) continue;
-        let guia = claveGuiaHouse(fila[colGuia]);
-        if (guia === "" || !esGuiaUPSValida(guia)) continue;
+        let guia = esGuiaParaHouse(fila[colGuia]);
+        if (guia === "") continue;
         let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
         if (house !== "") continue;
         // `base` importa: cuando solo se lee la cola de la hoja, el índice del
         // array ya no es la fila. Confundirlos escribiría houses 400 filas más
         // arriba, encima de guías que no son.
         salida.push({ fila: base + i, guia: guia });
+    }
+    return salida;
+}
+
+// Filas cuya house sobra: la celda tiene house pero la guía de su par ya no es
+// una guía —la borraron, o dejaron un marcador de bloque—.
+//
+// SIN ESTO, EL FALLO ES SILENCIOSO Y GRAVE. La house se quedaría huérfana; y si
+// alguien escanea otra guía en esa misma fila, el relleno la salta —solo
+// escribe en celdas vacías— y el renglón acaba enseñando la house de OTRA guía.
+// Nadie lo nota mirando la hoja, y con eso se despacha.
+function celdasPorBorrar(datos, par, filaInicial) {
+    let colGuia = (par && par.guia ? par.guia : 1) - 1;
+    let idx = (par && par.house ? par.house : COL_HOUSE) - 1;
+    let base = filaInicial || 1;
+    let salida = [];
+    for (let i = 0; i < (datos || []).length; i++) {
+        let fila = datos[i];
+        if (!fila) continue;
+        let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
+        if (house === "") continue;
+        if (esGuiaParaHouse(fila[colGuia]) !== "") continue;
+        salida.push({ fila: base + i });
+    }
+    return salida;
+}
+
+// Filas donde la house escrita NO es la que el índice da para esa guía.
+//
+// Es el otro lado del mismo problema: si sobrescriben una guía por otra, la
+// celda de house no queda vacía, así que el relleno normal nunca la tocaría.
+// Solo se corrige cuando el índice sabe una house DISTINTA — nunca se borra por
+// no encontrarla, porque una house puede haber salido del archivo frío, que el
+// disparador no abre. Vaciarla ahí la borraría cada cinco minutos.
+function celdasPorCorregir(datos, par, filaInicial, mapa) {
+    let colGuia = (par && par.guia ? par.guia : 1) - 1;
+    let idx = (par && par.house ? par.house : COL_HOUSE) - 1;
+    let base = filaInicial || 1;
+    let salida = [];
+    if (!mapa) return salida;
+    for (let i = 0; i < (datos || []).length; i++) {
+        let fila = datos[i];
+        if (!fila) continue;
+        let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
+        if (house === "" || house === TXT_HOUSE_SIN_DATO) continue;
+        let guia = esGuiaParaHouse(fila[colGuia]);
+        if (guia === "") continue;
+        let buena = mapa.get(guia);
+        if (buena && buena !== house) salida.push({ fila: base + i, valor: buena });
     }
     return salida;
 }
@@ -1531,31 +1598,66 @@ function rellenarHousesPendientes() {
                                   anchoParaHouses(pares)).getValues();
         pares.forEach(par => {
             let faltan = celdasPorLlenar(datos, par, desde);
-            if (faltan.length) pendientes.push({ hoja: hoja, col: par.house, faltan: faltan });
+            let sobran = celdasPorBorrar(datos, par, desde);
+            if (faltan.length || sobran.length) {
+                pendientes.push({ hoja: hoja, col: par.house, par: par, datos: datos,
+                                  desde: desde, faltan: faltan, sobran: sobran });
+            }
         });
     }
     if (pendientes.length === 0) { anotarRelleno("nada que rellenar"); return; }
 
+    // Borrar las huérfanas NO necesita el índice, así que va primero y ocurre
+    // aunque no se haya importado nada todavía. Una house sin guía es un dato
+    // falso esperando a que alguien escanee encima.
+    let borradas = 0;
+    pendientes.forEach(p => {
+        if (!p.sobran.length) return;
+        let items = p.sobran.map(f => ({ fila: f.fila, valor: "" }));
+        borradas += items.length;
+        bloquesContiguos(items).forEach(b => {
+            p.hoja.getRange(b.fila, p.col, b.valores.length, 1).setValues(b.valores);
+        });
+    });
+
+    let faltanTotal = pendientes.reduce((n, p) => n + p.faltan.length, 0);
+    if (faltanTotal === 0) {
+        anotarRelleno("houses huérfanas borradas: " + borradas);
+        return;
+    }
+
     let indice = leerIndice(ss, HOJA_INDICE_HOUSE);
     if (indice.length === 0) {
-        anotarRelleno("HAY " + pendientes.reduce((n, p) => n + p.faltan.length, 0) +
-                      " GUÍAS ESPERANDO PERO EL ÍNDICE ESTÁ VACÍO: falta importar");
+        anotarRelleno("HAY " + faltanTotal + " GUÍAS ESPERANDO PERO EL ÍNDICE ESTÁ " +
+                      "VACÍO: falta importar · huérfanas borradas: " + borradas);
         return;
     }
     let mapa = mapaDeIndice(indice);
 
-    let puestas = 0, sinDato = 0;
+    let puestas = 0, sinDato = 0, corregidas = 0;
     pendientes.forEach(p => {
         let items = p.faltan.map(f => {
             let house = mapa.get(f.guia);
             if (house) puestas++; else sinDato++;
             return { fila: f.fila, valor: house || TXT_HOUSE_SIN_DATO };
         });
+
+        // Y las que están puestas pero ya no corresponden a su guía: pasa cuando
+        // sobrescriben una guía por otra. La celda no queda vacía, así que el
+        // relleno normal nunca la tocaría y el renglón enseñaría la house de la
+        // guía anterior.
+        celdasPorCorregir(p.datos, p.par, p.desde, mapa).forEach(c => {
+            items.push(c);
+            corregidas++;
+        });
+
         bloquesContiguos(items).forEach(b => {
             p.hoja.getRange(b.fila, p.col, b.valores.length, 1).setValues(b.valores);
         });
     });
     anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
+                  " · huérfanas borradas: " + borradas +
+                  " · corregidas: " + corregidas +
                   " · índice: " + indice.length + " guías" +
                   (cortadoPorTiempo ? " · CORTADO por tiempo, sigue en la próxima" : "") +
                   " · " + ((Date.now() - arranque) / 1000).toFixed(1) + " s");
@@ -1617,9 +1719,9 @@ function completarHousesDesdeFrio() {
         pares.forEach(par => {
             let items = [];
             for (let i = 0; i < datos.length; i++) {
-                let guia = claveGuiaHouse(datos[i][par.guia - 1]);
+                let guia = esGuiaParaHouse(datos[i][par.guia - 1]);
                 let actual = String(datos[i][par.house - 1]).trim();
-                if (guia === "" || !esGuiaUPSValida(guia)) continue;
+                if (guia === "") continue;
                 if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;
                 let house = mapa.get(guia);
                 if (house) { items.push({ fila: i + 1, valor: house }); encontradas++; }
