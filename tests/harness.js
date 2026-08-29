@@ -2102,6 +2102,30 @@ ok("un pedimento no pide house", !porLlenar.some(p => p.guia === "6100544"));
 ok("la marca de «no está» cuenta como llena", !porLlenar.some(p => p.guia === G4));
 ok("una hoja vacía no pide nada", celdasPorLlenar([], colHouse()).length === 0);
 
+console.log("\n--- 6g2. A qué pestañas les toca la house ---");
+// LAS M-S SE QUEDABAN FUERA SIN QUERER. Las tres funciones que rellenan
+// repetían a mano `esHojaPrincipal(x) || esHojaInventario(x)`, y
+// `esHojaPrincipal` devuelve false para una M-S por diseño: una M-S no es una
+// hoja de destino. Ese criterio vale para el caché, no para esto — la house es
+// dato de reporte y hace tanta falta en una M-S como en una Global.
+ok("una Global lleva house", hojaLlevaHouse("GLOBALES"));
+ok("A1 lleva house", hojaLlevaHouse("A1 77-14-ZP"));
+ok("un inventario lleva house", hojaLlevaHouse("INVENTARIO A"));
+ok("UNA M-S TAMBIÉN (era el hueco)", hojaLlevaHouse("M-S T1"));
+ok("M-S CUENTAS ESPECIALES también", hojaLlevaHouse("M-S CUENTAS ESPECIALES"));
+ok("SIMPLES y MULTIPLES también",
+   hojaLlevaHouse("SIMPLES 1") && hojaLlevaHouse("MULTIPLES 2"));
+ok("el tránsito de arribo también", hojaLlevaHouse("TRANSITO DE ARRIBO"));
+ok("el rezago también", hojaLlevaHouse("REZAGO MS"));
+
+// Y nada del motor recibe houses: escribir ahí ensuciaría el caché o la MACHO.
+ok("el caché NO", !hojaLlevaHouse("CACHE_SISTEMA"));
+ok("el historial NO", !hojaLlevaHouse("HISTORIAL_BORRADOS"));
+ok("la MACHO NO", !hojaLlevaHouse("MACHO"));
+ok("la plantilla de inventario NO", !hojaLlevaHouse("INVENTARIO MACHO NO BORRAR"));
+ok("el propio índice NO", !hojaLlevaHouse("INDICE_HOUSE"));
+ok("ni el archivo frío", !hojaLlevaHouse("INDICE_HOUSE_FRIO"));
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

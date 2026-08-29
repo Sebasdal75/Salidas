@@ -128,6 +128,23 @@ function desdeQueFilaMirar(ultimaFila, cuantas) {
     return Math.max(1, ultimaFila - tramo + 1);
 }
 
+// ¿A qué pestañas les toca la house? A todas las de operación: las de escaneo,
+// los inventarios Y LAS M-S.
+//
+// Las M-S se quedaban fuera sin querer. Las tres funciones que rellenan
+// repetían el mismo criterio a mano —`esHojaPrincipal(x) || esHojaInventario(x)`—
+// y `esHojaPrincipal` devuelve false para una M-S por diseño, porque una M-S no
+// es una hoja de destino. Ese criterio servía para el caché, no para esto: la
+// house es dato de reporte y hace tanta falta en una M-S como en una Global.
+//
+// Va en UNA función y no en tres copias. Tres sitios decidiendo lo mismo es lo
+// que dejó fuera a las M-S sin que nadie lo notara.
+function hojaLlevaHouse(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    if (esHojaSistema(n)) return false;   // caché, historial, MACHO, plantillas, índice
+    return esHojaPrincipal(n) || esHojaInventario(n) || esHojaMS(n);
+}
+
 function colHouse() { return COL_HOUSE; }
 function textoHouseSinDato() { return TXT_HOUSE_SIN_DATO; }
 function diasIndiceCaliente() { return DIAS_INDICE_CALIENTE; }
@@ -1471,7 +1488,7 @@ function rellenarHousesPendientes() {
         }
         let hoja = hojas[h];
         let clave = claveHoja(hoja.getName());
-        if (!esHojaPrincipal(clave) && !esHojaInventario(clave)) continue;
+        if (!hojaLlevaHouse(clave)) continue;
         let lr = hoja.getLastRow();
         if (lr < 1) continue;
         let desde = desdeQueFilaMirar(lr, FILAS_A_MIRAR);
@@ -1554,7 +1571,7 @@ function completarHousesDesdeFrio() {
 
     ss.getSheets().forEach(hoja => {
         let clave = claveHoja(hoja.getName());
-        if (!esHojaPrincipal(clave) && !esHojaInventario(clave)) return;
+        if (!hojaLlevaHouse(clave)) return;
         let lr = hoja.getLastRow();
         if (lr < 1) return;
         let datos = hoja.getRange(1, 1, lr, COL_HOUSE).getValues();
@@ -1600,7 +1617,7 @@ function limpiarMarcasNoEncontradas(ss) {
     let limpiadas = 0;
     ss.getSheets().forEach(hoja => {
         let clave = claveHoja(hoja.getName());
-        if (!esHojaPrincipal(clave) && !esHojaInventario(clave)) return;
+        if (!hojaLlevaHouse(clave)) return;
         let lr = hoja.getLastRow();
         if (lr < 1) return;
         let col = hoja.getRange(1, COL_HOUSE, lr, 1).getValues();
