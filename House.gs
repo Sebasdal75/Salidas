@@ -1593,9 +1593,21 @@ function rellenarHousesPendientes() {
         let lr = hoja.getLastRow();
         if (lr < 1) continue;
         let pares = paresDeHouse(clave, hoja.getMaxColumns());
-        let desde = desdeQueFilaMirar(lr, FILAS_A_MIRAR);
-        let datos = hoja.getRange(desde, 1, lr - desde + 1,
-                                  anchoParaHouses(pares)).getValues();
+
+        // SE LEE LA HOJA ENTERA, NO SOLO LA COLA.
+        //
+        // Leer solo el final servía para RELLENAR —lo que acaba de escanearse
+        // está abajo, siempre— pero es un error para BORRAR: una house huérfana
+        // se queda donde estaba su guía, que puede ser cualquier fila. Con la
+        // cola, las de arriba no las veía nadie y se quedaban ahí para siempre,
+        // esperando a que alguien escanee encima y herede una house ajena.
+        //
+        // Y no cuesta lo que parece: es UNA llamada igual que antes, solo que
+        // trae más celdas. Lo que disparaba la cuota era la frecuencia —cada
+        // minuto—, no el tamaño de cada lectura; con cinco minutos y el
+        // presupuesto de tiempo ya está acotado.
+        let desde = 1;
+        let datos = hoja.getRange(desde, 1, lr, anchoParaHouses(pares)).getValues();
         pares.forEach(par => {
             let faltan = celdasPorLlenar(datos, par, desde);
             let sobran = celdasPorBorrar(datos, par, desde);
@@ -1778,6 +1790,42 @@ function limpiarMarcasNoEncontradas(ss) {
         });
     });
     return limpiadas;
+}
+
+// Botón: hacerlo ahora mismo, sin esperar al disparador.
+function limpiarHousesHuerfanasAhora() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let borradas = 0, hojasTocadas = 0;
+    ss.getSheets().forEach(hoja => {
+        let clave = claveHoja(hoja.getName());
+        if (!hojaLlevaHouse(clave)) return;
+        let lr = hoja.getLastRow();
+        if (lr < 1) return;
+        let pares = paresDeHouse(clave, hoja.getMaxColumns());
+        let datos = hoja.getRange(1, 1, lr, anchoParaHouses(pares)).getValues();
+        let algo = false;
+        pares.forEach(par => {
+            let sobran = celdasPorBorrar(datos, par, 1);
+            if (!sobran.length) return;
+            algo = true;
+            borradas += sobran.length;
+            bloquesContiguos(sobran.map(f => ({ fila: f.fila, valor: "" }))).forEach(b => {
+                hoja.getRange(b.fila, par.house, b.valores.length, 1).setValues(b.valores);
+            });
+        });
+        if (algo) hojasTocadas++;
+    });
+
+    ui.alert("🧽 Houses huérfanas",
+        "Borradas: " + borradas + "\nEn " + hojasTocadas + " pestañas.\n\n" +
+        (borradas === 0
+            ? "No había ninguna house sin su guía."
+            : "Eran houses cuya guía ya no está. Se quitan porque, si alguien " +
+              "escanea otra guía en esa fila, heredaría la house de la anterior."),
+        ui.ButtonSet.OK);
 }
 
 function reintentarHousesNoEncontradas() {

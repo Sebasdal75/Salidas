@@ -4031,6 +4031,7 @@ function onOpen() {
                   .addItem('🧹 Quitar los vínculos', 'quitarUrlsOneDrive')
                   .addSeparator()
                   .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
+                  .addItem('🧽 Limpiar houses huérfanas ahora', 'limpiarHousesHuerfanasAhora')
                   .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
                   .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
                   .addSeparator()

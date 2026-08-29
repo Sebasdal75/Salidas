@@ -2076,15 +2076,32 @@ ok("solo las que faltan", porLlenar.length === 2);
 ok("y con la fila de la HOJA, no el índice del array",
    porLlenar[0].fila === 2 && porLlenar[1].fila === 5);
 
-// EL DISPARADOR SOLO LEE LA COLA DE LA HOJA. Leerla entera cada vez era lo que
-// disparaba la cuota de disparadores de Google — y cuando esa cuota se agota,
-// Google desactiva TODOS los disparadores de la cuenta, incluido el del
-// escaneo. El sintoma es demoledor y no señala a su causa: la guía entra en la
-// columna A porque la teclea el escáner, y no la procesa nadie.
+// `desdeQueFilaMirar` sigue existiendo por si algún día conviene acotar la
+// lectura, pero el disparador YA NO LA USA: leer solo la cola servía para
+// rellenar —lo que acaba de escanearse está abajo, siempre— y era un error
+// para BORRAR. Una house huérfana se queda donde estaba su guía, que puede ser
+// cualquier fila; con la cola, las de arriba no las veía nadie y se quedaban
+// ahí esperando a que alguien escanee encima y herede una house ajena.
+//
+// Lo que disparaba la cuota de Google era la FRECUENCIA -cada minuto-, no el
+// tamaño de cada lectura: es una llamada igual, solo que trae más celdas.
 ok("una hoja corta se lee entera", desdeQueFilaMirar(120, 500) === 1);
 ok("de una larga solo la cola", desdeQueFilaMirar(3000, 500) === 2501);
 ok("y la cola mide lo pedido", 3000 - desdeQueFilaMirar(3000, 500) + 1 === 500);
 ok("una hoja vacía no revienta", desdeQueFilaMirar(0, 500) === 1);
+
+// LO QUE DE VERDAD IMPORTA: una huérfana en la fila 3 de una hoja de 3.000 se
+// encuentra igual, porque ya se lee entera.
+let hojaLarga = [];
+for (let i = 0; i < 3000; i++) hojaLarga.push(["", "", "", ""]);
+hojaLarga[2] = ["", "", "", "H-HUERFANA-ARRIBA"];
+hojaLarga[2900] = ["", "", "", "H-HUERFANA-ABAJO"];
+let huerfanasLargas = celdasPorBorrar(hojaLarga, PAR_A, 1);
+ok("encuentra la huérfana de arriba y la de abajo", huerfanasLargas.length === 2);
+ok("la de arriba es la fila 3", huerfanasLargas[0].fila === 3);
+// Con la cola de 500 filas, la de arriba se habría quedado fuera para siempre.
+ok("con solo la cola se habría perdido",
+   celdasPorBorrar(hojaLarga.slice(2500), PAR_A, 2501).length === 1);
 
 // AL LEER SOLO LA COLA, EL ÍNDICE DEL ARRAY YA NO ES LA FILA. Confundirlos
 // escribiría houses cientos de filas más arriba, encima de guías que no son.
