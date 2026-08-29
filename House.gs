@@ -41,6 +41,39 @@ const CARPETA_INBOUND = "INBOUND_PREALERTAS";    // carpeta de Drive con los CSV
 // allá esa protección no llegaría.
 const COL_HOUSE = 4;
 
+// La house de la guía de la PREFORMA (columna O) va en la R.
+//
+// La O tiene sus propias guías y también necesitan house: en una Global la A es
+// lo que llegó físicamente y la O es lo que decía la preforma. Una sola columna
+// de house no puede servir a las dos, o la de la O pisaría a la de la A en las
+// filas donde ambas tienen guía.
+//
+// La R está libre, cae justo después del estado de la preforma (P) y antes de
+// su hora (S), y sigue dentro de las columnas 1-19 que lee el recorte del
+// cierre antes de borrar filas: así una fila con house nunca se borra.
+const COL_HOUSE_PREFORMA = 18;
+
+// Qué pares (guía → house) tiene una pestaña. Las M-S no llevan preforma, así
+// que solo tienen el par de la A. Es el mismo criterio con el que se decide si
+// una hoja recibe validación en la O y si el caché le reserva columna: si un
+// día cambia, tiene que cambiar en un solo sitio.
+function paresDeHouse(nombreHoja, maxColumnas) {
+    let pares = [{ guia: 1, house: COL_HOUSE }];
+    if (usaPreforma(claveHoja(nombreHoja)) && maxColumnas >= COL_HOUSE_PREFORMA) {
+        pares.push({ guia: 15, house: COL_HOUSE_PREFORMA });
+    }
+    return pares;
+}
+
+// Hasta qué columna hay que leer para cubrir todos los pares. Una sola lectura
+// por hoja, no una por par: en este archivo lo que cuesta es el NÚMERO de
+// llamadas, no cuántas celdas trae cada una.
+function anchoParaHouses(pares) {
+    return (pares || []).reduce((m, p) => Math.max(m, p.guia, p.house), 1);
+}
+
+function colHousePreforma() { return COL_HOUSE_PREFORMA; }
+
 // Cuántos días de prealerta se quedan en el índice caliente. Una guía que se
 // escanea hoy se prealertó hace días o semanas, no hace dos años: el 99 % de
 // las búsquedas caen aquí, y cargar el archivo entero cada minuto sería pagar
@@ -753,14 +786,15 @@ function particionPorAntiguedad(filas, hoy, dias) {
 //
 // La marca de «no encontrada» cuenta como llena: si se reintentara, cada minuto
 // se volvería a cargar el índice entero para volver a no encontrarla.
-function celdasPorLlenar(datos, colDeHouse, filaInicial) {
-    let idx = (colDeHouse || COL_HOUSE) - 1;
+function celdasPorLlenar(datos, par, filaInicial) {
+    let colGuia = (par && par.guia ? par.guia : 1) - 1;
+    let idx = (par && par.house ? par.house : COL_HOUSE) - 1;
     let base = filaInicial || 1;
     let salida = [];
     for (let i = 0; i < (datos || []).length; i++) {
         let fila = datos[i];
         if (!fila) continue;
-        let guia = claveGuiaHouse(fila[0]);
+        let guia = claveGuiaHouse(fila[colGuia]);
         if (guia === "" || !esGuiaUPSValida(guia)) continue;
         let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
         if (house !== "") continue;
@@ -1491,10 +1525,14 @@ function rellenarHousesPendientes() {
         if (!hojaLlevaHouse(clave)) continue;
         let lr = hoja.getLastRow();
         if (lr < 1) continue;
+        let pares = paresDeHouse(clave, hoja.getMaxColumns());
         let desde = desdeQueFilaMirar(lr, FILAS_A_MIRAR);
-        let datos = hoja.getRange(desde, 1, lr - desde + 1, COL_HOUSE).getValues();
-        let faltan = celdasPorLlenar(datos, COL_HOUSE, desde);
-        if (faltan.length) pendientes.push({ hoja: hoja, faltan: faltan });
+        let datos = hoja.getRange(desde, 1, lr - desde + 1,
+                                  anchoParaHouses(pares)).getValues();
+        pares.forEach(par => {
+            let faltan = celdasPorLlenar(datos, par, desde);
+            if (faltan.length) pendientes.push({ hoja: hoja, col: par.house, faltan: faltan });
+        });
     }
     if (pendientes.length === 0) { anotarRelleno("nada que rellenar"); return; }
 
@@ -1514,7 +1552,7 @@ function rellenarHousesPendientes() {
             return { fila: f.fila, valor: house || TXT_HOUSE_SIN_DATO };
         });
         bloquesContiguos(items).forEach(b => {
-            p.hoja.getRange(b.fila, COL_HOUSE, b.valores.length, 1).setValues(b.valores);
+            p.hoja.getRange(b.fila, p.col, b.valores.length, 1).setValues(b.valores);
         });
     });
     anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
@@ -1574,19 +1612,22 @@ function completarHousesDesdeFrio() {
         if (!hojaLlevaHouse(clave)) return;
         let lr = hoja.getLastRow();
         if (lr < 1) return;
-        let datos = hoja.getRange(1, 1, lr, COL_HOUSE).getValues();
-        let items = [];
-        for (let i = 0; i < datos.length; i++) {
-            let guia = claveGuiaHouse(datos[i][0]);
-            let actual = String(datos[i][COL_HOUSE - 1]).trim();
-            if (guia === "" || !esGuiaUPSValida(guia)) continue;
-            if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;
-            let house = mapa.get(guia);
-            if (house) { items.push({ fila: i + 1, valor: house }); encontradas++; }
-            else siguenSinAparecer++;
-        }
-        bloquesContiguos(items).forEach(b => {
-            hoja.getRange(b.fila, COL_HOUSE, b.valores.length, 1).setValues(b.valores);
+        let pares = paresDeHouse(clave, hoja.getMaxColumns());
+        let datos = hoja.getRange(1, 1, lr, anchoParaHouses(pares)).getValues();
+        pares.forEach(par => {
+            let items = [];
+            for (let i = 0; i < datos.length; i++) {
+                let guia = claveGuiaHouse(datos[i][par.guia - 1]);
+                let actual = String(datos[i][par.house - 1]).trim();
+                if (guia === "" || !esGuiaUPSValida(guia)) continue;
+                if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;
+                let house = mapa.get(guia);
+                if (house) { items.push({ fila: i + 1, valor: house }); encontradas++; }
+                else siguenSinAparecer++;
+            }
+            bloquesContiguos(items).forEach(b => {
+                hoja.getRange(b.fila, par.house, b.valores.length, 1).setValues(b.valores);
+            });
         });
     });
 
@@ -1620,16 +1661,18 @@ function limpiarMarcasNoEncontradas(ss) {
         if (!hojaLlevaHouse(clave)) return;
         let lr = hoja.getLastRow();
         if (lr < 1) return;
-        let col = hoja.getRange(1, COL_HOUSE, lr, 1).getValues();
-        let items = [];
-        for (let i = 0; i < col.length; i++) {
-            if (String(col[i][0]).trim() === TXT_HOUSE_SIN_DATO) {
-                items.push({ fila: i + 1, valor: "" });
-                limpiadas++;
+        paresDeHouse(clave, hoja.getMaxColumns()).forEach(par => {
+            let col = hoja.getRange(1, par.house, lr, 1).getValues();
+            let items = [];
+            for (let i = 0; i < col.length; i++) {
+                if (String(col[i][0]).trim() === TXT_HOUSE_SIN_DATO) {
+                    items.push({ fila: i + 1, valor: "" });
+                    limpiadas++;
+                }
             }
-        }
-        bloquesContiguos(items).forEach(b => {
-            hoja.getRange(b.fila, COL_HOUSE, b.valores.length, 1).setValues(b.valores);
+            bloquesContiguos(items).forEach(b => {
+                hoja.getRange(b.fila, par.house, b.valores.length, 1).setValues(b.valores);
+            });
         });
     });
     return limpiadas;

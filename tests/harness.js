@@ -2062,6 +2062,7 @@ ok("sin fecha se queda en el caliente", part.calientes.some(f => f[0] === G3));
 ok("y no se pierde ninguna", part.calientes.length + part.frias.length === 4);
 
 console.log("\n--- 6g. Qué celdas hay que rellenar ---");
+const PAR_A = { guia: 1, house: colHouse() };
 let hojaSim = [
     [G1, "✅ OK", "", "HAWB-001"],       // ya tiene house
     [G2, "✅ OK", "", ""],               // falta
@@ -2070,7 +2071,7 @@ let hojaSim = [
     [G3, "⛔ DUPLICADO", "", ""],        // falta, aunque esté duplicada
     [G4, "✅ OK", "", textoHouseSinDato()] // ya se buscó y no estaba
 ];
-let porLlenar = celdasPorLlenar(hojaSim, colHouse());
+let porLlenar = celdasPorLlenar(hojaSim, PAR_A);
 ok("solo las que faltan", porLlenar.length === 2);
 ok("y con la fila de la HOJA, no el índice del array",
    porLlenar[0].fila === 2 && porLlenar[1].fila === 5);
@@ -2087,11 +2088,11 @@ ok("una hoja vacía no revienta", desdeQueFilaMirar(0, 500) === 1);
 
 // AL LEER SOLO LA COLA, EL ÍNDICE DEL ARRAY YA NO ES LA FILA. Confundirlos
 // escribiría houses cientos de filas más arriba, encima de guías que no son.
-let colaLeida = celdasPorLlenar(hojaSim, colHouse(), 2501);
+let colaLeida = celdasPorLlenar(hojaSim, PAR_A, 2501);
 ok("las filas salen desplazadas por la cola",
    colaLeida[0].fila === 2502 && colaLeida[1].fila === 2505);
 ok("sin desplazamiento se comporta como antes",
-   celdasPorLlenar(hojaSim, colHouse(), 1)[0].fila === 2);
+   celdasPorLlenar(hojaSim, PAR_A, 1)[0].fila === 2);
 
 // La house es dato de reporte: que tarde cinco minutos no le importa a nadie;
 // que se pare el escaneo, sí.
@@ -2100,7 +2101,7 @@ ok("un pedimento no pide house", !porLlenar.some(p => p.guia === "6100544"));
 // Sin esto se recargaría el índice entero cada minuto para volver a no
 // encontrar la misma guía.
 ok("la marca de «no está» cuenta como llena", !porLlenar.some(p => p.guia === G4));
-ok("una hoja vacía no pide nada", celdasPorLlenar([], colHouse()).length === 0);
+ok("una hoja vacía no pide nada", celdasPorLlenar([], PAR_A).length === 0);
 
 console.log("\n--- 6g2. A qué pestañas les toca la house ---");
 // LAS M-S SE QUEDABAN FUERA SIN QUERER. Las tres funciones que rellenan
@@ -2125,6 +2126,41 @@ ok("la MACHO NO", !hojaLlevaHouse("MACHO"));
 ok("la plantilla de inventario NO", !hojaLlevaHouse("INVENTARIO MACHO NO BORRAR"));
 ok("el propio índice NO", !hojaLlevaHouse("INDICE_HOUSE"));
 ok("ni el archivo frío", !hojaLlevaHouse("INDICE_HOUSE_FRIO"));
+
+console.log("\n--- 6g3. La preforma de la O también lleva house ---");
+// En una Global la A es lo que llegó físicamente y la O es lo que decía la
+// preforma: son dos juegos de guías distintos y cada uno necesita su house. Una
+// sola columna no puede servir a las dos, o la de la O pisaría a la de la A en
+// las filas donde ambas tienen guía.
+let paresGlobal = paresDeHouse("GLOBALES", 19);
+ok("una Global tiene dos pares", paresGlobal.length === 2);
+ok("el primero es A → D", paresGlobal[0].guia === 1 && paresGlobal[0].house === 4);
+ok("el segundo es O → R", paresGlobal[1].guia === 15 && paresGlobal[1].house === 18);
+
+// Las M-S no llevan preforma: su columna O siempre está vacía.
+ok("una M-S solo tiene el par de la A", paresDeHouse("M-S T1", 19).length === 1);
+// Una hoja estrecha no puede recibir la house de la preforma.
+ok("una hoja estrecha tampoco", paresDeHouse("GLOBALES", 12).length === 1);
+
+// Una sola lectura por hoja cubre los dos pares: en este archivo lo que cuesta
+// es el NÚMERO de llamadas, no cuántas celdas trae cada una.
+ok("la lectura llega hasta la R", anchoParaHouses(paresGlobal) === 18);
+ok("en una M-S basta hasta la D", anchoParaHouses(paresDeHouse("M-S T1", 19)) === 4);
+
+// El barrido de la preforma mira la guía de la O y la house de la R, sin
+// mezclarse con las de la A.
+let filaGlobal = [];
+for (let i = 0; i < 18; i++) filaGlobal.push("");
+filaGlobal[0] = G1;   // guía física en la A
+filaGlobal[3] = "H-A";  // su house ya puesta en la D
+filaGlobal[14] = G2;  // guía de preforma en la O
+let conPreforma = [filaGlobal];
+ok("la A ya no pide nada",
+   celdasPorLlenar(conPreforma, {guia: 1, house: 4}).length === 0);
+ok("pero la O sí pide su house",
+   celdasPorLlenar(conPreforma, {guia: 15, house: 18}).length === 1);
+ok("y es la guía de la preforma, no la física",
+   celdasPorLlenar(conPreforma, {guia: 15, house: 18})[0].guia === G2);
 
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
