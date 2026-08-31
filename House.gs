@@ -143,6 +143,19 @@ const HOJA_MARCA_ACTIVO = "HOUSE_ACTIVO";
 // nadie.
 const MINUTOS_ENTRE_RELLENOS = 5;
 
+// El relleno respeta SU PROPIO intervalo aunque lo llame otro disparador.
+//
+// Asi el actualizador automático puede invitarlo en cada vuelta sin que eso
+// obligue a rellenar cada vez: si mañana el actualizador pasa a correr cada
+// minuto, las houses siguen yendo a su ritmo. Y para espaciarlas mas basta con
+// subir MINUTOS_ENTRE_RELLENOS, sin tocar ningun disparador.
+const PROP_TS_RELLENO = 'HOUSE_TS_ULTIMO_RELLENO';
+
+function tocaRellenar(ahora, ultimo, minutos) {
+    if (!ultimo) return true;
+    return (ahora - ultimo) / 60000 >= (minutos || MINUTOS_ENTRE_RELLENOS);
+}
+
 // Solo se mira la COLA de cada hoja. Las houses de arriba ya están puestas: lo
 // que acaba de escanearse está abajo, siempre.
 const FILAS_A_MIRAR = 500;
@@ -1563,8 +1576,24 @@ function importarInboundDesdeOneDrive() {
     ui.alert("☁️ OneDrive", resumen, ui.ButtonSet.OK);
 }
 
-function rellenarHousesPendientes() {
+function rellenarHousesPendientes(forzar) {
     const ss = obtenerArchivo();
+
+    // Puede llamarlo el actualizador automático en cada una de sus vueltas; el
+    // intervalo lo pone este módulo, no quien lo invoca.
+    if (!forzar) {
+        let ultimo = 0;
+        try {
+            ultimo = Number(PropertiesService.getScriptProperties()
+                            .getProperty(PROP_TS_RELLENO) || 0);
+        } catch (err) { ultimo = 0; }
+        if (!tocaRellenar(Date.now(), ultimo, MINUTOS_ENTRE_RELLENOS)) return;
+    }
+    try {
+        PropertiesService.getScriptProperties()
+            .setProperty(PROP_TS_RELLENO, String(Date.now()));
+    } catch (err) { /* marcar la hora nunca puede tumbar el relleno */ }
+
     // `moduloActivo`, NO `esArchivoDePrueba`: en el archivo real el módulo se
     // enciende con el interruptor, no por el nombre. Mirar el nombre aquí hacía
     // que el disparador se saliera en la primera línea en producción —y sin
@@ -1845,15 +1874,35 @@ function instalarTriggerHouse() {
     const ui = SpreadsheetApp.getUi();
     if (!exigirModoPrueba(ss)) return;
 
+    // Si la red de seguridad ya corre, el relleno viaja con ella y NO hace falta
+    // un disparador propio. Google limita el tiempo total de disparadores por
+    // cuenta al día y al agotarse los desactiva todos —incluido el del escaneo—:
+    // dos despertares cada cinco minutos para el mismo viaje es pagar doble.
+    let yaHayActualizador = ScriptApp.getProjectTriggers()
+        .some(t => t.getHandlerFunction() === 'actualizadorAutomaticoGlobal');
+
     quitarTriggerHouse(true);
+
+    if (yaHayActualizador) {
+        ui.alert("🏠 Houses",
+            "No hace falta un disparador aparte: el relleno ya viaja con el " +
+            "actualizador automático, que corre cada 5 minutos.\n\n" +
+            "Así Google cuenta UN disparador en vez de dos. Si se agota la cuota " +
+            "diaria de disparadores, Google los desactiva todos — incluido el del " +
+            "escaneo.\n\n" +
+            "Para espaciar las houses sin tocar disparadores, sube " +
+            "MINUTOS_ENTRE_RELLENOS en House.gs (ahora " + MINUTOS_ENTRE_RELLENOS +
+            ").", ui.ButtonSet.OK);
+        return;
+    }
+
     ScriptApp.newTrigger('rellenarHousesPendientes').timeBased()
         .everyMinutes(MINUTOS_ENTRE_RELLENOS).create();
     ui.alert("🏠 Houses",
         "Listo: las houses se rellenarán solas cada " + MINUTOS_ENTRE_RELLENOS +
-        " minutos.\n\nNo es cada minuto a propósito. Google limita el tiempo total de " +
-        "disparadores por cuenta al día, y si se agota desactiva TODOS los disparadores " +
-        "— incluido el del escaneo. La house es dato de reporte: que tarde cinco minutos " +
-        "no le importa a nadie; que se pare el escaneo, sí.", ui.ButtonSet.OK);
+        " minutos.\n\nSi instalas el trigger avanzado, este disparador sobra: el " +
+        "relleno viajará con el actualizador automático y Google contará uno en " +
+        "vez de dos.", ui.ButtonSet.OK);
 }
 
 function quitarTriggerHouse(silencioso) {

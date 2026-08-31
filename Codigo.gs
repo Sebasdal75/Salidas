@@ -4888,6 +4888,23 @@ function actualizadorAutomaticoGlobal() {
   } finally {
     lock.releaseLock();
   }
+
+  // El relleno de houses viaja con este disparador en vez de tener el suyo.
+  //
+  // Google limita el TIEMPO TOTAL de disparadores por cuenta al día, y cuando se
+  // agota los desactiva todos —incluido el del escaneo—. Dos disparadores de
+  // tiempo despertando cada cinco minutos, cada uno abriendo el archivo por su
+  // cuenta, es pagar dos veces por el mismo viaje.
+  //
+  // VA FUERA DEL LOCK, y eso importa: rellenar houses puede tardar segundos, y
+  // hacerlo con el lock tomado dejaría a los operadores esperando en cada
+  // escaneo. La house es dato de reporte; el escaneo no espera por ella.
+  //
+  // El propio módulo decide si le toca: aunque se le invite en cada vuelta,
+  // respeta su intervalo. Y el typeof permite que House.gs no esté pegado.
+  try {
+      if (typeof rellenarHousesPendientes === 'function') rellenarHousesPendientes();
+  } catch (err) { /* el relleno jamás puede tumbar la red de seguridad */ }
 }
 
 // OJO: esta función REESCRIBE LA COLUMNA A ENTERA. No borra nada, pero mueve

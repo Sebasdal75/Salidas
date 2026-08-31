@@ -2240,6 +2240,27 @@ filaPre[17] = "H-HUERFANA";   // house en la R sin guía en la O
 ok("también limpia la house de la preforma",
    celdasPorBorrar([filaPre], {guia: 15, house: 18}).length === 1);
 
+console.log("\n--- 6g5. El relleno pone su propio ritmo ---");
+// Habia DOS disparadores de tiempo despertando cada cinco minutos: la red de
+// seguridad y el relleno de houses, cada uno abriendo el archivo por su cuenta.
+// Google limita el TIEMPO TOTAL de disparadores por cuenta al dia y al agotarse
+// los desactiva TODOS -incluido el del escaneo-, asi que pagar dos veces por el
+// mismo viaje no era gratis.
+//
+// Ahora el relleno viaja con la red de seguridad, y para que eso no lo ate a su
+// frecuencia, decide el solo si le toca.
+let ahoraR = 1700000000000;
+ok("sin haber corrido nunca, toca", tocaRellenar(ahoraR, 0, 5));
+ok("recien corrido, NO toca", !tocaRellenar(ahoraR, ahoraR - 60 * 1000, 5));
+ok("pasados los minutos, toca", tocaRellenar(ahoraR, ahoraR - 6 * 60 * 1000, 5));
+ok("justo en el limite, toca", tocaRellenar(ahoraR, ahoraR - 5 * 60 * 1000, 5));
+// Subir el intervalo espacia las houses sin tocar ningun disparador.
+ok("con 15 minutos, a los 6 todavia no toca",
+   !tocaRellenar(ahoraR, ahoraR - 6 * 60 * 1000, 15));
+ok("y a los 16 si", tocaRellenar(ahoraR, ahoraR - 16 * 60 * 1000, 15));
+ok("sin minutos usa el valor por defecto",
+   tocaRellenar(ahoraR, ahoraR - 60 * 60 * 1000) === true);
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.
