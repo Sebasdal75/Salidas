@@ -304,7 +304,12 @@ ok("la hora no está entre las columnas de captura",
 // normalización se perdería en silencio.
 COLS_CAPTURA.forEach(c =>
    ok("el lote escribe en la columna " + c, columnasDelLote().indexOf(c) !== -1));
-ok("la columna Q ya no está en el lote", columnasDelLote().indexOf(17) === -1);
+// La Q volvió al lote, pero NO por los costales -esos siguen retirados-: ahora
+// lleva la house de la preforma, pegada a su estado en la P para que las dos se
+// escriban de una sola llamada.
+ok("la columna Q vuelve al lote, ahora por la house",
+   columnasDelLote().indexOf(17) !== -1);
+ok("y no es una columna de captura", COLS_CAPTURA.indexOf(17) === -1);
 ok("la columna D ya no está en el lote", columnasDelLote().indexOf(4) === -1);
 
 console.log("\n=== 5u. filaFinalDesdeCache (hasta dónde recalcular) ===");
@@ -2062,19 +2067,36 @@ ok("sin fecha se queda en el caliente", part.calientes.some(f => f[0] === G3));
 ok("y no se pierde ninguna", part.calientes.length + part.frias.length === 4);
 
 console.log("\n--- 6g. Qué celdas hay que rellenar ---");
-const PAR_A = { guia: 1, house: colHouse() };
+// La house vive en la C, pegada al estado de la B: escribir las dos juntas es
+// la MISMA llamada, y por eso aparece en el instante del escaneo sin coste.
+// Encima están los totales C1:C3, así que las tres primeras filas no se tocan.
+const PAR_A = paresDeHouse("GLOBALES", 19)[0];
+ok("la house va en la C", PAR_A.house === 3);
+ok("y no antes de la fila 4", PAR_A.desde === 4);
+
+// El fixture arranca en la fila 4 para no chocar con los totales.
 let hojaSim = [
-    [G1, "✅ OK", "", "HAWB-001"],       // ya tiene house
-    [G2, "✅ OK", "", ""],               // falta
-    ["", "", "", ""],                    // fila vacía
-    ["6100544", "", "", ""],             // pedimento: no lleva house
-    [G3, "⛔ DUPLICADO", "", ""],        // falta, aunque esté duplicada
-    [G4, "✅ OK", "", textoHouseSinDato()] // ya se buscó y no estaba
+    [G1, "✅ OK", "HAWB-001"],        // 4: ya tiene house
+    [G2, "✅ OK", ""],                // 5: falta
+    ["", "", ""],                     // 6: fila vacía
+    ["6100544", "", ""],              // 7: pedimento: no lleva house
+    [G3, "⛔ DUPLICADO", ""],         // 8: falta, aunque esté duplicada
+    [G4, "✅ OK", textoHouseSinDato()] // 9: ya se buscó y no estaba
 ];
-let porLlenar = celdasPorLlenar(hojaSim, PAR_A);
+let porLlenar = celdasPorLlenar(hojaSim, PAR_A, 4);
 ok("solo las que faltan", porLlenar.length === 2);
 ok("y con la fila de la HOJA, no el índice del array",
-   porLlenar[0].fila === 2 && porLlenar[1].fila === 5);
+   porLlenar[0].fila === 5 && porLlenar[1].fila === 8);
+// Los totales C1:C3 son intocables: escribir ahí los borraría.
+ok("las tres primeras filas no admiten house",
+   !filaAdmiteHouse(PAR_A, 1) && !filaAdmiteHouse(PAR_A, 3));
+ok("la cuarta sí", filaAdmiteHouse(PAR_A, 4));
+// Leído desde la fila 1, el mismo fixture pierde los renglones que caerían
+// sobre los totales: la guardia recorta por arriba en vez de escribir ahí.
+ok("leído desde la fila 1, la guardia recorta lo de arriba",
+   celdasPorLlenar(hojaSim, PAR_A, 1).length === 1);
+ok("y lo que queda está en la fila 5 o más",
+   celdasPorLlenar(hojaSim, PAR_A, 1)[0].fila >= 4);
 
 // `desdeQueFilaMirar` sigue existiendo por si algún día conviene acotar la
 // lectura, pero el disparador YA NO LA USA: leer solo la cola servía para
@@ -2093,23 +2115,23 @@ ok("una hoja vacía no revienta", desdeQueFilaMirar(0, 500) === 1);
 // LO QUE DE VERDAD IMPORTA: una huérfana en la fila 3 de una hoja de 3.000 se
 // encuentra igual, porque ya se lee entera.
 let hojaLarga = [];
-for (let i = 0; i < 3000; i++) hojaLarga.push(["", "", "", ""]);
-hojaLarga[2] = ["", "", "", "H-HUERFANA-ARRIBA"];
-hojaLarga[2900] = ["", "", "", "H-HUERFANA-ABAJO"];
+for (let i = 0; i < 3000; i++) hojaLarga.push(["", "", ""]);
+hojaLarga[9] = ["", "", "H-HUERFANA-ARRIBA"];     // fila 10
+hojaLarga[2900] = ["", "", "H-HUERFANA-ABAJO"];   // fila 2901
 let huerfanasLargas = celdasPorBorrar(hojaLarga, PAR_A, 1);
 ok("encuentra la huérfana de arriba y la de abajo", huerfanasLargas.length === 2);
-ok("la de arriba es la fila 3", huerfanasLargas[0].fila === 3);
+ok("la de arriba es la fila 10", huerfanasLargas[0].fila === 10);
 // Con la cola de 500 filas, la de arriba se habría quedado fuera para siempre.
 ok("con solo la cola se habría perdido",
    celdasPorBorrar(hojaLarga.slice(2500), PAR_A, 2501).length === 1);
 
 // AL LEER SOLO LA COLA, EL ÍNDICE DEL ARRAY YA NO ES LA FILA. Confundirlos
 // escribiría houses cientos de filas más arriba, encima de guías que no son.
-let colaLeida = celdasPorLlenar(hojaSim, PAR_A, 2501);
+let colaLeida = celdasPorLlenar(hojaSim, PAR_A, 2504);
 ok("las filas salen desplazadas por la cola",
-   colaLeida[0].fila === 2502 && colaLeida[1].fila === 2505);
+   colaLeida[0].fila === 2505 && colaLeida[1].fila === 2508);
 ok("sin desplazamiento se comporta como antes",
-   celdasPorLlenar(hojaSim, PAR_A, 1)[0].fila === 2);
+   celdasPorLlenar(hojaSim, PAR_A, 4)[0].fila === 5);
 
 // La house es dato de reporte: que tarde cinco minutos no le importa a nadie;
 // que se pare el escaneo, sí.
@@ -2118,7 +2140,7 @@ ok("un pedimento no pide house", !porLlenar.some(p => p.guia === "6100544"));
 // Sin esto se recargaría el índice entero cada minuto para volver a no
 // encontrar la misma guía.
 ok("la marca de «no está» cuenta como llena", !porLlenar.some(p => p.guia === G4));
-ok("una hoja vacía no pide nada", celdasPorLlenar([], PAR_A).length === 0);
+ok("una hoja vacía no pide nada", celdasPorLlenar([], PAR_A, 4).length === 0);
 
 console.log("\n--- 6g2. A qué pestañas les toca la house ---");
 // LAS M-S SE QUEDABAN FUERA SIN QUERER. Las tres funciones que rellenan
@@ -2151,8 +2173,12 @@ console.log("\n--- 6g3. La preforma de la O también lleva house ---");
 // las filas donde ambas tienen guía.
 let paresGlobal = paresDeHouse("GLOBALES", 19);
 ok("una Global tiene dos pares", paresGlobal.length === 2);
-ok("el primero es A → D", paresGlobal[0].guia === 1 && paresGlobal[0].house === 4);
-ok("el segundo es O → R", paresGlobal[1].guia === 15 && paresGlobal[1].house === 18);
+// Cada house va PEGADA al estado de su guía: la C detrás de la B, la Q detrás
+// de la P. Así las dos se escriben de una sola llamada y la house sale gratis.
+ok("el primero es A → C", paresGlobal[0].guia === 1 && paresGlobal[0].house === 3);
+ok("el segundo es O → Q", paresGlobal[1].guia === 15 && paresGlobal[1].house === 17);
+ok("y cada uno respeta sus totales",
+   paresGlobal[0].desde === 4 && paresGlobal[1].desde === 3);
 
 // Las M-S no llevan preforma: su columna O siempre está vacía.
 ok("una M-S solo tiene el par de la A", paresDeHouse("M-S T1", 19).length === 1);
@@ -2161,23 +2187,23 @@ ok("una hoja estrecha tampoco", paresDeHouse("GLOBALES", 12).length === 1);
 
 // Una sola lectura por hoja cubre los dos pares: en este archivo lo que cuesta
 // es el NÚMERO de llamadas, no cuántas celdas trae cada una.
-ok("la lectura llega hasta la R", anchoParaHouses(paresGlobal) === 18);
-ok("en una M-S basta hasta la D", anchoParaHouses(paresDeHouse("M-S T1", 19)) === 4);
+ok("la lectura llega hasta la O", anchoParaHouses(paresGlobal) === 17);
+ok("en una M-S basta hasta la C", anchoParaHouses(paresDeHouse("M-S T1", 19)) === 3);
 
 // El barrido de la preforma mira la guía de la O y la house de la R, sin
 // mezclarse con las de la A.
 let filaGlobal = [];
-for (let i = 0; i < 18; i++) filaGlobal.push("");
-filaGlobal[0] = G1;   // guía física en la A
-filaGlobal[3] = "H-A";  // su house ya puesta en la D
-filaGlobal[14] = G2;  // guía de preforma en la O
+for (let i = 0; i < 19; i++) filaGlobal.push("");
+filaGlobal[0] = G1;     // guía física en la A
+filaGlobal[2] = "H-A";  // su house ya puesta en la C
+filaGlobal[14] = G2;    // guía de preforma en la O
 let conPreforma = [filaGlobal];
 ok("la A ya no pide nada",
-   celdasPorLlenar(conPreforma, {guia: 1, house: 4}).length === 0);
+   celdasPorLlenar(conPreforma, paresGlobal[0], 10).length === 0);
 ok("pero la O sí pide su house",
-   celdasPorLlenar(conPreforma, {guia: 15, house: 18}).length === 1);
+   celdasPorLlenar(conPreforma, paresGlobal[1], 10).length === 1);
 ok("y es la guía de la preforma, no la física",
-   celdasPorLlenar(conPreforma, {guia: 15, house: 18})[0].guia === G2);
+   celdasPorLlenar(conPreforma, paresGlobal[1], 10)[0].guia === G2);
 
 console.log("\n--- 6g3b. Un marcador de bloque no pide house ---");
 // LO CAZÓ UN TEST MÍO: `claveGuiaHouse` quita los espacios ANTES de validar, así
@@ -2200,45 +2226,47 @@ console.log("\n--- 6g4. Si se borra la guía, se borra su house ---");
 // celda de house no está vacía, el relleno normal la salta —solo escribe en
 // vacías— y el renglón acaba enseñando la house de OTRA guía. Nadie lo nota
 // mirando la hoja, y con eso se despacha.
+// El fixture arranca en la fila 4: encima están los totales C1:C3.
 let conHuerfana = [
-    [G1, "", "", "H-BUENA"],          // guía y su house: bien
-    ["", "", "", "H-HUERFANA"],       // borraron la guía, la house se quedó
-    ["SIN PEDIMENTO", "", "", "H-X"], // un marcador de bloque no es una guía
-    ["", "", "", ""],                 // fila limpia
-    [G2, "", "", ""]                  // guía sin house: eso lo llena el relleno
+    [G1, "", "H-BUENA"],          // 4: guía y su house: bien
+    ["", "", "H-HUERFANA"],       // 5: borraron la guía, la house se quedó
+    ["SIN PEDIMENTO", "", "H-X"], // 6: un marcador de bloque no es una guía
+    ["", "", ""],                 // 7: fila limpia
+    [G2, "", ""]                  // 8: guía sin house: eso lo llena el relleno
 ];
-let sobran = celdasPorBorrar(conHuerfana, PAR_A);
+let sobran = celdasPorBorrar(conHuerfana, PAR_A, 4);
 ok("encuentra las dos huérfanas", sobran.length === 2);
-ok("y son las filas 2 y 3", sobran[0].fila === 2 && sobran[1].fila === 3);
-ok("no toca la que sí tiene guía", !sobran.some(x => x.fila === 1));
-ok("ni la fila limpia", !sobran.some(x => x.fila === 4));
-ok("ni la que solo espera su house", !sobran.some(x => x.fila === 5));
-ok("una hoja sin huérfanas no da nada", celdasPorBorrar([[G1, "", "", "H"]], PAR_A).length === 0);
-ok("vacío no revienta", celdasPorBorrar([], PAR_A).length === 0);
+ok("y son las filas 5 y 6", sobran[0].fila === 5 && sobran[1].fila === 6);
+ok("no toca la que sí tiene guía", !sobran.some(x => x.fila === 4));
+ok("ni la fila limpia", !sobran.some(x => x.fila === 7));
+ok("ni la que solo espera su house", !sobran.some(x => x.fila === 8));
+ok("una hoja sin huérfanas no da nada",
+   celdasPorBorrar([[G1, "", "H"]], PAR_A, 4).length === 0);
+ok("vacío no revienta", celdasPorBorrar([], PAR_A, 4).length === 0);
 
 // EL OTRO LADO DEL MISMO PROBLEMA: sobrescriben una guía por otra. La celda de
 // house NO queda vacía, así que el relleno normal nunca la tocaría.
 let mapaPrueba = new Map([[G1, "H-UNO"], [G2, "H-DOS"]]);
-let conVieja = [[G2, "", "", "H-UNO"]];   // la guía es G2 pero lleva la house de G1
-let corregir = celdasPorCorregir(conVieja, PAR_A, 1, mapaPrueba);
+let conVieja = [[G2, "", "H-UNO"]];   // la guía es G2 pero lleva la house de G1
+let corregir = celdasPorCorregir(conVieja, PAR_A, 4, mapaPrueba);
 ok("detecta la house que ya no corresponde", corregir.length === 1);
 ok("y la cambia por la buena", corregir[0].valor === "H-DOS");
 ok("una house correcta no se toca",
-   celdasPorCorregir([[G1, "", "", "H-UNO"]], PAR_A, 1, mapaPrueba).length === 0);
+   celdasPorCorregir([[G1, "", "H-UNO"]], PAR_A, 4, mapaPrueba).length === 0);
 // NUNCA se borra por no encontrarla: una house puede venir del archivo frío,
 // que el disparador no abre. Vaciarla ahí la borraría cada cinco minutos.
 ok("si el índice no la conoce, no se toca",
-   celdasPorCorregir([[G3, "", "", "H-VIEJA"]], PAR_A, 1, mapaPrueba).length === 0);
+   celdasPorCorregir([[G3, "", "H-VIEJA"]], PAR_A, 4, mapaPrueba).length === 0);
 ok("la marca de «no está» tampoco se corrige",
-   celdasPorCorregir([[G1, "", "", textoHouseSinDato()]], PAR_A, 1, mapaPrueba).length === 0);
-ok("sin mapa no hace nada", celdasPorCorregir(conVieja, PAR_A, 1, null).length === 0);
+   celdasPorCorregir([[G1, "", textoHouseSinDato()]], PAR_A, 4, mapaPrueba).length === 0);
+ok("sin mapa no hace nada", celdasPorCorregir(conVieja, PAR_A, 4, null).length === 0);
 
 // Y funciona igual en el par de la preforma.
 let filaPre = [];
-for (let i = 0; i < 18; i++) filaPre.push("");
-filaPre[17] = "H-HUERFANA";   // house en la R sin guía en la O
+for (let i = 0; i < 19; i++) filaPre.push("");
+filaPre[16] = "H-HUERFANA";   // house en la Q sin guía en la O
 ok("también limpia la house de la preforma",
-   celdasPorBorrar([filaPre], {guia: 15, house: 18}).length === 1);
+   celdasPorBorrar([filaPre], paresDeHouse("GLOBALES", 19)[1], 10).length === 1);
 
 console.log("\n--- 6g5. El relleno pone su propio ritmo ---");
 // Habia DOS disparadores de tiempo despertando cada cinco minutos: la red de
@@ -2284,11 +2312,11 @@ console.log("\n--- 6g7. La house se borra con el estado y la hora ---");
 // heredaba la house de la anterior.
 //
 // `datosMasivos` es la hoja entera tal como la lee el recálculo: A..S, 0-based.
-function filaAS(guiaA, houseD, guiaO, houseR) {
+function filaAS(guiaA, houseC, guiaO, houseQ) {
     let f = [];
     for (let i = 0; i < 19; i++) f.push("");
-    f[0] = guiaA || ""; f[3] = houseD || "";
-    f[14] = guiaO || ""; f[17] = houseR || "";
+    f[0] = guiaA || ""; f[2] = houseC || "";     // A y su house en la C
+    f[14] = guiaO || ""; f[16] = houseQ || "";   // O y su house en la Q
     return f;
 }
 let masivos = [
@@ -2302,22 +2330,26 @@ let masivos = [
 
 // Se comprueba la decisión, no la escritura: lo que habla con Sheets no se
 // puede cubrir aquí, pero el criterio sí — y es donde estaba el fallo.
-let aBorrarD = celdasPorBorrar(masivos, {guia: 1, house: 4}, 1);
-ok("borra la huérfana de la D", aBorrarD.some(x => x.fila === 2));
-ok("y la del marcador de bloque", aBorrarD.some(x => x.fila === 3));
-ok("no toca la que tiene su guía", !aBorrarD.some(x => x.fila === 1));
-ok("ni la fila vacía", !aBorrarD.some(x => x.fila === 4));
-ok("son exactamente dos", aBorrarD.length === 2);
+// El bloque empieza en la fila 4 para no chocar con los totales C1:C3.
+let parC = paresDeHouse("GLOBALES", 19)[0];
+let parQ = paresDeHouse("GLOBALES", 19)[1];
+let aBorrarC = celdasPorBorrar(masivos, parC, 4);
+ok("borra la huérfana de la C", aBorrarC.some(x => x.fila === 5));
+ok("y la del marcador de bloque", aBorrarC.some(x => x.fila === 6));
+ok("no toca la que tiene su guía", !aBorrarC.some(x => x.fila === 4));
+ok("ni la fila vacía", !aBorrarC.some(x => x.fila === 7));
+ok("son exactamente dos", aBorrarC.length === 2);
 
-let aBorrarR = celdasPorBorrar(masivos, {guia: 15, house: 18}, 1);
-ok("borra la huérfana de la R", aBorrarR.some(x => x.fila === 5));
-ok("y respeta la preforma que sí tiene guía", !aBorrarR.some(x => x.fila === 6));
-ok("solo esa", aBorrarR.length === 1);
+let aBorrarQ = celdasPorBorrar(masivos, parQ, 4);
+ok("borra la huérfana de la Q", aBorrarQ.some(x => x.fila === 8));
+ok("y respeta la preforma que sí tiene guía", !aBorrarQ.some(x => x.fila === 9));
+ok("solo esa", aBorrarQ.length === 1);
 
 // Los pares se sacan del ancho realmente leído: si el recálculo leyera menos
 // columnas, la de la preforma no se tocaría en vez de reventar.
 ok("con A..S salen los dos pares", paresDeHouse("GLOBALES", 19).length === 2);
 ok("con A..D solo el de la A", paresDeHouse("GLOBALES", 4).length === 1);
+ok("la M-S nunca lleva el de la preforma", paresDeHouse("M-S T1", 19).length === 1);
 
 console.log("\n--- 6g8. Columnas de sistema en el cache ---");
 // Para que la house viaje en el cache hacen falta columnas que NO son de una
@@ -2342,6 +2374,40 @@ ok("y ninguna columna de house acaba en _FISICO",
    !"__HOUSE_VALOR".endsWith("_FISICO") && !"__HOUSE_GUIA".endsWith("_FISICO"));
 ok("ni en _PREFORMA",
    !"__HOUSE_VALOR".endsWith("_PREFORMA") && !"__HOUSE_GUIA".endsWith("_PREFORMA"));
+
+console.log("\n--- 6g9. Agrupar columnas para escribir de una llamada ---");
+// Escribir el estado (B) y la house (C) juntas cuesta lo mismo que escribir
+// solo el estado: es el mismo rango. Eso es lo que permite que la house
+// aparezca en el instante del escaneo sin coste ninguno.
+let g1 = agruparColumnasParaEscribir([2, 3]);
+ok("B y C van juntas", g1.length === 1 && g1[0].length === 2);
+let g2 = agruparColumnasParaEscribir([16, 17]);
+ok("P y Q tambien", g2.length === 1 && g2[0].length === 2);
+ok("columnas separadas no se agrupan",
+   agruparColumnasParaEscribir([2, 12]).length === 2);
+
+// LO QUE NUNCA PUEDE PASAR: que una columna de CAPTURA entre en un rango
+// compartido. La escritura en lote lee el rango, cambia unas celdas y lo
+// devuelve entero; si ahi entrara la A o la O, se devolveria a la hoja una
+// copia leida milisegundos antes, y entre la lectura y la escritura cabe el
+// escaneo de otro operador, que desapareceria sin dejar rastro.
+let gA = agruparColumnasParaEscribir([1, 2, 3]);
+ok("la A sale sola", gA[0].length === 1 && gA[0][0] === 1);
+ok("y B y C siguen juntas detras", gA[1].length === 2);
+let gO = agruparColumnasParaEscribir([14, 15, 16, 17]);
+ok("la N sale sola", gO[0].length === 1 && gO[0][0] === 14);
+ok("la O sale sola", gO[1].length === 1 && gO[1][0] === 15);
+ok("y P con Q", gO[2].length === 2 && gO[2][0] === 16);
+ok("ningun grupo mezcla una columna de captura con otra",
+   agruparColumnasParaEscribir(columnasDelLote())
+     .every(gr => gr.length === 1 || gr.every(c => columnasDeCaptura().indexOf(c) === -1)));
+
+// Y el lote sigue cubriendo lo de siempre, mas las dos de house.
+ok("el lote incluye la C", columnasDelLote().indexOf(3) !== -1);
+ok("y la Q", columnasDelLote().indexOf(17) !== -1);
+ok("desordenado se ordena solo",
+   agruparColumnasParaEscribir([17, 16, 2, 3])[0][0] === 2);
+ok("vacio no revienta", agruparColumnasParaEscribir([]).length === 0);
 
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo

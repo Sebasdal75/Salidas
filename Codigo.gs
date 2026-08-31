@@ -1335,6 +1335,24 @@ function procesarEdicion(e) {
                 continue;
             }
 
+            // La house viaja en el MISMO lote que el estado: la C está pegada
+            // a la B, así que las dos se escriben con una sola llamada. Cero
+            // coste, y el operador la ve en el instante del escaneo en vez de
+            // esperar al relleno de fondo.
+            if (colActual === 1 && !esMarcadorEstructural(valorIngresado)) {
+                try {
+                    if (typeof mapaHouseParaEscaneo === 'function' &&
+                        typeof esGuiaParaHouse === 'function' &&
+                        filaActual >= 4) {
+                        let g = esGuiaParaHouse(valorIngresado);
+                        if (g !== "") {
+                            let h = mapaHouseParaEscaneo(e.source).get(g);
+                            if (h) batchUpdates.push({row: filaActual, col: 3, val: h});
+                        }
+                    }
+                } catch (err) { /* la house jamás puede tumbar un escaneo */ }
+            }
+
             // Duplicados: búsqueda O(1) en el índice en RAM.
             // Los marcadores de bloque no son guías: nunca son duplicados.
             if (colActual === 1 && !esMarcadorEstructural(valorIngresado)) {
@@ -1522,10 +1540,48 @@ function marcarPendiente(hoja, filaInicial, numRows, colInicial, numCols) {
 // las tres de captura (1 A, 14 N, 15 O), porque la normalización a mayúsculas
 // devuelve el valor limpio a su propia celda. Una columna que falte aquí se
 // descarta en silencio.
-const COLS_BATCH = [1, 2, 12, 14, 15, 16, 19];
+const COLS_BATCH = [1, 2, 3, 12, 14, 15, 16, 17, 19];
+
+// COLUMNAS DE CAPTURA: las que teclea o escanea una persona. NUNCA se agrupan
+// con otra en un mismo rango.
+//
+// Agrupar columnas adyacentes ahorra llamadas, pero la escritura en lote lee el
+// rango, cambia unas celdas y lo devuelve entero. Si en ese rango entrara la A
+// o la O, se estaría devolviendo a la hoja una copia leída milisegundos antes —
+// y entre la lectura y la escritura cabe el escaneo de otro operador, que
+// desaparecería sin dejar rastro en el historial.
+//
+// Es el invariante que más ha costado en este archivo. La ganancia de una
+// llamada no lo vale.
+const COLS_CAPTURA = [1, 14, 15];
 
 // Accesor para poder comprobarlo desde el banco de pruebas.
 function columnasDelLote() { return COLS_BATCH; }
+function columnasDeCaptura() { return COLS_CAPTURA; }
+
+// Agrupa columnas ADYACENTES para escribirlas de una sola llamada.
+//
+// Escribir el estado (B) y la house (C) juntas cuesta lo mismo que escribir
+// solo el estado: es el mismo rango. Eso es lo que permite que la house
+// aparezca en el instante del escaneo sin coste ninguno.
+//
+// Las de captura salen siempre solas, por lo dicho arriba.
+function agruparColumnasParaEscribir(cols) {
+    let orden = (cols || []).slice().sort((a, b) => a - b);
+    let grupos = [];
+    orden.forEach(c => {
+        let ultimo = grupos[grupos.length - 1];
+        let esCaptura = COLS_CAPTURA.indexOf(c) !== -1;
+        let ultimoEsCaptura = ultimo && COLS_CAPTURA.indexOf(ultimo[ultimo.length - 1]) !== -1;
+        if (ultimo && !esCaptura && !ultimoEsCaptura &&
+            c === ultimo[ultimo.length - 1] + 1) {
+            ultimo.push(c);
+        } else {
+            grupos.push([c]);
+        }
+    });
+    return grupos;
+}
 
 // El rango que se escribe se acota a las filas que DE VERDAD cambian, no al
 // bloque editado entero.
@@ -1613,24 +1669,30 @@ function normalizacionAEscribir(valRaw) {
 
 function aplicarBatchUpdates(hoja, batchUpdates, minRow, rowCount) {
     if (!batchUpdates || batchUpdates.length === 0) return;
-    COLS_BATCH.forEach(col => {
-        let updates = batchUpdates.filter(u => u.col === col);
+    let ancho = hoja.getMaxColumns();
+    let conDatos = COLS_BATCH.filter(c => c <= ancho && batchUpdates.some(u => u.col === c));
+
+    agruparColumnasParaEscribir(conDatos).forEach(grupo => {
+        let col = grupo[0];
+        let anchoGrupo = grupo.length;
+        let updates = batchUpdates.filter(u => grupo.indexOf(u.col) !== -1);
         if (updates.length === 0) return;
-        if (hoja.getMaxColumns() < col) return;
 
         let tramo = rangoDeUpdates(updates, minRow, rowCount);
         if (!tramo) return;
 
-        let range = hoja.getRange(tramo.desde, col, tramo.alto, 1);
+        let range = hoja.getRange(tramo.desde, col, tramo.alto, anchoGrupo);
         let vals = range.getValues();
         let bgs = updates.some(u => u.bg) ? range.getBackgrounds() : null;
 
         updates.forEach(u => {
             let idx = u.row - tramo.desde;
+            let jdx = u.col - col;
             if (idx < 0 || idx >= tramo.alto) return;
-            if (u.clear) vals[idx][0] = "";
-            else if (u.val !== undefined) vals[idx][0] = u.val;
-            if (u.bg && bgs) bgs[idx][0] = u.bg;
+            if (jdx < 0 || jdx >= anchoGrupo) return;
+            if (u.clear) vals[idx][jdx] = "";
+            else if (u.val !== undefined) vals[idx][jdx] = u.val;
+            if (u.bg && bgs) bgs[idx][jdx] = u.bg;
         });
 
         range.setValues(vals);
@@ -4071,6 +4133,7 @@ function onOpen() {
                   .addItem('🧹 Quitar los vínculos', 'quitarUrlsOneDrive')
                   .addSeparator()
                   .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
+                  .addItem('↔️ Mover las houses de la D a la C', 'moverHousesDeColumna')
                   .addItem('🧽 Limpiar houses huérfanas ahora', 'limpiarHousesHuerfanasAhora')
                   .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
                   .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')

@@ -39,7 +39,16 @@ const CARPETA_INBOUND = "INBOUND_PREALERTAS";    // carpeta de Drive con los CSV
 // `recortarFilasSobrantes` antes de borrar filas en el cierre. Poniendo la
 // house ahí, el recorte NUNCA borrará una fila que tenga house. En la T o más
 // allá esa protección no llegaría.
-const COL_HOUSE = 4;
+// Columna C, pegada al estado de la B.
+//
+// No es capricho: el escaneo YA escribe la B, y escribir B y C juntas es la
+// MISMA llamada. Ponerla en la D costaría una llamada más en cada escaneo
+// —entre 50 y 250 ms sobre los ~500 que tarda— solo para adelantar un dato que
+// no decide nada en ese instante. Pegada a la B sale gratis.
+//
+// Arriba viven los totales C1:C3, así que las houses empiezan en la fila 4.
+const COL_HOUSE = 3;
+const FILA_MIN_HOUSE = 4;
 
 // La house de la guía de la PREFORMA (columna O) va en la R.
 //
@@ -51,18 +60,28 @@ const COL_HOUSE = 4;
 // La R está libre, cae justo después del estado de la preforma (P) y antes de
 // su hora (S), y sigue dentro de las columnas 1-19 que lee el recorte del
 // cierre antes de borrar filas: así una fila con house nunca se borra.
-const COL_HOUSE_PREFORMA = 18;
+// Lo mismo por el lado de la preforma: la Q pegada al estado de la P.
+// Arriba viven los totales Q1:Q2, así que empieza en la fila 3.
+const COL_HOUSE_PREFORMA = 17;
+const FILA_MIN_HOUSE_PREFORMA = 3;
 
 // Qué pares (guía → house) tiene una pestaña. Las M-S no llevan preforma, así
 // que solo tienen el par de la A. Es el mismo criterio con el que se decide si
 // una hoja recibe validación en la O y si el caché le reserva columna: si un
 // día cambia, tiene que cambiar en un solo sitio.
 function paresDeHouse(nombreHoja, maxColumnas) {
-    let pares = [{ guia: 1, house: COL_HOUSE }];
-    if (usaPreforma(claveHoja(nombreHoja)) && maxColumnas >= COL_HOUSE_PREFORMA) {
-        pares.push({ guia: 15, house: COL_HOUSE_PREFORMA });
+    let pares = [{ guia: 1, house: COL_HOUSE, desde: FILA_MIN_HOUSE }];
+    if (usaPreforma(claveHoja(nombreHoja)) && maxColumnas >= 15) {
+        pares.push({ guia: 15, house: COL_HOUSE_PREFORMA,
+                     desde: FILA_MIN_HOUSE_PREFORMA });
     }
     return pares;
+}
+
+// ¿Se puede tocar la house de esta fila? Encima de cada columna de house viven
+// los totales —C1:C3 y Q1:Q2— y escribir ahí los borraría.
+function filaAdmiteHouse(par, fila) {
+    return fila >= ((par && par.desde) ? par.desde : FILA_MIN_HOUSE);
 }
 
 // Hasta qué columna hay que leer para cubrir todos los pares. Una sola lectura
@@ -825,6 +844,7 @@ function celdasPorLlenar(datos, par, filaInicial) {
     for (let i = 0; i < (datos || []).length; i++) {
         let fila = datos[i];
         if (!fila) continue;
+        if (!filaAdmiteHouse(par, base + i)) continue;
         let guia = esGuiaParaHouse(fila[colGuia]);
         if (guia === "") continue;
         let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
@@ -852,6 +872,7 @@ function celdasPorBorrar(datos, par, filaInicial) {
     for (let i = 0; i < (datos || []).length; i++) {
         let fila = datos[i];
         if (!fila) continue;
+        if (!filaAdmiteHouse(par, base + i)) continue;
         let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
         if (house === "") continue;
         if (esGuiaParaHouse(fila[colGuia]) !== "") continue;
@@ -876,6 +897,7 @@ function celdasPorCorregir(datos, par, filaInicial, mapa) {
     for (let i = 0; i < (datos || []).length; i++) {
         let fila = datos[i];
         if (!fila) continue;
+        if (!filaAdmiteHouse(par, base + i)) continue;
         let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
         if (house === "" || house === TXT_HOUSE_SIN_DATO) continue;
         let guia = esGuiaParaHouse(fila[colGuia]);
@@ -1858,6 +1880,80 @@ function limpiarMarcasNoEncontradas(ss) {
     return limpiadas;
 }
 
+// La house que el escaneo debe escribir para una guía, o "" si no se sabe.
+//
+// Se resuelve contra el índice CALIENTE, que ya está cargado en el momento del
+// escaneo si alguien lo pidió antes; si no está, se devuelve "" y la pone el
+// relleno de fondo. Nunca vale la pena abrir el índice dentro de un escaneo.
+let globalMapaHouse = null;
+
+function mapaHouseParaEscaneo(ss) {
+    if (globalMapaHouse !== null) return globalMapaHouse;
+    try {
+        globalMapaHouse = mapaDeIndice(leerIndice(ss, HOJA_INDICE_HOUSE));
+    } catch (err) {
+        globalMapaHouse = new Map();
+    }
+    return globalMapaHouse;
+}
+
+// -------------------------------------------------------------------------
+// MIGRACIÓN: de la D y la R a la C y la Q
+// -------------------------------------------------------------------------
+function moverHousesDeColumna() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let r = ui.alert("↔️ Mover las houses a la C",
+        "Las houses vivían en la D (y en la R para la preforma). Ahora van en la " +
+        "C y la Q, pegadas a su estado, para que el escaneo las escriba sin " +
+        "coste.\n\nEsto MUEVE lo que haya en la D a la C, y lo de la R a la Q, en " +
+        "todas las pestañas. Solo escribe donde la C esté vacía.\n\n¿Sigo?",
+        ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    const VIEJAS = [{ de: 4, a: COL_HOUSE, desde: FILA_MIN_HOUSE },
+                    { de: 18, a: COL_HOUSE_PREFORMA, desde: FILA_MIN_HOUSE_PREFORMA }];
+    let movidas = 0, chocaron = 0;
+
+    ss.getSheets().forEach(hoja => {
+        let clave = claveHoja(hoja.getName());
+        if (!hojaLlevaHouse(clave)) return;
+        let lr = hoja.getLastRow();
+        if (lr < 1) return;
+        let ancho = hoja.getMaxColumns();
+
+        VIEJAS.forEach(m => {
+            if (m.de > ancho) return;
+            let viejas = hoja.getRange(1, m.de, lr, 1).getValues();
+            let nuevas = hoja.getRange(1, m.a, lr, 1).getValues();
+            let aPoner = [], aVaciar = [];
+            for (let i = 0; i < viejas.length; i++) {
+                let v = String(viejas[i][0]).trim();
+                if (v === "") continue;
+                if (i + 1 < m.desde) continue;
+                // Si la nueva ya tiene algo, NO se pisa: se avisa y se deja.
+                if (String(nuevas[i][0]).trim() !== "") { chocaron++; continue; }
+                aPoner.push({ fila: i + 1, valor: v });
+                aVaciar.push({ fila: i + 1, valor: "" });
+                movidas++;
+            }
+            bloquesContiguos(aPoner).forEach(b =>
+                hoja.getRange(b.fila, m.a, b.valores.length, 1).setValues(b.valores));
+            bloquesContiguos(aVaciar).forEach(b =>
+                hoja.getRange(b.fila, m.de, b.valores.length, 1).setValues(b.valores));
+        });
+    });
+
+    ui.alert("↔️ Mover las houses",
+        "Movidas: " + movidas + "\n" +
+        (chocaron ? "No se movieron " + chocaron + " porque la celda destino ya " +
+                    "tenía algo. Míralas antes de borrar la D.\n\n" : "") +
+        "Comprueba la C y, cuando estés conforme, borra a mano lo que quede en la D.",
+        ui.ButtonSet.OK);
+}
+
 // Limpia la house de las filas cuya guía ya no está, DESDE EL RECÁLCULO.
 //
 // Es donde tiene que ir. El recálculo ya limpia el estado y la hora cuando se
@@ -1879,6 +1975,7 @@ function limpiarHousesEnRecalculo(hoja, nombreHoja, datosMasivos) {
         for (let i = 0; i < datosMasivos.length; i++) {
             let fila = datosMasivos[i];
             if (!fila) continue;
+            if (!filaAdmiteHouse(par, i + 1)) continue;
             let house = String(fila[par.house - 1] === undefined ? "" : fila[par.house - 1]).trim();
             if (house === "") continue;
             if (esGuiaParaHouse(fila[par.guia - 1]) !== "") continue;
