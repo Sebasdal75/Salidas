@@ -2481,6 +2481,36 @@ ok("y las dos parejas se agrupan al escribir",
    agruparColumnasParaEscribir([2, 3]).length === 1 &&
    agruparColumnasParaEscribir([16, 17]).length === 1);
 
+console.log("\n--- 6g12. Cosechar las houses que YA estan en la hoja ---");
+// EL FALLO: el mapa del cache solo se llenaba con lo que el relleno ACABABA de
+// resolver. Las houses que ya estaban puestas nunca pasaban por ahi, asi que el
+// mapa se quedaba vacio para siempre -que es lo que reporto el usuario-. Se
+// cosechan de la hoja, que es donde estan, y no cuesta ninguna lectura: los
+// datos ya se leyeron para decidir que faltaba.
+let hojaConHouses = [
+    [G1, "✅ Ok", "H-UNO"],
+    [G2, "✅ Ok", "H-DOS"],
+    [G3, "✅ Ok", ""],                    // sin house todavia
+    [G4, "✅ Ok", textoHouseSinDato()],   // buscada y no estaba: no es una house
+    ["", "", "H-HUERFANA"],               // sin guia: no se cosecha
+    ["SIN PEDIMENTO", "", "H-X"]          // marcador: tampoco
+];
+let cosecha = paresGuiaHouseEnHoja(hojaConHouses, PAR_A, 4);
+ok("cosecha las que tienen guia Y house", cosecha.length === 2);
+ok("y son las correctas",
+   cosecha[0].guia === G1 && cosecha[0].house === "H-UNO");
+ok("la marca de «no esta» no es una house", !cosecha.some(c => c.house === textoHouseSinDato()));
+ok("una house huerfana no se cosecha", !cosecha.some(c => c.house === "H-HUERFANA"));
+ok("ni la de un marcador de bloque", !cosecha.some(c => c.house === "H-X"));
+ok("una hoja vacia no da nada", paresGuiaHouseEnHoja([], PAR_A, 4).length === 0);
+
+// Tambien por el lado de la preforma.
+let filaPreCosecha = [];
+for (let i = 0; i < 19; i++) filaPreCosecha.push("");
+filaPreCosecha[14] = G2; filaPreCosecha[16] = "H-PRE";
+ok("cosecha la pareja de la preforma",
+   paresGuiaHouseEnHoja([filaPreCosecha], paresDeHouse("GLOBALES", 19)[1], 5).length === 1);
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

@@ -913,6 +913,30 @@ function celdasPorCorregir(datos, par, filaInicial, mapa) {
     return salida;
 }
 
+// Todos los pares guía → house que YA están escritos en la hoja.
+//
+// El mapa del caché no puede llenarse solo con lo que el relleno acaba de
+// resolver: las houses que ya estaban puestas nunca pasarían por ahí, y el mapa
+// se quedaría vacío para siempre —que es justo lo que pasó—. Se cosechan de la
+// hoja, que es donde están, y no cuesta ninguna lectura: `datos` ya está leído.
+function paresGuiaHouseEnHoja(datos, par, filaInicial) {
+    let colGuia = (par && par.guia ? par.guia : 1) - 1;
+    let idx = (par && par.house ? par.house : COL_HOUSE) - 1;
+    let base = filaInicial || 1;
+    let salida = [];
+    for (let i = 0; i < (datos || []).length; i++) {
+        let fila = datos[i];
+        if (!fila) continue;
+        if (!filaAdmiteHouse(par, base + i)) continue;
+        let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
+        if (house === "" || house === TXT_HOUSE_SIN_DATO) continue;
+        let guia = esGuiaParaHouse(fila[colGuia]);
+        if (guia === "") continue;
+        salida.push({ guia: guia, house: house });
+    }
+    return salida;
+}
+
 // Agrupa filas consecutivas para escribir por tramos en vez de celda a celda.
 //
 // Se escriben SOLO las celdas que se llenan, nunca un rango leído y devuelto
@@ -1637,6 +1661,7 @@ function rellenarHousesPendientes(forzar) {
     let arranque = Date.now();
     let cortadoPorTiempo = false;
     let pendientes = [];
+    let cosechados = [];
     let hojas = ss.getSheets();
     for (let h = 0; h < hojas.length; h++) {
         if ((Date.now() - arranque) / 1000 > SEGUNDOS_MAX_RELLENO) {
@@ -1665,6 +1690,10 @@ function rellenarHousesPendientes(forzar) {
         let desde = 1;
         let datos = hoja.getRange(desde, 1, lr, anchoParaHouses(pares)).getValues();
         pares.forEach(par => {
+            // Se cosecha SIEMPRE, tenga o no pendientes: las hojas que ya están
+            // completas son precisamente las que tienen houses que guardar.
+            paresGuiaHouseEnHoja(datos, par, desde).forEach(p => cosechados.push(p));
+
             let faltan = celdasPorLlenar(datos, par, desde);
             let sobran = celdasPorBorrar(datos, par, desde);
             if (faltan.length || sobran.length) {
@@ -1688,9 +1717,15 @@ function rellenarHousesPendientes(forzar) {
         });
     });
 
+    // La cosecha va al caché SIEMPRE, aunque no haya nada que rellenar: es lo
+    // que hace que el próximo escaneo de esas guías tenga la house al instante.
+    let enCacheYa = 0;
+    try { enCacheYa = guardarHousesEnCache(ss, cosechados); } catch (err) { enCacheYa = 0; }
+
     let faltanTotal = pendientes.reduce((n, p) => n + p.faltan.length, 0);
     if (faltanTotal === 0) {
-        anotarRelleno("houses huérfanas borradas: " + borradas);
+        anotarRelleno("houses huérfanas borradas: " + borradas +
+                      " · houses en caché: " + (enCacheYa || cosechados.length));
         return;
     }
 
@@ -1726,7 +1761,7 @@ function rellenarHousesPendientes(forzar) {
     // Lo que se acaba de resolver se guarda en el caché, para que el SIGUIENTE
     // escaneo de esa guía —el de salida, normalmente— la tenga al instante y
     // sin abrir nada. Es lo que hace que la house salga con el ✅ Ok.
-    let paraCache = [];
+    let paraCache = cosechados.slice();
     pendientes.forEach(p => p.faltan.forEach(f => {
         let h = mapa.get(f.guia);
         if (h) paraCache.push({ guia: f.guia, house: h });
@@ -1742,7 +1777,7 @@ function rellenarHousesPendientes(forzar) {
     anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
                   " · huérfanas borradas: " + borradas +
                   " · corregidas: " + corregidas +
-                  " · nuevas en caché: " + enCache +
+                  " · houses en caché: " + enCache +
                   " · índice: " + indice.length + " guías" +
                   (cortadoPorTiempo ? " · CORTADO por tiempo, sigue en la próxima" : "") +
                   " · " + segundos.toFixed(1) + " s");
@@ -1956,9 +1991,17 @@ function mapaHouseParaEscaneo(cacheInfo) {
 // columnas del sistema, no de operación: aquí no aplica la regla de no
 // reescribir un rango, porque nadie más las toca.
 function guardarHousesEnCache(ss, pares) {
-    if (!pares || pares.length === 0) return 0;
     let cacheSheet = ss.getSheetByName("CACHE_SISTEMA");
     if (!cacheSheet) return 0;
+
+    // Se REEMPLAZA, no se acumula. `pares` trae todo lo que hay vivo en las
+    // hojas, así que una guía que ya no está desaparece sola del mapa. Acumular
+    // lo dejaría crecer sin fin, y el caché es justo lo que no puede engordar:
+    // se lee entero en CADA escaneo.
+    let mapa = new Map();
+    (pares || []).forEach(p => {
+        if (p && p.guia && p.house) mapa.set(p.guia, p.house);
+    });
 
     let headers = cacheSheet.getRange(1, 1, 1, cacheSheet.getMaxColumns()).getValues()[0];
     let cg = columnaDeHeader(cacheSheet, headers, HEADER_HOUSE_GUIA);
@@ -1966,28 +2009,32 @@ function guardarHousesEnCache(ss, pares) {
     if (cg === -1 || cv === -1) return 0;
 
     let lr = cacheSheet.getLastRow();
-    let mapa = new Map();
+    let previas = 0;
     if (lr > 1) {
-        let previos = cacheSheet.getRange(2, Math.min(cg, cv), lr - 1,
-                                          Math.abs(cv - cg) + 1).getValues();
-        let dg = cg < cv ? 0 : Math.abs(cv - cg);
-        let dv = cg < cv ? Math.abs(cv - cg) : 0;
+        let ancho = Math.abs(cv - cg) + 1;
+        let dg = cg < cv ? 0 : ancho - 1;
+        let dv = cg < cv ? ancho - 1 : 0;
+        let previos = cacheSheet.getRange(2, Math.min(cg, cv), lr - 1, ancho).getValues();
+        let iguales = true;
+        let vistas = new Set();
         previos.forEach(f => {
             let g = claveGuiaHouse(f[dg]);
-            let h = String(f[dv]).trim();
-            if (g !== "" && h !== "") mapa.set(g, h);
+            if (g === "") return;
+            previas++;
+            vistas.add(g);
+            if (mapa.get(g) !== String(f[dv]).trim()) iguales = false;
         });
+        // Nada que hacer si ya está exactamente igual: escribir cada cinco
+        // minutos lo mismo solo gasta cuota.
+        if (iguales && vistas.size === mapa.size) return 0;
     }
-
-    let antes = mapa.size;
-    pares.forEach(p => { if (p.guia && p.house) mapa.set(p.guia, p.house); });
-    if (mapa.size === antes) return 0;
 
     let filas = [];
     mapa.forEach((h, g) => filas.push({ g: g, h: h }));
     asegurarFilas(cacheSheet, filas.length + 1);
 
-    let alto = Math.max(filas.length, lr - 1);
+    // El alto cubre también lo que había antes, para BORRAR lo que ya no toca.
+    let alto = Math.max(filas.length, previas, 1);
     let colG = [], colV = [];
     for (let i = 0; i < alto; i++) {
         colG.push([i < filas.length ? filas[i].g : ""]);
@@ -1995,7 +2042,7 @@ function guardarHousesEnCache(ss, pares) {
     }
     cacheSheet.getRange(2, cg, alto, 1).setValues(colG);
     cacheSheet.getRange(2, cv, alto, 1).setValues(colV);
-    return mapa.size - antes;
+    return filas.length;
 }
 
 // -------------------------------------------------------------------------
