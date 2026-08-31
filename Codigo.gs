@@ -1175,7 +1175,7 @@ function procesarEdicion(e) {
   // con ediciones irrelevantes.
   // Quedan solo tres columnas de captura. Salieron la Q (17) con los costales
   // y la D (4) con la marca "T1", que eran sus únicos usos. Los totales de
-  // C1:C3 y Q1:Q2 los sigue escribiendo el recálculo, que no depende de que
+  // D1:D3 y R1:R2 los sigue escribiendo el recálculo, que no depende de que
   // nadie edite esas columnas.
   const colsValidas = [1, 14, 15];
   let tocaValida = false;
@@ -1342,8 +1342,7 @@ function procesarEdicion(e) {
             if (colActual === 1 && !esMarcadorEstructural(valorIngresado)) {
                 try {
                     if (typeof mapaHouseParaEscaneo === 'function' &&
-                        typeof esGuiaParaHouse === 'function' &&
-                        filaActual >= 4) {
+                        typeof esGuiaParaHouse === 'function') {
                         let g = esGuiaParaHouse(valorIngresado);
                         if (g !== "") {
                             let h = mapaHouseParaEscaneo(e.source).get(g);
@@ -3660,19 +3659,26 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           hoja.getRange(1, 15, ultimaFila, 1).setBackgrounds(coloresColumnaO));
   }
 
-  // C1:C3 y Q1:Q2 ya vienen dentro de datosMasivos (columnas 3 y 17): se
-  // comparan desde memoria y solo se escribe si cambiaron. Antes eran dos
-  // lecturas extra a la API en cada escaneo.
+  // LOS TOTALES VIVEN EN D1:D3 y R1:R2, no en la C ni la Q.
+  //
+  // Se movieron para dejar la C y la Q enteras a la house. Con los totales
+  // arriba, una guía escaneada en la fila 2 o 3 no habría recibido house NUNCA
+  // —la guardia que protege los totales la habría saltado— y en silencio, que
+  // es la peor forma de perder un dato.
+  //
+  // Ya vienen dentro de datosMasivos (columnas 4 y 18): se comparan desde
+  // memoria y solo se escribe si cambiaron. Antes eran dos lecturas extra a la
+  // API en cada escaneo.
   let textoPedimentosTop = esRezago ? "Pedimentos (Completos): " : "Total pedimentos: ";
-  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][2]) : "";
+  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][3]) : "";
   let c1c3Nuevo = [ ["Total bultos: " + guiasGlobales.size], [textoPedimentosTop + totalPedimentos], [""] ];
   if (cAct(0) !== c1c3Nuevo[0][0] || cAct(1) !== c1c3Nuevo[1][0])
-      perf("totales C1:C3", 3, () => hoja.getRange("C1:C3").setValues(c1c3Nuevo));
+      perf("totales D1:D3", 3, () => hoja.getRange("D1:D3").setValues(c1c3Nuevo));
 
-  let qAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][16]) : "";
+  let qAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][17]) : "";
   let q1q2Nuevo = [ ["Bultos (Preforma): " + totalBultosPreforma], ["Pedimentos (Preforma): " + totalPedimentosPreforma] ];
   if (qAct(0) !== q1q2Nuevo[0][0] || qAct(1) !== q1q2Nuevo[1][0])
-      perf("totales Q1:Q2", 2, () => hoja.getRange("Q1:Q2").setValues(q1q2Nuevo));
+      perf("totales R1:R2", 2, () => hoja.getRange("R1:R2").setValues(q1q2Nuevo));
 
   if (!esRezago) {
       sincronizarSalidasMS(source, cacheInfo, guiasAfectadas);
@@ -3889,13 +3895,14 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   let textoBultos = "Total bultos: " + guiasGlobales.size;
   if (totalMovidas > 0) textoBultos += " (salieron: " + totalMovidas + " | en piso: " + (guiasGlobales.size - totalMovidas) + ")";
 
-  // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
+  // Los totales viven en D1:D3 (la C es de la house). Ya están dentro de
+  // datosMasivos (columna 4): sin lectura extra.
   let nuevosResumenes = [ [textoBultos], ["Total pedimentos: " + totalPedimentos], [fila3Resumen] ];
-  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][2]) : "";
+  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][3]) : "";
   if (cAct(0) !== nuevosResumenes[0][0] ||
       cAct(1) !== nuevosResumenes[1][0] ||
       cAct(2) !== nuevosResumenes[2][0]) {
-      hoja.getRange("C1:C3").setValues(nuevosResumenes);
+      hoja.getRange("D1:D3").setValues(nuevosResumenes);
   }
 }
 
@@ -4059,11 +4066,12 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
       }
   } catch (err) { /* la house jamás puede tumbar un recálculo */ }
 
-  // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
+  // Los totales viven en D1:D3 (la C es de la house). Ya están dentro de
+  // datosMasivos (columna 4): sin lectura extra.
   let c1c3Nuevo = [ ["Total bultos: " + totalBultosInventario], ["Ubicaciones (IW): " + totalUbicaciones], [""] ];
-  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][2]) : "";
+  let cAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][3]) : "";
   if (cAct(0) !== c1c3Nuevo[0][0] || cAct(1) !== c1c3Nuevo[1][0]) {
-      hoja.getRange("C1:C3").setValues(c1c3Nuevo);
+      hoja.getRange("D1:D3").setValues(c1c3Nuevo);
   }
 }
 

@@ -46,9 +46,13 @@ const CARPETA_INBOUND = "INBOUND_PREALERTAS";    // carpeta de Drive con los CSV
 // —entre 50 y 250 ms sobre los ~500 que tarda— solo para adelantar un dato que
 // no decide nada en ese instante. Pegada a la B sale gratis.
 //
-// Arriba viven los totales C1:C3, así que las houses empiezan en la fila 4.
+// La columna C es ENTERA para la house: los totales se mudaron a D1:D3.
+//
+// Con los totales en la C, una guía escaneada en la fila 2 o 3 no habría
+// recibido house nunca —la guardia que protegía los totales la habría saltado—
+// y en silencio, que es la peor forma de perder un dato.
 const COL_HOUSE = 3;
-const FILA_MIN_HOUSE = 4;
+const FILA_MIN_HOUSE = 1;
 
 // La house de la guía de la PREFORMA (columna O) va en la R.
 //
@@ -60,10 +64,10 @@ const FILA_MIN_HOUSE = 4;
 // La R está libre, cae justo después del estado de la preforma (P) y antes de
 // su hora (S), y sigue dentro de las columnas 1-19 que lee el recorte del
 // cierre antes de borrar filas: así una fila con house nunca se borra.
-// Lo mismo por el lado de la preforma: la Q pegada al estado de la P.
-// Arriba viven los totales Q1:Q2, así que empieza en la fila 3.
+// Lo mismo por el lado de la preforma: la Q entera, con sus totales mudados
+// a R1:R2.
 const COL_HOUSE_PREFORMA = 17;
-const FILA_MIN_HOUSE_PREFORMA = 3;
+const FILA_MIN_HOUSE_PREFORMA = 1;
 
 // Qué pares (guía → house) tiene una pestaña. Las M-S no llevan preforma, así
 // que solo tienen el par de la A. Es el mismo criterio con el que se decide si
@@ -78,8 +82,9 @@ function paresDeHouse(nombreHoja, maxColumnas) {
     return pares;
 }
 
-// ¿Se puede tocar la house de esta fila? Encima de cada columna de house viven
-// los totales —C1:C3 y Q1:Q2— y escribir ahí los borraría.
+// ¿Se puede tocar la house de esta fila? Hoy siempre sí: los totales se
+// mudaron a la D y la R, así que la C y la Q son enteras para la house. La
+// guardia se queda por si algún día vuelve a haber algo intocable arriba.
 function filaAdmiteHouse(par, fila) {
     return fila >= ((par && par.desde) ? par.desde : FILA_MIN_HOUSE);
 }

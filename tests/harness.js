@@ -2072,7 +2072,14 @@ console.log("\n--- 6g. Qué celdas hay que rellenar ---");
 // Encima están los totales C1:C3, así que las tres primeras filas no se tocan.
 const PAR_A = paresDeHouse("GLOBALES", 19)[0];
 ok("la house va en la C", PAR_A.house === 3);
-ok("y no antes de la fila 4", PAR_A.desde === 4);
+// LOS TOTALES SE MUDARON A LA D. Con ellos en la C, una guía escaneada en la
+// fila 2 o 3 no habría recibido house NUNCA —la guardia que protegía los
+// totales la habría saltado— y en silencio, que es la peor forma de perder un
+// dato. Ahora la columna es entera para la house.
+ok("la columna C es entera para la house", PAR_A.desde === 1);
+ok("y la Q también", paresDeHouse("GLOBALES", 19)[1].desde === 1);
+ok("una guía en la fila 2 sí recibe house", filaAdmiteHouse(PAR_A, 2));
+ok("y en la 3 también", filaAdmiteHouse(PAR_A, 3));
 
 // El fixture arranca en la fila 4 para no chocar con los totales.
 let hojaSim = [
@@ -2087,16 +2094,9 @@ let porLlenar = celdasPorLlenar(hojaSim, PAR_A, 4);
 ok("solo las que faltan", porLlenar.length === 2);
 ok("y con la fila de la HOJA, no el índice del array",
    porLlenar[0].fila === 5 && porLlenar[1].fila === 8);
-// Los totales C1:C3 son intocables: escribir ahí los borraría.
-ok("las tres primeras filas no admiten house",
-   !filaAdmiteHouse(PAR_A, 1) && !filaAdmiteHouse(PAR_A, 3));
-ok("la cuarta sí", filaAdmiteHouse(PAR_A, 4));
-// Leído desde la fila 1, el mismo fixture pierde los renglones que caerían
-// sobre los totales: la guardia recorta por arriba en vez de escribir ahí.
-ok("leído desde la fila 1, la guardia recorta lo de arriba",
-   celdasPorLlenar(hojaSim, PAR_A, 1).length === 1);
-ok("y lo que queda está en la fila 5 o más",
-   celdasPorLlenar(hojaSim, PAR_A, 1)[0].fila >= 4);
+// Leído desde la fila 1, ahora no se pierde ninguno: la columna es entera.
+ok("desde la fila 1 salen los mismos dos",
+   celdasPorLlenar(hojaSim, PAR_A, 1).length === 2);
 
 // `desdeQueFilaMirar` sigue existiendo por si algún día conviene acotar la
 // lectura, pero el disparador YA NO LA USA: leer solo la cola servía para
@@ -2177,8 +2177,8 @@ ok("una Global tiene dos pares", paresGlobal.length === 2);
 // de la P. Así las dos se escriben de una sola llamada y la house sale gratis.
 ok("el primero es A → C", paresGlobal[0].guia === 1 && paresGlobal[0].house === 3);
 ok("el segundo es O → Q", paresGlobal[1].guia === 15 && paresGlobal[1].house === 17);
-ok("y cada uno respeta sus totales",
-   paresGlobal[0].desde === 4 && paresGlobal[1].desde === 3);
+ok("y las dos columnas son enteras",
+   paresGlobal[0].desde === 1 && paresGlobal[1].desde === 1);
 
 // Las M-S no llevan preforma: su columna O siempre está vacía.
 ok("una M-S solo tiene el par de la A", paresDeHouse("M-S T1", 19).length === 1);
