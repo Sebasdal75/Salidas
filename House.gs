@@ -1980,8 +1980,23 @@ function mapaHouseDelCache(cacheInfo) {
 
 // Lo que usa el escaneo. NO abre nada: si el caché aún no trae el mapa,
 // devuelve vacío y la house la pondrá el relleno de fondo.
+//
+// Se construye UNA vez por ejecución, no una por celda. Un pegado de 300
+// renglones llamaba aquí 300 veces y rehacía el Map entero cada vez: miles de
+// entradas recorridas por cada fila pegada, para obtener siempre lo mismo.
+let globalMapaHouseCache = null;
+
 function mapaHouseParaEscaneo(cacheInfo) {
-    return mapaHouseDelCache(cacheInfo);
+    if (globalMapaHouseCache === null) {
+        globalMapaHouseCache = mapaHouseDelCache(cacheInfo);
+    }
+    return globalMapaHouseCache;
+}
+
+// El caché en RAM se descarta al empezar cada edición; este mapa sale de ahí,
+// así que tiene que caducar con él o serviría houses de la edición anterior.
+function olvidarMapaHouseEnRAM() {
+    globalMapaHouseCache = null;
 }
 
 // Mete en el caché los pares que se acaban de resolver, para que el SIGUIENTE

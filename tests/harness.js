@@ -2511,6 +2511,31 @@ filaPreCosecha[14] = G2; filaPreCosecha[16] = "H-PRE";
 ok("cosecha la pareja de la preforma",
    paresGuiaHouseEnHoja([filaPreCosecha], paresDeHouse("GLOBALES", 19)[1], 5).length === 1);
 
+console.log("\n--- 6g13. El mapa de houses se arma una vez por ejecucion ---");
+// Un pegado de 300 renglones llamaba a mapaHouseParaEscaneo 300 veces, y cada
+// llamada rehacia el Map entero: miles de entradas recorridas por cada fila,
+// para obtener siempre lo mismo.
+olvidarMapaHouseEnRAM();
+let cacheDoble = {
+    headers: ["__HOUSE_GUIA", "__HOUSE_VALOR"],
+    data: [["__HOUSE_GUIA", "__HOUSE_VALOR"], [G1, "H-UNO"]]
+};
+let m1 = mapaHouseParaEscaneo(cacheDoble);
+let m2 = mapaHouseParaEscaneo(cacheDoble);
+ok("la segunda llamada devuelve el MISMO objeto", m1 === m2);
+ok("y trae la house", m1.get(G1) === "H-UNO");
+
+// Y CADUCA CON EL CACHE. Si no, un escaneo serviria houses de la edicion
+// anterior -y despues de sustituir una guia, eso es la house del bulto que ya
+// no esta-.
+olvidarMapaHouseEnRAM();
+let cacheOtro = {
+    headers: ["__HOUSE_GUIA", "__HOUSE_VALOR"],
+    data: [["__HOUSE_GUIA", "__HOUSE_VALOR"], [G1, "H-NUEVA"]]
+};
+ok("tras olvidarlo, se relee", mapaHouseParaEscaneo(cacheOtro).get(G1) === "H-NUEVA");
+olvidarMapaHouseEnRAM();
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

@@ -662,6 +662,12 @@ function invalidarCacheRAM() {
     globalCacheData = null;
     globalCacheHeaders = null;
     globalCacheMap = null;
+    // El mapa de houses sale del caché, así que caduca CON él. Si no, un
+    // escaneo serviría houses de la edición anterior —y después de sustituir
+    // una guía eso significa la house del bulto que ya no está—.
+    try {
+        if (typeof olvidarMapaHouseEnRAM === 'function') olvidarMapaHouseEnRAM();
+    } catch (err) { /* House.gs puede no estar pegado */ }
 }
 
 function obtenerArchivo() {
