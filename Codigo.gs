@@ -2280,6 +2280,13 @@ function columnasHuerfanas(headers, existentes) {
         // derecha. Saltarlo es mucho menos destructivo que eliminarlo.
         let h = String(headers[i]).trim();
         if (h === "") continue;
+
+        // Columnas del sistema, no de una pestaña: llevan «__» delante a
+        // propósito. Sin esta línea se borrarían en la primera limpieza —su
+        // nombre no coincide con ninguna hoja existente— y el dato volvería a
+        // desaparecer solo cada pocos minutos, sin que nada lo dijera.
+        if (h.indexOf("__") === 0) continue;
+
         let nombre = claveHoja(h.replace("_FISICO", "").replace("_PREFORMA", ""));
 
         // Pestaña renombrada o borrada.

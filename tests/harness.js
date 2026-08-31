@@ -2319,6 +2319,30 @@ ok("solo esa", aBorrarR.length === 1);
 ok("con A..S salen los dos pares", paresDeHouse("GLOBALES", 19).length === 2);
 ok("con A..D solo el de la A", paresDeHouse("GLOBALES", 4).length === 1);
 
+console.log("\n--- 6g8. Columnas de sistema en el cache ---");
+// Para que la house viaje en el cache hacen falta columnas que NO son de una
+// pestaña. Y `columnasHuerfanas` borra toda columna cuyo nombre no case con una
+// hoja existente, asi que sin proteccion se autodestruirian en la primera
+// limpieza: el dato desapareceria solo cada pocos minutos sin que nada lo
+// dijera. Llevan «__» delante y se saltan.
+let hojasVivas = new Set(["GLOBAL 1", "M-S T1"]);
+let cabecerasCache = ["GLOBAL 1_FISICO", "GLOBAL 1_PREFORMA", "M-S T1_FISICO",
+                      "__HOUSE_GUIA", "__HOUSE_VALOR", "BORRADA_FISICO"];
+let huerfanas = columnasHuerfanas(cabecerasCache, hojasVivas);
+ok("las columnas «__» NO se borran",
+   !huerfanas.includes(4) && !huerfanas.includes(5));
+ok("la pestaña borrada si", huerfanas.includes(6));
+ok("la preforma de una M-S tambien", huerfanas.includes(0 + 0) === false);
+// Y lo que de verdad importa para el usuario: una house NUNCA puede entrar al
+// indice de duplicados. Una house cubre decenas de guias; si se indexara, cada
+// bulto de la misma house saldria marcado como repetido.
+ok("el indice solo mira columnas _FISICO",
+   cabecerasCache.filter(h => h.endsWith("_FISICO")).length === 3);
+ok("y ninguna columna de house acaba en _FISICO",
+   !"__HOUSE_VALOR".endsWith("_FISICO") && !"__HOUSE_GUIA".endsWith("_FISICO"));
+ok("ni en _PREFORMA",
+   !"__HOUSE_VALOR".endsWith("_PREFORMA") && !"__HOUSE_GUIA".endsWith("_PREFORMA"));
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.
