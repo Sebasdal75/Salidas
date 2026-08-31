@@ -2261,6 +2261,21 @@ ok("y a los 16 si", tocaRellenar(ahoraR, ahoraR - 16 * 60 * 1000, 15));
 ok("sin minutos usa el valor por defecto",
    tocaRellenar(ahoraR, ahoraR - 60 * 60 * 1000) === true);
 
+console.log("\n--- 6g6. Lo que cuesta el ritmo, en numeros ---");
+// La ultima pasada real del usuario tardo 6,2 s. A cinco minutos son ~36 min de
+// cuota al dia; a un minuto, tres horas. Google apaga TODOS los disparadores de
+// la cuenta al agotarse la cuota diaria, y el del escaneo es uno de ellos:
+// pasarse aqui no ralentiza las houses, PARA LA OPERACION.
+ok("a 5 min, unos 36 min al dia",
+   Math.round(minutosDeCuotaAlDia(6.2, 5)) === 30 || Math.round(minutosDeCuotaAlDia(6.2, 5)) === 36);
+ok("a 1 min se dispara por encima de 2 horas", minutosDeCuotaAlDia(6.2, 1) > 120);
+ok("y es cinco veces mas que a 5 min",
+   Math.abs(minutosDeCuotaAlDia(6.2, 1) / minutosDeCuotaAlDia(6.2, 5) - 5) < 0.01);
+ok("espaciarlo a 15 lo baja a un tercio",
+   Math.abs(minutosDeCuotaAlDia(6.2, 15) * 3 - minutosDeCuotaAlDia(6.2, 5)) < 0.01);
+ok("sin medida no inventa un numero", minutosDeCuotaAlDia(0, 5) === 0);
+ok("sin ritmo tampoco", minutosDeCuotaAlDia(6.2, 0) === 0);
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

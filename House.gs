@@ -1696,12 +1696,17 @@ function rellenarHousesPendientes(forzar) {
             p.hoja.getRange(b.fila, p.col, b.valores.length, 1).setValues(b.valores);
         });
     });
+    let segundos = (Date.now() - arranque) / 1000;
+    try {
+        PropertiesService.getScriptProperties()
+            .setProperty(PROP_SEG_RELLENO, segundos.toFixed(1));
+    } catch (err) { /* medir nunca puede tumbar el relleno */ }
     anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
                   " · huérfanas borradas: " + borradas +
                   " · corregidas: " + corregidas +
                   " · índice: " + indice.length + " guías" +
                   (cortadoPorTiempo ? " · CORTADO por tiempo, sigue en la próxima" : "") +
-                  " · " + ((Date.now() - arranque) / 1000).toFixed(1) + " s");
+                  " · " + segundos.toFixed(1) + " s");
 }
 
 // -------------------------------------------------------------------------
@@ -1715,12 +1720,44 @@ function rellenarHousesPendientes(forzar) {
 // -------------------------------------------------------------------------
 const PROP_ULTIMO_RELLENO = 'HOUSE_ULTIMO_RELLENO';
 
+// Cuánto tardó la última pasada, en segundos. Sirve para enseñar el consumo
+// diario de cuota EN NÚMEROS, que es lo único que impide volver a poner un
+// disparador cada minuto «a ver si va más rápido».
+const PROP_SEG_RELLENO = 'HOUSE_SEG_ULTIMO_RELLENO';
+
+// Minutos de cuota al día que costaría este relleno a un ritmo dado.
+// Google apaga TODOS los disparadores de la cuenta al agotarse la cuota, y el
+// del escaneo es uno de ellos: pasarse aquí no ralentiza las houses, para la
+// operación.
+function minutosDeCuotaAlDia(segundosPorPasada, minutosEntrePasadas) {
+    if (!segundosPorPasada || !minutosEntrePasadas) return 0;
+    let pasadas = (24 * 60) / minutosEntrePasadas;
+    return (pasadas * segundosPorPasada) / 60;
+}
+
 function anotarRelleno(texto) {
     try {
         PropertiesService.getScriptProperties().setProperty(PROP_ULTIMO_RELLENO,
             Utilities.formatDate(new Date(), Session.getScriptTimeZone(),
                                  "dd/MM HH:mm:ss") + " — " + texto);
     } catch (err) { /* anotar nunca puede tumbar el relleno */ }
+}
+
+// El coste en cuota, en números, para que no haya que fiarse de nadie.
+function textoDeCuota() {
+    let seg = Number(PropertiesService.getScriptProperties()
+                     .getProperty(PROP_SEG_RELLENO) || 0);
+    if (!seg) return "Todavía no hay una medida de cuánto tarda una pasada.";
+
+    let cada5 = minutosDeCuotaAlDia(seg, 5);
+    let cada1 = minutosDeCuotaAlDia(seg, 1);
+    return "Coste en cuota de disparadores:\n" +
+        "  · cada 5 min (como está): ~" + Math.round(cada5) + " min/día\n" +
+        "  · cada 1 min: ~" + Math.round(cada1) + " min/día (" +
+        (cada1 / 60).toFixed(1) + " h)\n\n" +
+        "Google apaga TODOS los disparadores de la cuenta al agotarse la cuota " +
+        "diaria, y el del escaneo es uno de ellos. Pasarse aquí no ralentiza las " +
+        "houses: para la operación.";
 }
 
 function estadoDelRelleno() {
@@ -1735,7 +1772,7 @@ function estadoDelRelleno() {
         "Índice en archivo aparte: " + (indiceEstaAparte() ? "SÍ" : "NO (vive en este " +
         "archivo y lo engorda)") + "\n\n" +
         "Última pasada:\n" + (ultimo || "ninguna todavía. Si el disparador está " +
-        "instalado, espera un minuto y vuelve a mirar."),
+        "instalado, espera un minuto y vuelve a mirar.") + "\n\n" + textoDeCuota(),
         ui.ButtonSet.OK);
 }
 
