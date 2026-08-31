@@ -3562,6 +3562,17 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA, repintarTodo);
   aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null, repintarTodo);
 
+  // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
+  // Si la guía de una fila ya no está, su house tampoco pinta nada: dejarla
+  // abriría una ventana en la que alguien escanea encima y hereda la house de
+  // la guía anterior. No cuesta ninguna lectura: `datosMasivos` ya está leído.
+  // El typeof permite que House.gs no esté pegado.
+  try {
+      if (typeof limpiarHousesEnRecalculo === 'function') {
+          limpiarHousesEnRecalculo(hoja, nombreHoja, datosMasivos);
+      }
+  } catch (err) { /* la house jamás puede tumbar un recálculo */ }
+
   // Columna O: solo se toca si la edición afectó a la preforma. Un escaneo en
   // la columna A no puede cambiar estos colores, así que en el caso normal nos
   // ahorramos una lectura y una escritura de columna completa.
@@ -3791,6 +3802,17 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
                            coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
 
+  // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
+  // Si la guía de una fila ya no está, su house tampoco pinta nada: dejarla
+  // abriría una ventana en la que alguien escanea encima y hereda la house de
+  // la guía anterior. No cuesta ninguna lectura: `datosMasivos` ya está leído.
+  // El typeof permite que House.gs no esté pegado.
+  try {
+      if (typeof limpiarHousesEnRecalculo === 'function') {
+          limpiarHousesEnRecalculo(hoja, nombreHoja, datosMasivos);
+      }
+  } catch (err) { /* la house jamás puede tumbar un recálculo */ }
+
   let fila3Resumen = tipoStr + ": " + totalPedimentosTipo;
 
   // El total incluye las guías ya movidas; se desglosa para no perder el dato
@@ -3956,6 +3978,17 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
                            coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
+
+  // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
+  // Si la guía de una fila ya no está, su house tampoco pinta nada: dejarla
+  // abriría una ventana en la que alguien escanea encima y hereda la house de
+  // la guía anterior. No cuesta ninguna lectura: `datosMasivos` ya está leído.
+  // El typeof permite que House.gs no esté pegado.
+  try {
+      if (typeof limpiarHousesEnRecalculo === 'function') {
+          limpiarHousesEnRecalculo(hoja, nombreHoja, datosMasivos);
+      }
+  } catch (err) { /* la house jamás puede tumbar un recálculo */ }
 
   // C1:C3 ya está dentro de datosMasivos (columna 3): sin lectura extra.
   let c1c3Nuevo = [ ["Total bultos: " + totalBultosInventario], ["Ubicaciones (IW): " + totalUbicaciones], [""] ];

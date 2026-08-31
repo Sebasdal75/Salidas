@@ -1858,6 +1858,41 @@ function limpiarMarcasNoEncontradas(ss) {
     return limpiadas;
 }
 
+// Limpia la house de las filas cuya guía ya no está, DESDE EL RECÁLCULO.
+//
+// Es donde tiene que ir. El recálculo ya limpia el estado y la hora cuando se
+// vacía una fila; la house es un dato más de esa fila y tiene que seguir la
+// misma suerte, en el mismo instante. Dejarlo al disparador de cada cinco
+// minutos abría una ventana en la que la fila enseñaba una house sin guía, y
+// si alguien escaneaba ahí dentro heredaba la house de la anterior.
+//
+// No cuesta ni una lectura: `datosMasivos` ya es la hoja entera, leída para
+// recalcular. Solo escribe cuando de verdad hay algo que borrar.
+function limpiarHousesEnRecalculo(hoja, nombreHoja, datosMasivos) {
+    if (!datosMasivos || datosMasivos.length === 0) return 0;
+    let ancho = datosMasivos[0] ? datosMasivos[0].length : 0;
+    let total = 0;
+
+    paresDeHouse(nombreHoja, ancho).forEach(par => {
+        if (par.house > ancho || par.guia > ancho) return;
+        let items = [];
+        for (let i = 0; i < datosMasivos.length; i++) {
+            let fila = datosMasivos[i];
+            if (!fila) continue;
+            let house = String(fila[par.house - 1] === undefined ? "" : fila[par.house - 1]).trim();
+            if (house === "") continue;
+            if (esGuiaParaHouse(fila[par.guia - 1]) !== "") continue;
+            items.push({ fila: i + 1, valor: "" });
+        }
+        if (!items.length) return;
+        total += items.length;
+        bloquesContiguos(items).forEach(b => {
+            hoja.getRange(b.fila, par.house, b.valores.length, 1).setValues(b.valores);
+        });
+    });
+    return total;
+}
+
 // Botón: hacerlo ahora mismo, sin esperar al disparador.
 function limpiarHousesHuerfanasAhora() {
     const ss = obtenerArchivo();

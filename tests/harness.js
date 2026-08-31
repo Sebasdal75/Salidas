@@ -2276,6 +2276,49 @@ ok("espaciarlo a 15 lo baja a un tercio",
 ok("sin medida no inventa un numero", minutosDeCuotaAlDia(0, 5) === 0);
 ok("sin ritmo tampoco", minutosDeCuotaAlDia(6.2, 0) === 0);
 
+console.log("\n--- 6g7. La house se borra con el estado y la hora ---");
+// El recálculo ya limpia el estado y la hora cuando se vacía una fila. La house
+// es un dato más de esa fila y tiene que seguir la misma suerte, EN EL MISMO
+// INSTANTE. Dejarlo al disparador de cada cinco minutos abría una ventana en la
+// que la fila enseñaba una house sin guía, y quien escaneara ahí dentro
+// heredaba la house de la anterior.
+//
+// `datosMasivos` es la hoja entera tal como la lee el recálculo: A..S, 0-based.
+function filaAS(guiaA, houseD, guiaO, houseR) {
+    let f = [];
+    for (let i = 0; i < 19; i++) f.push("");
+    f[0] = guiaA || ""; f[3] = houseD || "";
+    f[14] = guiaO || ""; f[17] = houseR || "";
+    return f;
+}
+let masivos = [
+    filaAS(G1, "H-OK"),              // 1: guía y house: se queda
+    filaAS("", "H-HUERFANA"),        // 2: borraron la guía
+    filaAS("SIN PEDIMENTO", "H-X"),  // 3: un marcador no es guía
+    filaAS("", ""),                  // 4: nada que hacer
+    filaAS("", "", "", "H-PRE-HUERFANA"), // 5: house de preforma sin su guía
+    filaAS("", "", G2, "H-PRE-OK")   // 6: preforma con su guía: se queda
+];
+
+// Se comprueba la decisión, no la escritura: lo que habla con Sheets no se
+// puede cubrir aquí, pero el criterio sí — y es donde estaba el fallo.
+let aBorrarD = celdasPorBorrar(masivos, {guia: 1, house: 4}, 1);
+ok("borra la huérfana de la D", aBorrarD.some(x => x.fila === 2));
+ok("y la del marcador de bloque", aBorrarD.some(x => x.fila === 3));
+ok("no toca la que tiene su guía", !aBorrarD.some(x => x.fila === 1));
+ok("ni la fila vacía", !aBorrarD.some(x => x.fila === 4));
+ok("son exactamente dos", aBorrarD.length === 2);
+
+let aBorrarR = celdasPorBorrar(masivos, {guia: 15, house: 18}, 1);
+ok("borra la huérfana de la R", aBorrarR.some(x => x.fila === 5));
+ok("y respeta la preforma que sí tiene guía", !aBorrarR.some(x => x.fila === 6));
+ok("solo esa", aBorrarR.length === 1);
+
+// Los pares se sacan del ancho realmente leído: si el recálculo leyera menos
+// columnas, la de la preforma no se tocaría en vez de reventar.
+ok("con A..S salen los dos pares", paresDeHouse("GLOBALES", 19).length === 2);
+ok("con A..D solo el de la A", paresDeHouse("GLOBALES", 4).length === 1);
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.
