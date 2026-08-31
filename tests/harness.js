@@ -2451,6 +2451,36 @@ encabezadosDelMapaHouse().forEach(h => {
        columnasHuerfanas([h], new Set()).length === 0);
 });
 
+console.log("\n--- 6g11. Sustituir una guia se lleva su house ---");
+// Dos huecos que vio el usuario:
+//
+// 1. La PREFORMA no recibia house al escanear -solo la guia fisica-. Ahora las
+//    dos capturas la reciben: la A escribe en la C, la O en la Q.
+// 2. Al SUSTITUIR una guia por otra, la celda de house NO queda vacia, asi que
+//    el relleno normal -que solo escribe en vacias- nunca la tocaria y el
+//    renglon se quedaria enseñando la house de la guia ANTERIOR. Sin error y
+//    sin marca: se despacharia con ella.
+//
+// La regla es la del historial: `motivoDeCambio` solo devuelve algo cuando la
+// celda TENIA otra cosa distinta. Ahi es cuando la house vieja deja de valer.
+ok("sobrescribir una guia por otra es un cambio",
+   motivoDeCambio(G1, G2) !== null);
+ok("escanear en una celda vacia NO lo es",
+   motivoDeCambio("", G1) === null);
+ok("reescribir la MISMA guia tampoco",
+   motivoDeCambio(G1, G1) === null);
+ok("ni cambiando solo mayusculas o espacios",
+   motivoDeCambio(G1, " " + G1.toLowerCase() + " ") === null);
+ok("vaciar la celda si es un cambio", motivoDeCambio(G1, "") !== null);
+
+// Y las dos columnas de house siguen pegadas a su estado, que es lo que hace
+// que escribirlas no cueste una llamada de mas.
+ok("la C va detras de la B", paresDeHouse("GLOBALES", 19)[0].house === 3);
+ok("la Q detras de la P", paresDeHouse("GLOBALES", 19)[1].house === 17);
+ok("y las dos parejas se agrupan al escribir",
+   agruparColumnasParaEscribir([2, 3]).length === 1 &&
+   agruparColumnasParaEscribir([16, 17]).length === 1);
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

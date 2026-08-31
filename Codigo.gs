@@ -1272,6 +1272,9 @@ function procesarEdicion(e) {
             // No se bloquea: sobrescribir también es lo que se hace al corregir
             // una lectura mala, y estorbar ahí sería peor. Se deja constancia,
             // que es lo que faltaba para poder recuperarla.
+            // Fuera del bloque a propósito: la house de más abajo necesita saber
+            // si la guía CAMBIÓ, no solo si se escribió algo.
+            let motivo = null;
             if (colActual === 1 || colActual === 15) {
                 let valorAnteriorEstado = "";
                 if (colActual === 1 && valsEstadoB) valorAnteriorEstado = String(valsEstadoB[r][0]).trim();
@@ -1291,7 +1294,7 @@ function procesarEdicion(e) {
                     }
                 }
 
-                let motivo = motivoDeCambio(valorPrevio, valorIngresado);
+                motivo = motivoDeCambio(valorPrevio, valorIngresado);
                 if (motivo) {
                     let tipoCol = (colActual === 1) ? "Físico (Col A)" : "Preforma (Col O)";
                     filasHistorial.push(eventoHistorial(nombreHoja, filaActual, tipoCol, valorPrevio,
@@ -1335,18 +1338,35 @@ function procesarEdicion(e) {
                 continue;
             }
 
-            // La house viaja en el MISMO lote que el estado: la C está pegada
-            // a la B, así que las dos se escriben con una sola llamada. Cero
-            // coste, y el operador la ve en el instante del escaneo en vez de
-            // esperar al relleno de fondo.
-            if (colActual === 1 && !esMarcadorEstructural(valorIngresado)) {
+            // La house viaja en el MISMO lote que el estado: la C está pegada a
+            // la B y la Q a la P, así que cada pareja se escribe con una sola
+            // llamada. Cero coste, y el operador la ve en el instante del
+            // escaneo en vez de esperar al relleno de fondo.
+            //
+            // Vale para las DOS capturas: la guía física de la A (house en la C)
+            // y la de la preforma de la O (house en la Q).
+            //
+            // Y SI SE SUSTITUYE UNA GUÍA POR OTRA, LA HOUSE SE VA CON LA VIEJA.
+            // La celda no queda vacía al sobrescribir, así que el relleno normal
+            // —que solo escribe en vacías— nunca la tocaría, y el renglón se
+            // quedaría enseñando la house de la guía anterior. Sin error y sin
+            // marca: se despacharía con ella. Por eso, cuando la guía cambia de
+            // verdad, la house se reescribe o se BORRA, aunque no se sepa la
+            // nueva; ya la pondrá el relleno de fondo.
+            if ((colActual === 1 || colActual === 15) &&
+                !esMarcadorEstructural(valorIngresado)) {
                 try {
                     if (typeof mapaHouseParaEscaneo === 'function' &&
                         typeof esGuiaParaHouse === 'function') {
+                        let colDeHouse = (colActual === 1) ? 3 : 17;
                         let g = esGuiaParaHouse(valorIngresado);
-                        if (g !== "") {
-                            let h = mapaHouseParaEscaneo(cacheInfo).get(g);
-                            if (h) batchUpdates.push({row: filaActual, col: 3, val: h});
+                        let h = g === "" ? "" : (mapaHouseParaEscaneo(cacheInfo).get(g) || "");
+                        // `motivo` ya está calculado arriba: solo tiene valor
+                        // cuando la celda TENÍA otra cosa distinta.
+                        if (h !== "") {
+                            batchUpdates.push({row: filaActual, col: colDeHouse, val: h});
+                        } else if (motivo) {
+                            batchUpdates.push({row: filaActual, col: colDeHouse, clear: true});
                         }
                     }
                 } catch (err) { /* la house jamás puede tumbar un escaneo */ }
