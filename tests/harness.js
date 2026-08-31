@@ -2409,6 +2409,48 @@ ok("desordenado se ordena solo",
    agruparColumnasParaEscribir([17, 16, 2, 3])[0][0] === 2);
 ok("vacio no revienta", agruparColumnasParaEscribir([]).length === 0);
 
+console.log("\n--- 6g10. La house viaja en el cache, no en el indice ---");
+// LO QUE ESTO CORRIGE, Y ERA UN FALLO MIO DE BULTO: dije que la house iria en
+// el cache y lo implemente contra el INDICE. La version anterior abria el otro
+// archivo y leia 45.000 filas DENTRO del escaneo: o tardaba segundos, o fallaba
+// y devolvia vacio -y la house no salia al instante-. Justo lo que este modulo
+// llevaba desde el primer dia prometiendo no hacer.
+//
+// El cache se lee ENTERO en cada escaneo y ya esta en memoria cuando llega la
+// guia: sacar la house de ahi es un Map.get, cero llamadas.
+let cacheConHouses = {
+    headers: ["GLOBAL 1_FISICO", "__HOUSE_GUIA", "__HOUSE_VALOR"],
+    data: [["GLOBAL 1_FISICO", "__HOUSE_GUIA", "__HOUSE_VALOR"],
+           ["", G1, "HAWB-001"],
+           ["", G2, "HAWB-002"],
+           ["", "", ""]]
+};
+let mapaCache = mapaHouseDelCache(cacheConHouses);
+ok("saca las houses del cache", mapaCache.size === 2);
+ok("y son las correctas", mapaCache.get(G1) === "HAWB-001");
+ok("normaliza la guia al buscar",
+   mapaHouseDelCache(cacheConHouses).get(claveGuiaHouse("1z-999-aa1-0123-456-784")) === "HAWB-001");
+ok("las filas vacias no ensucian", !mapaCache.has(""));
+
+// Un cache SIN esas columnas no revienta: devuelve vacio y la house la pone el
+// relleno de fondo. Es lo que pasa el primer dia, antes de la primera pasada.
+ok("sin columnas de house devuelve vacio",
+   mapaHouseDelCache({headers: ["GLOBAL 1_FISICO"], data: [["GLOBAL 1_FISICO"]]}).size === 0);
+ok("sin cache tampoco revienta", mapaHouseDelCache(null).size === 0);
+ok("cache a medias tampoco", mapaHouseDelCache({headers: null, data: null}).size === 0);
+
+// LA GARANTIA QUE PIDIO EL USUARIO: una house NO puede caer en los duplicados.
+// El indice de duplicados solo mira columnas que acaban en «_FISICO», asi que
+// queda fuera por construccion, no por acuerdo. Importa porque una house cubre
+// decenas de guias: si se indexara, cada bulto de la misma house saldria
+// marcado como repetido.
+encabezadosDelMapaHouse().forEach(h => {
+    ok(h + " no acaba en _FISICO", !h.endsWith("_FISICO"));
+    ok(h + " no acaba en _PREFORMA", !h.endsWith("_PREFORMA"));
+    ok(h + " empieza por __ y sobrevive al podado",
+       columnasHuerfanas([h], new Set()).length === 0);
+});
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

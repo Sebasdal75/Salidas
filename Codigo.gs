@@ -1345,7 +1345,7 @@ function procesarEdicion(e) {
                         typeof esGuiaParaHouse === 'function') {
                         let g = esGuiaParaHouse(valorIngresado);
                         if (g !== "") {
-                            let h = mapaHouseParaEscaneo(e.source).get(g);
+                            let h = mapaHouseParaEscaneo(cacheInfo).get(g);
                             if (h) batchUpdates.push({row: filaActual, col: 3, val: h});
                         }
                     }

@@ -1723,6 +1723,17 @@ function rellenarHousesPendientes(forzar) {
             p.hoja.getRange(b.fila, p.col, b.valores.length, 1).setValues(b.valores);
         });
     });
+    // Lo que se acaba de resolver se guarda en el caché, para que el SIGUIENTE
+    // escaneo de esa guía —el de salida, normalmente— la tenga al instante y
+    // sin abrir nada. Es lo que hace que la house salga con el ✅ Ok.
+    let paraCache = [];
+    pendientes.forEach(p => p.faltan.forEach(f => {
+        let h = mapa.get(f.guia);
+        if (h) paraCache.push({ guia: f.guia, house: h });
+    }));
+    let enCache = 0;
+    try { enCache = guardarHousesEnCache(ss, paraCache); } catch (err) { enCache = 0; }
+
     let segundos = (Date.now() - arranque) / 1000;
     try {
         PropertiesService.getScriptProperties()
@@ -1731,6 +1742,7 @@ function rellenarHousesPendientes(forzar) {
     anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
                   " · huérfanas borradas: " + borradas +
                   " · corregidas: " + corregidas +
+                  " · nuevas en caché: " + enCache +
                   " · índice: " + indice.length + " guías" +
                   (cortadoPorTiempo ? " · CORTADO por tiempo, sigue en la próxima" : "") +
                   " · " + segundos.toFixed(1) + " s");
@@ -1885,21 +1897,105 @@ function limpiarMarcasNoEncontradas(ss) {
     return limpiadas;
 }
 
-// La house que el escaneo debe escribir para una guía, o "" si no se sabe.
+// -------------------------------------------------------------------------
+// LA HOUSE VIAJA EN EL CACHÉ
 //
-// Se resuelve contra el índice CALIENTE, que ya está cargado en el momento del
-// escaneo si alguien lo pidió antes; si no está, se devuelve "" y la pone el
-// relleno de fondo. Nunca vale la pena abrir el índice dentro de un escaneo.
-let globalMapaHouse = null;
+// El caché se lee ENTERO en cada escaneo y ya está en memoria cuando llega la
+// guía. Si lleva la house consigo, ponerla no cuesta ni una llamada: es un
+// `Map.get`.
+//
+// La versión anterior de esto abría el archivo del índice y leía 45.000 filas
+// DENTRO del escaneo. O tardaba segundos, o fallaba y devolvía vacío —y la
+// house no salía al instante—. Era exactamente lo que este módulo lleva desde
+// el primer día prometiendo no hacer.
+//
+// Son DOS columnas en total, no una por pestaña: una lista plana guía → house
+// de lo que está vivo ahora mismo. Empiezan por «__» a propósito, y eso las
+// protege de dos cosas a la vez:
+//   · el podado de columnas huérfanas no las borra (no son de ninguna hoja);
+//   · el índice de duplicados NO las mira, porque solo indexa las que acaban
+//     en «_FISICO». Y eso importa: una house cubre decenas de guías, así que
+//     si entrara al índice cada bulto de la misma house saldría repetido.
+// -------------------------------------------------------------------------
+const HEADER_HOUSE_GUIA = "__HOUSE_GUIA";
+const HEADER_HOUSE_VALOR = "__HOUSE_VALOR";
 
-function mapaHouseParaEscaneo(ss) {
-    if (globalMapaHouse !== null) return globalMapaHouse;
-    try {
-        globalMapaHouse = mapaDeIndice(leerIndice(ss, HOJA_INDICE_HOUSE));
-    } catch (err) {
-        globalMapaHouse = new Map();
+function encabezadosDelMapaHouse() {
+    return [HEADER_HOUSE_GUIA, HEADER_HOUSE_VALOR];
+}
+
+// Lee el mapa que ya viene dentro del caché. Cero llamadas: `cacheInfo` es lo
+// que el escaneo acaba de cargar de todas formas.
+function mapaHouseDelCache(cacheInfo) {
+    let m = new Map();
+    if (!cacheInfo || !cacheInfo.headers || !cacheInfo.data) return m;
+    let cg = cacheInfo.headers.indexOf(HEADER_HOUSE_GUIA);
+    let cv = cacheInfo.headers.indexOf(HEADER_HOUSE_VALOR);
+    if (cg === -1 || cv === -1) return m;
+    for (let r = 1; r < cacheInfo.data.length; r++) {
+        let fila = cacheInfo.data[r];
+        if (!fila) continue;
+        let g = claveGuiaHouse(fila[cg]);
+        if (g === "") continue;
+        let h = String(fila[cv] === undefined ? "" : fila[cv]).trim();
+        if (h !== "") m.set(g, h);
     }
-    return globalMapaHouse;
+    return m;
+}
+
+// Lo que usa el escaneo. NO abre nada: si el caché aún no trae el mapa,
+// devuelve vacío y la house la pondrá el relleno de fondo.
+function mapaHouseParaEscaneo(cacheInfo) {
+    return mapaHouseDelCache(cacheInfo);
+}
+
+// Mete en el caché los pares que se acaban de resolver, para que el SIGUIENTE
+// escaneo de esa guía —el de salida, normalmente— la tenga al instante.
+//
+// Se fusiona con lo que ya había y se reescriben las dos columnas enteras. Son
+// columnas del sistema, no de operación: aquí no aplica la regla de no
+// reescribir un rango, porque nadie más las toca.
+function guardarHousesEnCache(ss, pares) {
+    if (!pares || pares.length === 0) return 0;
+    let cacheSheet = ss.getSheetByName("CACHE_SISTEMA");
+    if (!cacheSheet) return 0;
+
+    let headers = cacheSheet.getRange(1, 1, 1, cacheSheet.getMaxColumns()).getValues()[0];
+    let cg = columnaDeHeader(cacheSheet, headers, HEADER_HOUSE_GUIA);
+    let cv = columnaDeHeader(cacheSheet, headers, HEADER_HOUSE_VALOR);
+    if (cg === -1 || cv === -1) return 0;
+
+    let lr = cacheSheet.getLastRow();
+    let mapa = new Map();
+    if (lr > 1) {
+        let previos = cacheSheet.getRange(2, Math.min(cg, cv), lr - 1,
+                                          Math.abs(cv - cg) + 1).getValues();
+        let dg = cg < cv ? 0 : Math.abs(cv - cg);
+        let dv = cg < cv ? Math.abs(cv - cg) : 0;
+        previos.forEach(f => {
+            let g = claveGuiaHouse(f[dg]);
+            let h = String(f[dv]).trim();
+            if (g !== "" && h !== "") mapa.set(g, h);
+        });
+    }
+
+    let antes = mapa.size;
+    pares.forEach(p => { if (p.guia && p.house) mapa.set(p.guia, p.house); });
+    if (mapa.size === antes) return 0;
+
+    let filas = [];
+    mapa.forEach((h, g) => filas.push({ g: g, h: h }));
+    asegurarFilas(cacheSheet, filas.length + 1);
+
+    let alto = Math.max(filas.length, lr - 1);
+    let colG = [], colV = [];
+    for (let i = 0; i < alto; i++) {
+        colG.push([i < filas.length ? filas[i].g : ""]);
+        colV.push([i < filas.length ? filas[i].h : ""]);
+    }
+    cacheSheet.getRange(2, cg, alto, 1).setValues(colG);
+    cacheSheet.getRange(2, cv, alto, 1).setValues(colV);
+    return mapa.size - antes;
 }
 
 // -------------------------------------------------------------------------
