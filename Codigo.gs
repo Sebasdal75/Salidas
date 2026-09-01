@@ -3263,6 +3263,21 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               if (pedimentosVistosPreforma.has(v)) filasDuplicadasPreforma.add(i); else pedimentosVistosPreforma.add(v);
               if (bPAct) bloquesPreforma.push(bPAct);
               bPAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErrP };
+          } else if (esMarcadorEstructural(v)) {
+              // Un separador de bloque no es guía ni pedimento: ni cuenta ni se
+              // marca.
+          } else if (!esGuiaUPSValida(v)) {
+              // LA PREFORMA NO SE ESCANEA: se pega o se importa. Por eso nadie se entera de
+              // que una guía viene mal escrita, y por eso hay que comprobarla igual que la A.
+              //
+              // Sin esto, cualquier cosa que no fuera un pedimento de 7 dígitos contaba como
+              // bulto: sumaba a lo esperado, nadie iba a escanearla nunca —no existe— y el
+              // bloque se quedaba con un faltante ETERNO. El operador buscando un bulto que
+              // no está, y el resumen sin cerrar jamás.
+              if (resultadosP[i][0] === '') {
+                  resultadosP[i][0] = textoCapturaInvalida(v);
+                  coloresP[i][0] = "#df5f6b";
+              }
           } else {
               totalBultosPreforma++;
               if (bPAct) { bPAct.guias.push(v); bPAct.filasGuias.push(i); }
@@ -3280,6 +3295,15 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               if (pedimentosVistosPreforma.has(v)) filasDuplicadasPreforma.add(i); else pedimentosVistosPreforma.add(v);
               bloquesPreforma.push({ pedimento: v, filaPedimento: i, guias: gTmp.slice(), filasGuias: fTmp.slice(), esErr: esErrP });
               gTmp = []; fTmp = [];
+          } else if (esMarcadorEstructural(v)) {
+              // Un separador de bloque no es guía ni pedimento.
+          } else if (!esGuiaUPSValida(v)) {
+              // Ver la nota de arriba: una guía mal escrita en la preforma se
+              // convertía en un faltante eterno.
+              if (resultadosP[i][0] === '') {
+                  resultadosP[i][0] = textoCapturaInvalida(v);
+                  coloresP[i][0] = "#df5f6b";
+              }
           } else {
               totalBultosPreforma++; gTmp.push(v); fTmp.push(i);
           }

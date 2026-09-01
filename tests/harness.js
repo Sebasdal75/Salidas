@@ -2536,6 +2536,33 @@ let cacheOtro = {
 ok("tras olvidarlo, se relee", mapaHouseParaEscaneo(cacheOtro).get(G1) === "H-NUEVA");
 olvidarMapaHouseEnRAM();
 
+console.log("\n--- 5z5. La preforma tambien comprueba el digito verificador ---");
+// LA PREFORMA NO SE ESCANEA: se pega o se importa, asi que nadie se entera de
+// que una guia viene mal escrita. Y antes la O no la comprobaba: cualquier cosa
+// que no fuera un pedimento de 7 digitos contaba como bulto. Una guia mal
+// escrita sumaba a lo esperado, nadie iba a escanearla nunca -no existe- y el
+// bloque se quedaba con un FALTANTE ETERNO.
+//
+// El criterio es el mismo que ya usa la columna A, asi que lo que vale en una
+// vale en la otra.
+ok("una 1Z buena pasa", esGuiaUPSValida(G1));
+ok("con el digito cambiado NO", !esGuiaUPSValida("1Z999AA10123456785"));
+ok("con una letra de mas tampoco", !esGuiaUPSValida(G1 + "X"));
+ok("cortada tampoco", !esGuiaUPSValida(G1.substring(0, 17)));
+ok("un pedimento de 7 digitos no es guia", !esGuiaUPSValida("6100544"));
+ok("una guia corta de verdad si", esGuiaUPSValida("AB1234567"));
+// Y los marcadores de bloque no se marcan como invalidos: no son guias, pero
+// tampoco un error del que avisar.
+ok("«SIN PEDIMENTO» es marcador, no guia invalida",
+   esMarcadorEstructural("SIN PEDIMENTO") && !esGuiaUPSValida("SIN PEDIMENTO"));
+ok("«COSTALES» tambien", esMarcadorEstructural("COSTALES"));
+// El aviso que se escribe es el mismo de la columna A, con su caso de dos
+// guias pegadas incluido.
+ok("dos guias pegadas se nombran",
+   textoCapturaInvalida(G1 + G2).indexOf("DOS PEGADAS") !== -1);
+ok("una guia mala a secas dice «Guia Invalida»",
+   textoCapturaInvalida("1Z999AA10123456785").indexOf("Inválida") !== -1);
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.
