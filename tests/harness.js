@@ -2563,6 +2563,33 @@ ok("dos guias pegadas se nombran",
 ok("una guia mala a secas dice «Guia Invalida»",
    textoCapturaInvalida("1Z999AA10123456785").indexOf("Inválida") !== -1);
 
+console.log("\n--- 5z6. Guias en la preforma sin pedimento arriba ---");
+// EL CASO QUE REPORTO EL USUARIO: se olvidan de poner el pedimento en la O, y
+// al escanear la guia el unico mensaje que sale es el de la M-S -que no dice
+// nada del problema real-.
+//
+// Sin cabecera esas guias no se pueden asignar a ningun pedimento, asi que se
+// quedaban FUERA del indice de la preforma: para el resto del sistema era como
+// si no estuvieran escritas. Y tampoco contaban como esperadas, asi que los
+// faltantes y sobrantes de toda la hoja salian mal sin que nada lo explicara.
+const AVISO_SIN_PED = "⚠️ SIN PEDIMENTO: falta la cabecera arriba en la O";
+ok("el aviso es de nivel AVISO, no critico",
+   nivelAlerta(AVISO_SIN_PED) === nivelAlerta("⚠️ Sobra (Ajena)"));
+// Va por escribirAvisoPreforma, asi que respeta la prioridad: no pisa una
+// alerta que ya estuviera puesta, y se antepone al resumen informativo.
+let sinPedVacia = [[""]], sinPedColor = [[""]];
+escribirAvisoPreforma(sinPedVacia, sinPedColor, 0, AVISO_SIN_PED, "#ffc107");
+ok("en una celda vacia se escribe", sinPedVacia[0][0] === AVISO_SIN_PED);
+let sinPedResumen = [["► Resumen: 5 bultos"]], sinPedResumenColor = [[""]];
+escribirAvisoPreforma(sinPedResumen, sinPedResumenColor, 0, AVISO_SIN_PED, "#ffc107");
+ok("no borra el resumen, se antepone",
+   sinPedResumen[0][0].startsWith(AVISO_SIN_PED) &&
+   sinPedResumen[0][0].indexOf("Resumen") !== -1);
+let sinPedAlerta = [["⛔ DUPLICADO (En: GLOBAL 2)"]], sinPedAlertaColor = [[""]];
+escribirAvisoPreforma(sinPedAlerta, sinPedAlertaColor, 0, AVISO_SIN_PED, "#ffc107");
+ok("y NO pisa una alerta que ya estaba",
+   sinPedAlerta[0][0] === "⛔ DUPLICADO (En: GLOBAL 2)");
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.

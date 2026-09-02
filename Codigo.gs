@@ -3320,6 +3320,23 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     if (pedimento !== "" && pedimento !== "SIN_CABECERA") {
         mapaPreformas[pedimento] = setGuias;
         setGuias.forEach(g => mapaInversoPreforma.set(g, pedimento));
+    } else if (bloque.filasGuias.length > 0 && !esRezago) {
+        // GUÍAS EN LA PREFORMA SIN PEDIMENTO ARRIBA.
+        //
+        // Sin cabecera no se pueden asignar a ningún pedimento, así que se
+        // quedaban fuera del índice de la preforma: para el resto del sistema
+        // era como si no estuvieran escritas. El operador las veía ahí, las
+        // escaneaba, y el único mensaje que le llegaba era el de la M-S —que no
+        // dice nada del problema real—.
+        //
+        // Y el daño no acaba ahí: esas guías tampoco cuentan como esperadas, así
+        // que los faltantes y sobrantes del resto de la hoja salen mal sin que
+        // nada lo explique.
+        //
+        // Ahora se dice dónde está el fallo y qué hacer, en la fila donde se ve.
+        bloque.filasGuias.forEach(fG =>
+            escribirAvisoPreforma(resultadosP, coloresP, fG,
+                "⚠️ SIN PEDIMENTO: falta la cabecera arriba en la O", "#ffc107"));
     }
 
     let colorFondoPreforma = "#00ff00";
