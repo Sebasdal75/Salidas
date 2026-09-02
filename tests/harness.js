@@ -2563,16 +2563,21 @@ ok("dos guias pegadas se nombran",
 ok("una guia mala a secas dice «Guia Invalida»",
    textoCapturaInvalida("1Z999AA10123456785").indexOf("Inválida") !== -1);
 
-console.log("\n--- 5z6. Guias en la preforma sin pedimento arriba ---");
+console.log("\n--- 5z6. Guias en la preforma sin su pedimento ---");
 // EL CASO QUE REPORTO EL USUARIO: se olvidan de poner el pedimento en la O, y
 // al escanear la guia el unico mensaje que sale es el de la M-S -que no dice
 // nada del problema real-.
 //
-// Sin cabecera esas guias no se pueden asignar a ningun pedimento, asi que se
-// quedaban FUERA del indice de la preforma: para el resto del sistema era como
-// si no estuvieran escritas. Y tampoco contaban como esperadas, asi que los
-// faltantes y sobrantes de toda la hoja salian mal sin que nada lo explicara.
-const AVISO_SIN_PED = "⚠️ SIN PEDIMENTO: falta la cabecera arriba en la O";
+// Sin su pedimento esas guias no se pueden asignar a nada, asi que se quedaban
+// FUERA del indice de la preforma: para el resto del sistema era como si no
+// estuvieran escritas. Y tampoco contaban como esperadas, asi que los faltantes
+// y sobrantes de toda la hoja salian mal sin que nada lo explicara.
+// OJO CON LA DIRECCION: en la O el pedimento va DEBAJO de sus guias y cierra el
+// bloque; en la A va ARRIBA y lo abre. Es al reves, y decirlo al reves manda al
+// operador a mirar donde no es -que fue justo lo que corrigio el usuario-.
+const AVISO_SIN_PED = "⚠️ SIN PEDIMENTO: falta ponerlo DEBAJO, en la O";
+ok("el aviso manda a mirar ABAJO, no arriba",
+   AVISO_SIN_PED.indexOf("DEBAJO") !== -1 && AVISO_SIN_PED.indexOf("arriba") === -1);
 ok("el aviso es de nivel AVISO, no critico",
    nivelAlerta(AVISO_SIN_PED) === nivelAlerta("⚠️ Sobra (Ajena)"));
 // Va por escribirAvisoPreforma, asi que respeta la prioridad: no pisa una

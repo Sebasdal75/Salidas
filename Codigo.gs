@@ -3321,22 +3321,25 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
         mapaPreformas[pedimento] = setGuias;
         setGuias.forEach(g => mapaInversoPreforma.set(g, pedimento));
     } else if (bloque.filasGuias.length > 0 && !esRezago) {
-        // GUÍAS EN LA PREFORMA SIN PEDIMENTO ARRIBA.
+        // GUÍAS DE LA PREFORMA SIN SU PEDIMENTO.
         //
-        // Sin cabecera no se pueden asignar a ningún pedimento, así que se
-        // quedaban fuera del índice de la preforma: para el resto del sistema
-        // era como si no estuvieran escritas. El operador las veía ahí, las
-        // escaneaba, y el único mensaje que le llegaba era el de la M-S —que no
-        // dice nada del problema real—.
+        // OJO CON LA DIRECCIÓN: en la O el pedimento va DEBAJO de sus guías y
+        // cierra el bloque; en la A va ARRIBA y lo abre. Es al revés, y decirlo
+        // al revés manda al operador a mirar donde no es.
         //
-        // Y el daño no acaba ahí: esas guías tampoco cuentan como esperadas, así
-        // que los faltantes y sobrantes del resto de la hoja salen mal sin que
-        // nada lo explique.
+        // Este caso son las guías que quedan al final sin ningún pedimento
+        // después. Sin él no se pueden asignar a nada, así que quedaban fuera
+        // del índice de la preforma: para el resto del sistema era como si no
+        // estuvieran escritas. El operador las veía ahí delante, las escaneaba,
+        // y el único mensaje que le llegaba era el de la M-S —que no habla del
+        // problema real—.
         //
-        // Ahora se dice dónde está el fallo y qué hacer, en la fila donde se ve.
+        // Y el daño no acaba ahí: tampoco cuentan como esperadas, así que los
+        // faltantes y sobrantes del resto de la hoja salen mal sin que nada lo
+        // explique.
         bloque.filasGuias.forEach(fG =>
             escribirAvisoPreforma(resultadosP, coloresP, fG,
-                "⚠️ SIN PEDIMENTO: falta la cabecera arriba en la O", "#ffc107"));
+                "⚠️ SIN PEDIMENTO: falta ponerlo DEBAJO, en la O", "#ffc107"));
     }
 
     let colorFondoPreforma = "#00ff00";
