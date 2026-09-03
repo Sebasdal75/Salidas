@@ -3026,5 +3026,64 @@ ok("nombre de la coma", nombreDelSeparador(",") === "coma");
 ok("una línea vacía da un campo", conteoDeSeparadores("").coma === 1);
 ok("null no revienta", conteoDeSeparadores(null).coma === 1);
 
+// -------------------------------------------------------------------------
+console.log("\n--- 5z8. Las columnas fosiles de pestañas de sistema no se indexan ---");
+// -------------------------------------------------------------------------
+// EL FALLO QUE ESTO ARREGLA, Y QUE YA ME COMÍ UNA VEZ: marcar una pestaña como
+// interna solo impide que se le vuelva a tomar la foto. La columna que YA tenía
+// en el caché se queda con todos sus datos y nadie la refresca nunca más;
+// `columnasHuerfanas` tampoco la borraba, porque la pestaña sigue existiendo.
+// Resultado: el índice de houses siguió generando duplicados falsos DESPUÉS de
+// darlo por arreglado, contra una copia congelada de sí mismo.
+let hdrsFosil = ["GLOBAL1_FISICO", "INDICE_HOUSE_FISICO", "M-S T1_FISICO"];
+let datosFosil = [
+    hdrsFosil,
+    ["1Z1111111111111111", "1Z9999999999999999", ""],
+    ["", "1Z8888888888888888", ""]
+];
+let idxFosil = construirIndiceCache(datosFosil, hdrsFosil);
+ok("la guía de la Global se indexa", idxFosil.has("1Z1111111111111111"));
+ok("la del índice de houses NO", !idxFosil.has("1Z9999999999999999"));
+ok("ni la de más abajo", !idxFosil.has("1Z8888888888888888"));
+
+// Y la columna fósil se poda, para que el caché no la arrastre para siempre.
+let existentesFosil = new Set(["GLOBAL1", "INDICE_HOUSE", "M-S T1"]);
+let podaFosil = columnasHuerfanas(hdrsFosil, existentesFosil);
+ok("la columna del índice se borra aunque la pestaña exista",
+   podaFosil.indexOf(2) !== -1);
+ok("la de la Global se queda", podaFosil.indexOf(1) === -1);
+ok("la de la M-S se queda", podaFosil.indexOf(3) === -1);
+
+// El caché lo comparte todo el motor: si esto se pasara de largo y borrara
+// columnas buenas, se perderían los duplicados de verdad.
+let hdrsSanos = ["GLOBAL1_FISICO", "GLOBAL1_PREFORMA", "M-S A1_FISICO"];
+ok("un caché sano no pierde ninguna columna",
+   columnasHuerfanas(hdrsSanos, new Set(["GLOBAL1", "M-S A1"])).length === 0);
+
+// -------------------------------------------------------------------------
+console.log("\n--- 5z9. Contrastar el caché contra la celda de verdad ---");
+// -------------------------------------------------------------------------
+// «⛔ DUPLICADO (En: M-S A1 Fila 812)» sale del caché, no de mirar la hoja. Si
+// el caché miente, el operador va a esa fila, la ve vacía, y no sabe si el
+// sistema se equivoca o si alguien acaba de borrarla.
+ok("misma guía en la celda: confirmado",
+   contrastarAparicion("1Z1111111111111111", "1Z1111111111111111").ok);
+ok("con espacios y minúsculas también",
+   contrastarAparicion("1Z1111111111111111", "  1z1111111111111111 ").ok);
+ok("celda vacía: fantasma",
+   !contrastarAparicion("1Z1111111111111111", "").ok);
+ok("y lo dice con esa palabra",
+   contrastarAparicion("1Z1111111111111111", "").texto.indexOf("FANTASMA") !== -1);
+ok("otra guía en esa celda: fantasma",
+   !contrastarAparicion("1Z1111111111111111", "1Z2222222222222222").ok);
+ok("y enseña la que hay de verdad",
+   contrastarAparicion("1Z1111111111111111", "1Z2222222222222222")
+       .texto.indexOf("1Z2222222222222222") !== -1);
+ok("null en la celda es fantasma, no un falso confirmado",
+   !contrastarAparicion("1Z1111111111111111", null).ok);
+// Sin guía que contrastar no se puede confirmar nada: decir «confirmado»
+// porque dos vacíos coinciden sería la peor respuesta posible.
+ok("guía vacía nunca se confirma sola", !contrastarAparicion("", "").ok);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

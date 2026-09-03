@@ -1831,6 +1831,15 @@ function construirIndiceCache(data, headers) {
         let header = String(headers[c]);
         if (!header.endsWith("_FISICO")) continue;
         let hoja = claveHoja(header.replace("_FISICO", ""));
+        // Una columna de pestaña de sistema NO se indexa, aunque exista.
+        //
+        // Marcar una hoja como interna solo impide que se le VUELVA a tomar la
+        // foto; la columna que ya tenía en el caché se queda con sus datos, y
+        // nadie la refresca nunca más. `columnasHuerfanas` tampoco la borraba,
+        // porque la pestaña sigue existiendo. Así que el índice de houses siguió
+        // generando duplicados falsos DESPUÉS de darlo por arreglado, contra una
+        // copia congelada de sí mismo. Esta línea es la que lo corta de verdad.
+        if (esHojaSistema(hoja)) continue;
         columnas.push({ c: c, hoja: hoja, isMS: esHojaMS(hoja), isInventario: esHojaInventario(hoja) });
     }
     if (columnas.length === 0) return mapa;
@@ -2031,6 +2040,22 @@ function verificarDuplicadoConCache(cacheInfo, nombreHojaActual, guiaBuscada, fi
 // Antes el texto "⛔ DUPLICADO" se conservaba tal cual y nunca se limpiaba
 // aunque el original se hubiera borrado; ahora se reevalúa en cada pasada.
 // Devuelve Map: índice de fila (0-based) -> match del caché.
+// ¿Lo que el caché dice de una aparición sigue siendo verdad en la hoja?
+//
+// Un «⛔ DUPLICADO (En: X Fila N)» sale del caché, no de mirar la hoja. Si el
+// caché guarda una guía que ya no está —o que está en otra fila—, el aviso es
+// falso y no hay forma de distinguirlo a ojo: el operador va a la fila que le
+// dicen, la ve vacía, y no sabe si el sistema se equivoca o si alguien acaba de
+// borrarla. Contrastar la celda de verdad es lo único que lo resuelve.
+function contrastarAparicion(guia, valorReal) {
+    let v = String(valorReal === undefined || valorReal === null ? "" : valorReal)
+            .trim().toUpperCase();
+    let g = String(guia === undefined || guia === null ? "" : guia).trim().toUpperCase();
+    if (g !== "" && v === g) return { ok: true, texto: "✅ confirmado en la hoja" };
+    if (v === "") return { ok: false, texto: "⚠️ FANTASMA: esa celda está VACÍA" };
+    return { ok: false, texto: "⚠️ FANTASMA: esa celda tiene «" + v + "»" };
+}
+
 function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheInfo) {
     let res = new Map();
     if (!cacheInfo || !cacheInfo.map) return res;
@@ -2378,6 +2403,10 @@ function columnasHuerfanas(headers, existentes) {
 
         // Pestaña renombrada o borrada.
         if (!existentes.has(nombre)) { aBorrar.push(i + 1); continue; }
+        // Pestaña que EXISTE pero es de sistema. Su columna es un fósil: se
+        // creó cuando la hoja todavía contaba como de escaneo, y desde que dejó
+        // de contar ya nadie la refresca. Existir no basta para quedarse.
+        if (esHojaSistema(nombre)) { aBorrar.push(i + 1); continue; }
         // Columna de preforma de una M-S: siempre vacía, no se usa.
         if (h.endsWith("_PREFORMA") && !usaPreforma(nombre)) aBorrar.push(i + 1);
     }
@@ -4860,18 +4889,43 @@ function diagnosticarGuia() {
     return;
   }
 
-  // ── Dónde la tiene el caché ──────────────────────────────────────────────
+  // ── Dónde la tiene el caché, y si es verdad ──────────────────────────────
+  //
+  // No basta con repetir lo que dice el caché: cuando alguien pregunta «¿por
+  // qué dice duplicado si no está?», el caché es precisamente lo que está bajo
+  // sospecha. Cada aparición se contrasta contra la celda de verdad, y eso es
+  // lo único que separa un duplicado real de un fantasma.
   L.push("── DÓNDE ESTÁ, SEGÚN EL CACHÉ ──");
   let apariciones = cacheInfo.map.get(guia) || [];
+  let fantasmas = 0;
   if (apariciones.length === 0) {
     L.push("   En ninguna parte. El caché NO conoce esta guía.");
     L.push("   Si tú la ves escrita en una pestaña, ese caché está desfasado:");
     L.push("   corre «♻️ Reconstruir caché completo».");
   } else {
+    let porClave = new Map();
+    ss.getSheets().forEach(h => porClave.set(claveHoja(h.getName()), h));
     apariciones.forEach(a => {
       let tipo = a.isMS ? "M-S" : (a.isInventario ? "INVENTARIO" : "destino");
+      let h = porClave.get(a.hoja);
+      let real;
+      if (!h) { real = "⚠️ FANTASMA: esa pestaña YA NO EXISTE"; fantasmas++; }
+      else if (a.fila > h.getMaxRows()) {
+        real = "⚠️ FANTASMA: la hoja no llega a esa fila"; fantasmas++;
+      } else {
+        let c = contrastarAparicion(guia, h.getRange(a.fila, 1).getValue());
+        real = c.texto;
+        if (!c.ok) fantasmas++;
+      }
       L.push("   · " + a.hoja + "  fila " + a.fila + "   (" + tipo + ")");
+      L.push("       " + real);
     });
+    if (fantasmas > 0) {
+      L.push("");
+      L.push("   🛑 " + fantasmas + " de esas apariciones NO existen en la hoja.");
+      L.push("   El caché está desfasado y por eso salen duplicados falsos.");
+      L.push("   Arréglalo con «♻️ Reconstruir caché completo».");
+    }
   }
   L.push("");
 
