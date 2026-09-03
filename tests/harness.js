@@ -2987,5 +2987,44 @@ ok("un índice limpio no pierde nada",
 ok("un índice vacío no revienta", filasSinBasura([]).limpias.length === 0);
 ok("null tampoco", filasSinBasura(null).tiradas === 0);
 
+// -------------------------------------------------------------------------
+console.log("\n--- 6g18. El diagnóstico dice CUÁL es el separador ---");
+// -------------------------------------------------------------------------
+// Sin esto, «no lee bien el archivo» hay que deducirlo. Con esto se ve.
+let dCom = diagnosticoDelSeparador("FECHA,GUIA,GUIA CORTA");
+ok("con comas elige la coma", dCom.sep === ",");
+ok("y cuenta tres campos", dCom.campos === 3);
+
+let dPyC = diagnosticoDelSeparador("FECHA;GUIA;GUIA CORTA");
+ok("con punto y coma lo elige", dPyC.sep === ";");
+ok("y cuenta tres campos", dPyC.campos === 3);
+
+let dTab = diagnosticoDelSeparador("FECHA\tGUIA\tGUIA CORTA");
+ok("con tabuladores los elige", dTab.sep === "\t");
+ok("y cuenta tres campos", dTab.campos === 3);
+
+// EL CASO QUE CORROMPIÓ EL ÍNDICE: una cabecera sin ningún separador conocido.
+let dNada = diagnosticoDelSeparador("FECHA GUIA GUIA CORTA");
+ok("sin separador cae en la coma por descarte", dNada.sep === ",");
+ok("y eso da UN solo campo", dNada.campos === 1);
+ok("y lo dice a la cara",
+   dNada.texto.indexOf("NINGÚN separador") !== -1);
+ok("el recuento de los tres candidatos sale en el texto",
+   dNada.texto.indexOf("con coma: 1") !== -1 &&
+   dNada.texto.indexOf("con tabulador: 1") !== -1);
+
+// «GUIA CORTA» lleva un espacio dentro: contarlo como separador partiría en dos
+// una cabecera buena. El espacio NUNCA es candidato, y por eso el archivo se
+// rechaza en vez de leerse a medias.
+ok("un espacio dentro de una cabecera buena no la parte",
+   diagnosticoDelSeparador("FECHA,GUIA,GUIA CORTA").campos === 3);
+
+ok("nombre del tabulador", nombreDelSeparador("\t") === "tabulador");
+ok("nombre del punto y coma", nombreDelSeparador(";") === "punto y coma");
+ok("nombre de la coma", nombreDelSeparador(",") === "coma");
+
+ok("una línea vacía da un campo", conteoDeSeparadores("").coma === 1);
+ok("null no revienta", conteoDeSeparadores(null).coma === 1);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

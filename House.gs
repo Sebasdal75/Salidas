@@ -525,6 +525,44 @@ function separadorCsv(primeraLinea) {
     return puntoYComa > comas ? ";" : ",";
 }
 
+function nombreDelSeparador(sep) {
+    if (sep === "\t") return "tabulador";
+    if (sep === ";") return "punto y coma";
+    if (sep === ",") return "coma";
+    return "«" + String(sep) + "»";
+}
+
+// Cuántos campos daría CADA separador candidato en esta línea.
+//
+// Es lo que convierte «no sé por qué lee mal el archivo» en «este archivo no
+// tiene ni una coma». Si los tres devuelven 1, no hay separador que valga y el
+// archivo no se puede partir: eso hay que verlo de un vistazo, no deducirlo.
+function conteoDeSeparadores(linea) {
+    let l = String(linea === undefined || linea === null ? "" : linea);
+    return {
+        coma: (l.match(/,/g) || []).length + 1,
+        puntoYComa: (l.match(/;/g) || []).length + 1,
+        tabulador: (l.match(/\t/g) || []).length + 1
+    };
+}
+
+// El renglón del diagnóstico: qué separador se eligió, cuántos campos da, y qué
+// daría cada uno de los otros.
+function diagnosticoDelSeparador(linea) {
+    let c = conteoDeSeparadores(linea);
+    let sep = separadorCsv(linea);
+    let elegido = sep === "\t" ? c.tabulador : (sep === ";" ? c.puntoYComa : c.coma);
+    let texto = "Separador: " + nombreDelSeparador(sep) + " → " + elegido + " campo" +
+                (elegido === 1 ? "" : "s") + "\n" +
+                "  (con coma: " + c.coma + " · con punto y coma: " + c.puntoYComa +
+                " · con tabulador: " + c.tabulador + ")";
+    if (elegido < 2) {
+        texto += "\n  ❌ NINGÚN separador parte este archivo. Por eso el renglón " +
+                 "entero acaba dentro de una sola celda.";
+    }
+    return { sep: sep, campos: elegido, texto: texto };
+}
+
 // Encuentra en qué columna está la guía, la house y la fecha.
 //
 // No se piden posiciones fijas a propósito: el reporte de inbound cambia de
@@ -1142,7 +1180,7 @@ function importarInboundAlIndice() {
         // archivo entero para saber dónde está cada cosa.
         let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
         if (cabeceraSinPartir(datos[0] || [])) {
-            sinPartir.push(nombre);
+            sinPartir.push(nombre + "\n" + diagnosticoDelSeparador(primeraLinea).texto);
             continue;
         }
         let cols = detectarColumnasInbound(datos[0] || []);
@@ -1531,7 +1569,17 @@ function probarVinculoOneDrive() {
         // columnas trae y si hay fecha, que es lo que decide el reparto entre el
         // índice caliente y el frío.
         let primeraLinea = r.texto.split("\n")[0] || "";
-        let cab = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea))[0] || [];
+        // El separador ANTES que nada: si el archivo no se parte, todo lo que
+        // venga después es ruido —las «cabeceras» serían el renglón entero—.
+        let sepDiag = diagnosticoDelSeparador(primeraLinea);
+        detalle += sepDiag.texto + "\n" +
+                   "Cabecera cruda: " + primeraLinea.trim().slice(0, 90) + "\n";
+        if (sepDiag.campos < 2) {
+            partes.push(detalle + "\n" + AVISO_SIN_PARTIR);
+            return;
+        }
+
+        let cab = Utilities.parseCsv(primeraLinea, sepDiag.sep)[0] || [];
         let cols = detectarColumnasInbound(cab);
         detalle += "Cabeceras: " + cab.slice(0, 8).join(" | ") + "\n" +
                    "Guía: " + (cols.guia === -1 ? "(ninguna; buscaré las 1Z en el texto)"
@@ -1680,9 +1728,9 @@ function importarInboundDesdeOneDrive() {
         let primeraLinea = r.texto.split("\n")[0] || "";
         let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
         if (cabeceraSinPartir(datos[0] || [])) {
-            problemas.push(etiqueta + ": " + AVISO_SIN_PARTIR + "\nLa cabecera entera " +
-                           "quedó en una sola celda: " +
-                           String((datos[0] || [""])[0]).slice(0, 90));
+            problemas.push(etiqueta + ": " + AVISO_SIN_PARTIR + "\n" +
+                           diagnosticoDelSeparador(primeraLinea).texto +
+                           "\nCabecera cruda: " + primeraLinea.trim().slice(0, 90));
             continue;
         }
         let cols = detectarColumnasInbound(datos[0] || []);
