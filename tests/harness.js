@@ -2609,6 +2609,23 @@ console.log("\n--- 5z7. Pedimentos que no coinciden, visto desde la O ---");
 // Son dos casos distintos y no hay que confundirlos:
 //   SIN PEDIMENTO          -> el bloque de la O no tiene pedimento ninguno.
 //   PEDIMENTOS NO COINCIDEN -> lo tiene, pero se escaneo bajo otro.
+// EL CASO QUE IMPORTA: mismos 1Z, otro numero. Si el bloque de la A trae
+// EXACTAMENTE las mismas guias que un bloque de la preforma pero con otro
+// pedimento, no son guias en el sitio equivocado: es un pedimento mal tecleado
+// en una de las dos columnas. Coincidir en TODAS las guias no pasa por
+// casualidad.
+//
+// Antes cada guia salia «Va en: <otro>» por su cuenta -veinte avisos para un
+// solo dedazo- y en ningun sitio se decia lo unico que hace falta saber.
+function mismoConjunto(a, b) {
+    return Array.from(new Set(a)).sort().join("|") === Array.from(new Set(b)).sort().join("|");
+}
+ok("mismas guias en otro orden son el mismo conjunto",
+   mismoConjunto([G1, G2, G3], [G3, G1, G2]));
+ok("con una de mas ya no", !mismoConjunto([G1, G2], [G1, G2, G3]));
+ok("con una distinta tampoco", !mismoConjunto([G1, G2], [G1, G4]));
+ok("repetidas no cambian el conjunto", mismoConjunto([G1, G1, G2], [G1, G2]));
+
 const AVISO_NO_COINCIDEN = "⚠️ PEDIMENTOS NO COINCIDEN: se escaneó en 6103851";
 ok("los dos avisos son distintos", AVISO_NO_COINCIDEN !== AVISO_SIN_PED);
 ok("el de no coincidir nombra el pedimento donde se escaneo",

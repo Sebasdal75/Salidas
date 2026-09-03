@@ -3323,6 +3323,12 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // otras van por el mapa de arriba.
   let filaPreformaDeGuia = new Map();
 
+  // Pedimento -> fila donde está su número en la O.
+  let filaPedimentoPreforma = new Map();
+
+  // Pedimentos de la preforma cuyo gemelo en la A está mal tecleado.
+  let pedimentosGemelos = new Map();
+
   // Guías escaneadas bajo un pedimento distinto del que dice su preforma. Se
   // apuntan y se avisan después, en la fila de la O, una por una.
   let guiasEnOtroPedimento = new Map();
@@ -3337,6 +3343,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
         bloque.guias.forEach((g, k) => {
             if (bloque.filasGuias[k] !== undefined) filaPreformaDeGuia.set(g, bloque.filasGuias[k]);
         });
+        if (bloque.filaPedimento !== -1) filaPedimentoPreforma.set(pedimento, bloque.filaPedimento);
     } else if (bloque.filasGuias.length > 0 && !esRezago) {
         // GUÍAS DE LA PREFORMA SIN SU PEDIMENTO. Aquí solo se APUNTAN; el aviso
         // se escribe más abajo, y solo para las que se estén manejando.
@@ -3534,9 +3541,36 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       if (faltantesArr.length === 0 && mapaPreformas[ped].size > 0) pedimentosCompletos.add(ped);
   }
 
+  // PEDIMENTO MAL TECLEADO: mismos 1Z, otro número.
+  //
+  // Si el bloque de la A trae EXACTAMENTE las mismas guías que un bloque de la
+  // preforma pero con otro pedimento, no son guías en el sitio equivocado: es
+  // un número mal escrito en una de las dos columnas.
+  //
+  // Sin esto, cada guía salía «❌ Va en: <otro>» por su cuenta —veinte avisos
+  // para un solo dedazo— y en ningún sitio se decía lo único que hace falta
+  // saber: que los dos pedimentos no cuadran. Se compara el conjunto entero
+  // porque coincidir en TODAS las guías no pasa por casualidad.
+  let preformaPorConjunto = new Map();
+  for (let p in mapaPreformas) {
+      let set = mapaPreformas[p];
+      if (set.size === 0) continue;
+      preformaPorConjunto.set(Array.from(set).sort().join("|"), p);
+  }
+
   bloquesFisicos.forEach(bloque => {
       let ped = bloque.pedimento;
       let esperadas = mapaPreformas[ped] || new Set();
+
+      // Solo tiene sentido cuando este pedimento NO tiene preforma propia: si la
+      // tiene, lo que haya que decir ya lo dicen los faltantes y sobrantes.
+      let pedGemelo = null;
+      if (esperadas.size === 0 && bloque.guias.length > 0 &&
+          ped !== "" && ped !== "SIN_CABECERA" && !bloque.esErr) {
+          let clave = Array.from(new Set(bloque.guias)).sort().join("|");
+          let candidato = preformaPorConjunto.get(clave);
+          if (candidato && candidato !== ped) pedGemelo = candidato;
+      }
       let sobran = 0; let escaneadasUnicas = new Set();
       // M-S donde estas guías fueron escaneadas de verdad, según el caché.
       let origenesReales = new Set();
@@ -3597,7 +3631,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                       if (pedReal && pedReal !== ped) {
                           resultadosB[filaG][0] = "❌ Va en: " + pedReal;
                           coloresB[filaG][0] = "#f5c6cb";
-                          guiasEnOtroPedimento.set(g, ped);
+                          if (pedGemelo) pedimentosGemelos.set(pedGemelo, ped);
+                          else guiasEnOtroPedimento.set(g, ped);
                           sobran++;
                       } else {
                           resultadosB[filaG][0] = "✅ Guía" + (origen ? " (Escaneado en " + origen + ")" : "");
@@ -3610,7 +3645,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                       if (pedReal) {
                           resultadosB[filaG][0] = "❌ Va en: " + pedReal;
                           coloresB[filaG][0] = "#f5c6cb";
-                          guiasEnOtroPedimento.set(g, ped);
+                          if (pedGemelo) pedimentosGemelos.set(pedGemelo, ped);
+                          else guiasEnOtroPedimento.set(g, ped);
                       }
                       else { resultadosB[filaG][0] = "⚠️ Sobra (Ajena)" + (origen ? " (Escaneado en " + origen + ")" : txtFalta); coloresB[filaG][0] = "#df5f6b"; }
                       sobran++;
@@ -3625,7 +3661,15 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           let nota = notaConAlerta(bloque.conAlerta);
 
           if (esperadas.size === 0) {
-              if (escaneadasUnicas.size === 0) {
+              if (pedGemelo) {
+                  // MISMOS 1Z, OTRO NÚMERO: un dedazo en el pedimento, no
+                  // guías descolocadas. Se dice aquí, en la fila del
+                  // pedimento, que es donde está el error y donde se corrige.
+                  estadoStr = "⚠️ PEDIMENTOS NO COINCIDEN: estos mismos " +
+                              bloque.guias.length + " 1Z están en la preforma " +
+                              "bajo el pedimento " + pedGemelo;
+                  coloresB[bloque.filaPedimento][0] = "#ffc107";
+              } else if (escaneadasUnicas.size === 0) {
                   // Con guías abajo pero todas con alerta, decir "No en
                   // preforma" despista: lo que pasa es que no cuentan.
                   estadoStr = nota !== "" ? nota : "⚠️ No en preforma";
@@ -3704,6 +3748,16 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // Va aquí, cuando los bloques físicos ya están procesados y se sabe qué guías
   // se escanearon de verdad bajo otro pedimento. Una por una, no el bloque
   // entero: llenar la columna de avisos iguales es lo que hace que se ignoren.
+  // El gemelo se dice UNA vez, en la fila del pedimento de la preforma. Marcar
+  // sus veinte guías repetiría el mismo aviso veinte veces para un solo dedazo.
+  pedimentosGemelos.forEach((pedEnA, pedEnO) => {
+      let filaP = filaPedimentoPreforma.get(pedEnO);
+      if (filaP === undefined) return;
+      escribirAvisoPreforma(resultadosP, coloresP, filaP,
+          "⚠️ PEDIMENTOS NO COINCIDEN: los mismos 1Z se escanearon bajo " + pedEnA,
+          "#ffc107");
+  });
+
   if (guiasEnOtroPedimento.size > 0) {
       guiasEnOtroPedimento.forEach((pedEscaneado, g) => {
           let filaO = filaPreformaDeGuia.get(g);
