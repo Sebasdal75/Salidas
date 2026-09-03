@@ -3665,8 +3665,12 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                   // MISMOS 1Z, OTRO NÚMERO: un dedazo en el pedimento, no
                   // guías descolocadas. Se dice aquí, en la fila del
                   // pedimento, que es donde está el error y donde se corrige.
+                  // Se dice «registrados», no «en la preforma»: lo esperado
+                  // sale de la preforma Y del registro de las M-S, que se
+                  // fusionan más arriba. Nombrar la fuente equivocada manda a
+                  // revisar la columna que no es.
                   estadoStr = "⚠️ PEDIMENTOS NO COINCIDEN: estos mismos " +
-                              bloque.guias.length + " 1Z están en la preforma " +
+                              bloque.guias.length + " 1Z están registrados " +
                               "bajo el pedimento " + pedGemelo;
                   coloresB[bloque.filaPedimento][0] = "#ffc107";
               } else if (escaneadasUnicas.size === 0) {

@@ -2626,6 +2626,19 @@ ok("con una de mas ya no", !mismoConjunto([G1, G2], [G1, G2, G3]));
 ok("con una distinta tampoco", !mismoConjunto([G1, G2], [G1, G4]));
 ok("repetidas no cambian el conjunto", mismoConjunto([G1, G1, G2], [G1, G2]));
 
+// LO ESPERADO NO SALE SOLO DE LA PREFORMA: el registro de las M-S se fusiona
+// con `mapaPreformas` mas arriba. Asi que la comprobacion vale igual en una
+// Global SIN preforma propia, comparando contra lo que dicen las M-S -y por eso
+// el aviso dice «registrados» y no «en la preforma»: nombrar la fuente
+// equivocada manda a revisar la columna que no es-.
+//
+// En una M-S NO aplica ni puede: no tiene preforma, es ella la fuente de
+// verdad, y no hay segunda version contra la que comparar.
+ok("una M-S no lleva preforma", !usaPreforma("M-S T1"));
+ok("una Global si", usaPreforma("GLOBALES"));
+ok("y por eso la M-S solo tiene el par de la A",
+   paresDeHouse("M-S T1", 19).length === 1);
+
 const AVISO_NO_COINCIDEN = "⚠️ PEDIMENTOS NO COINCIDEN: se escaneó en 6103851";
 ok("los dos avisos son distintos", AVISO_NO_COINCIDEN !== AVISO_SIN_PED);
 ok("el de no coincidir nombra el pedimento donde se escaneo",
