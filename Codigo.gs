@@ -4327,6 +4327,7 @@ function onOpen() {
                   .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
                   .addItem('↔️ Mover las houses de la D a la C', 'moverHousesDeColumna')
                   .addItem('🧽 Limpiar houses huérfanas ahora', 'limpiarHousesHuerfanasAhora')
+                  .addItem('🧹 Reparar el índice (quitar houses basura)', 'repararIndiceHouse')
                   .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
                   .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
                   .addSeparator()

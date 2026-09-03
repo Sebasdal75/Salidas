@@ -2892,5 +2892,100 @@ ok("mitad y mitad sí cuenta",
 ok("sin cabeceras no revienta", !cabecerasGenericas([]));
 ok("null tampoco", !cabecerasGenericas(null));
 
+// -------------------------------------------------------------------------
+console.log("\n--- 6g14. Lo que dice ser una house tiene que parecerlo ---");
+// -------------------------------------------------------------------------
+// EL CASO REAL: un CSV leído con el separador equivocado deja el renglón entero
+// en una celda, y ese renglón entró al índice como house de 18.610 guías,
+// pisando las buenas. Este es el valor exacto que salió en el resumen.
+const BASURA_REAL = "13/08/2026 1Z08E27V0411529440 08E27V7LNM3";
+ok("el renglón entero NO es una house", houseSospechosa(BASURA_REAL));
+ok("la house de verdad que iba dentro SÍ pasa", !houseSospechosa("08E27V7LNM3"));
+
+ok("una guía dentro la delata",
+   houseSospechosa("1Z08E27V0411529440"));
+ok("una guía con guiones también",
+   houseSospechosa("1Z-08E27V-0411529440"));
+ok("una fecha dentro la delata", houseSospechosa("13/08/2026 H123"));
+ok("con guiones en la fecha igual", houseSospechosa("2026-08-13 H123"));
+ok("vacío no es house", houseSospechosa(""));
+ok("solo espacios tampoco", houseSospechosa("   "));
+ok("null no revienta", houseSospechosa(null));
+ok("undefined tampoco", houseSospechosa(undefined));
+
+// Houses reales de las que hay en la base: cortas, alfanuméricas, a veces con
+// guiones o barras. Ninguna puede caer en el filtro o se perdería trabajo bueno.
+["08E27V7LNM3", "HAWB-4471", "MEX/2231", "H 88231", "ABC123456789",
+ "SHIP-2026-0001"].forEach(h => {
+    ok("house buena aceptada: " + h, !houseSospechosa(h));
+});
+
+// El largo es el último recurso: una house real nunca mide tanto.
+ok("cuarenta caracteres justos pasan", !houseSospechosa("A".repeat(40)));
+ok("cuarenta y uno ya no", houseSospechosa("A".repeat(41)));
+
+// El marcador de «no está» tiene que sobrevivir: lo escribe el propio relleno y
+// borrarlo lo haría reintentar en bucle.
+ok("el guion de «no está» no es basura", !houseSospechosa("—"));
+
+// -------------------------------------------------------------------------
+console.log("\n--- 6g15. Una cabecera de un solo campo es un archivo mal partido ---");
+// -------------------------------------------------------------------------
+// De aquí venía todo: la cabecera sin partir decía «Fecha Guia Guia corta»,
+// contenía «CORTA», y la detección de columnas la eligió como la de la house.
+// Se comprueba primero que ese es el mecanismo, y luego que ya no puede pasar.
+let cabezaPegada = detectarColumnasInbound(["Fecha Guia Guia corta"]);
+ok("una cabecera pegada engaña a la detección de columnas",
+   cabezaPegada.house === 0);
+ok("y la rechazamos antes de llegar ahí",
+   cabeceraSinPartir(["Fecha Guia Guia corta"]));
+
+ok("una cabecera partida de verdad pasa",
+   !cabeceraSinPartir(["FECHA", "GUIA", "GUIA CORTA"]));
+ok("dos columnas bastan", !cabeceraSinPartir(["GUIA", "HOUSE"]));
+ok("sin cabecera se rechaza", cabeceraSinPartir([]));
+ok("null se rechaza", cabeceraSinPartir(null));
+
+// -------------------------------------------------------------------------
+console.log("\n--- 6g16. Las filas basura no llegan al índice ---");
+// -------------------------------------------------------------------------
+reiniciarHousesDescartadas();
+let csvRoto = [
+    ["FECHA", "GUIA", "GUIA CORTA"],
+    ["13/08/2026", "1Z08E27V0411529440", "08E27V7LNM3"],
+    // La misma fila, pero con el renglón entero metido en la columna de house.
+    ["13/08/2026", "1Z08E27V0411529440", BASURA_REAL]
+];
+let salidaRota = filasDeInbound(csvRoto, { guia: 1, house: 2, fecha: 0 }, "INBOUND");
+ok("la fila buena entra", salidaRota.length === 1);
+ok("y entra con SU house", salidaRota[0].house === "08E27V7LNM3");
+ok("la basura se cuenta como descartada", housesDescartadas() === 1);
+
+// El contador se reinicia por importación: si arrastrara, el aviso de «son
+// demasiadas» saltaría en la importación siguiente sin motivo.
+reiniciarHousesDescartadas();
+ok("el contador se puede reiniciar", housesDescartadas() === 0);
+
+// -------------------------------------------------------------------------
+console.log("\n--- 6g17. Reparar: sacar del índice lo que ya está dentro ---");
+// -------------------------------------------------------------------------
+// La fusión MEZCLA, no reconstruye: reimportar no limpia lo que ya se guardó.
+// Por eso hace falta un paso que lo quite.
+let indiceSucio = [
+    ["1Z08E27V0411529440", "08E27V7LNM3", new Date(2026, 7, 13), 2],
+    ["1Z08E27V0411529451", BASURA_REAL, new Date(2026, 7, 13), 2],
+    ["1Z08E27V0411529462", "H-2231", new Date(2026, 7, 13), 1],
+    ["1Z08E27V0411529473", "", new Date(2026, 7, 13), 1]
+];
+let reparado = filasSinBasura(indiceSucio);
+ok("se quitan la basura y la vacía", reparado.tiradas === 2);
+ok("quedan las buenas", reparado.limpias.length === 2);
+ok("y quedan enteras, con su fecha y su origen",
+   reparado.limpias[0].length === 4 && reparado.limpias[1][1] === "H-2231");
+ok("un índice limpio no pierde nada",
+   filasSinBasura([["1Z08E27V0411529440", "H1", null, 2]]).tiradas === 0);
+ok("un índice vacío no revienta", filasSinBasura([]).limpias.length === 0);
+ok("null tampoco", filasSinBasura(null).tiradas === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

@@ -444,6 +444,15 @@ const AVISO_SIN_FECHA =
     "Añade al export una columna de fecha (llámala FECHA), o exporta solo los " +
     "últimos meses.";
 
+const AVISO_SIN_PARTIR =
+    "❌ No supe partir este archivo en columnas.\n\n" +
+    "El separador no es coma, ni punto y coma, ni tabulador, así que cada " +
+    "renglón entero cae en una sola celda. Si lo importara, la «house» de cada " +
+    "guía sería el renglón completo —que es exactamente lo que corrompió el " +
+    "índice—.\n\n" +
+    "Vuelve a exportarlo desde Excel con «Guardar como → CSV (delimitado por " +
+    "comas)».";
+
 // Parte el texto en bloques de líneas para no parsear 25 MB de una vez.
 //
 // La cabecera se repite al principio de cada bloque: así todos se parsean igual
@@ -489,6 +498,24 @@ function cabecerasGenericas(headers) {
 // Excel en México exporta CSV con punto y coma tan a menudo como con coma, y
 // equivocarse deja UNA sola columna con toda la fila dentro. Se decide contando
 // en la línea de cabeceras, que es la que no lleva texto libre.
+// ¿La cabecera se partió en columnas, o quedó entera en una sola celda?
+//
+// ESTE ES EL FALLO QUE CORROMPIÓ EL ÍNDICE. Si el separador real del archivo no
+// es coma, punto y coma ni tabulador —un archivo separado por espacios, por
+// ejemplo—, `separadorCsv` cae en la coma por descarte y `parseCsv` devuelve UNA
+// columna con el renglón entero dentro. Y entonces pasa lo peor que podía pasar:
+// esa única cabecera dice «Fecha Guia Guia corta», contiene la palabra «CORTA»,
+// y `detectarColumnasInbound` la elige como columna de la house. A partir de ahí
+// cada «house» es el renglón completo del CSV, y esas 18.610 houses inventadas
+// pisaron a las buenas sin que nada avisara.
+//
+// Una cabecera de un solo campo NO es una cabecera: es un archivo que no se supo
+// partir. Se rechaza el archivo entero, que es lo honesto —importar medio bien
+// es peor que no importar—.
+function cabeceraSinPartir(headers) {
+    return (headers || []).length < 2;
+}
+
 function separadorCsv(primeraLinea) {
     let linea = String(primeraLinea);
     let comas = (linea.match(/,/g) || []).length;
@@ -599,8 +626,14 @@ function filasDeCsvCompleto(texto, cols, origen) {
 // Del CSV crudo a filas limpias. Se tira todo lo que no sea una guía válida:
 // el reporte trae totales, subtotales y renglones en blanco, y meterlos al
 // índice lo engorda sin que sirvan para buscar nada.
+// Cuántas houses se descartaron en la última lectura por no parecer houses.
+let globalHousesDescartadas = 0;
+function housesDescartadas() { return globalHousesDescartadas; }
+function reiniciarHousesDescartadas() { globalHousesDescartadas = 0; }
+
 function filasDeInbound(datos, cols, origen) {
     let salida = [];
+    let descartadas = 0;
     // La HOUSE es lo único imprescindible. La columna de guía puede no existir:
     // en la prealerta la guía vive dentro del campo de referencias y no tiene
     // columna propia —por eso la macro de VBA hace la búsqueda por «contiene»
@@ -611,7 +644,7 @@ function filasDeInbound(datos, cols, origen) {
         let fila = datos[i];
         if (!fila) continue;
         let house = String(fila[cols.house] === undefined ? "" : fila[cols.house]).trim();
-        if (house === "") continue;
+        if (houseSospechosa(house)) { descartadas++; continue; }
         let fecha = cols.fecha === -1 ? null : aFechaInbound(fila[cols.fecha]);
 
         // La guía de la columna que toca, y ADEMÁS las que vengan enterradas en
@@ -628,6 +661,7 @@ function filasDeInbound(datos, cols, origen) {
             embebida: g !== exacta
         }));
     }
+    globalHousesDescartadas += descartadas;
     return salida;
 }
 
@@ -729,6 +763,31 @@ function nombreDeOrigen(tipo) {
 function origenInbound() { return ORIGEN_INBOUND; }
 function origenPrealerta() { return ORIGEN_PREALERTA; }
 function origenDesconocido() { return ORIGEN_DESCONOCIDO; }
+
+// ¿Esto que dice ser una house lo es de verdad?
+//
+// LO QUE ESTO PARA: cuando un CSV se lee con el separador equivocado, la fila
+// entera cae en una sola celda. `guiasEnTexto` rescata las guías de ahí —bien—
+// pero el valor tomado como house es el renglón completo: «13/08/2026
+// 1Z08E27V0411529440 08E27V7LNM3». Eso entró al índice como si fuera una house
+// y PISÓ 18.610 houses buenas antes de que nadie lo viera.
+//
+// Una house de verdad es un código corto. Si dentro hay una guía 1Z, o una
+// fecha, o mide más que cualquier house real, no es una house: es un renglón
+// mal partido. Ante la duda se descarta, porque una house inventada acaba
+// pegada a un bulto.
+const LARGO_MAX_HOUSE = 40;
+
+function houseSospechosa(valor) {
+    let h = String(valor === undefined || valor === null ? "" : valor).trim();
+    if (h === "") return true;
+    if (h.length > LARGO_MAX_HOUSE) return true;
+    // Una guía dentro: la fila se partió mal.
+    if (/1Z[A-Z0-9]{16}/i.test(h.replace(/[^A-Za-z0-9]/g, ""))) return true;
+    // Una fecha dentro: lo mismo.
+    if (/\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(h)) return true;
+    return false;
+}
 
 // ¿Esta celda contiene una guía a la que ponerle house? Devuelve la guía
 // normalizada, o "" si no lo es.
@@ -1059,7 +1118,8 @@ function importarInboundAlIndice() {
                         .getProperty(PROP_ARCHIVOS_IMPORTADOS) || "").split(",");
     let archivos = carpetas.next().getFiles();
     let nuevas = [], leidos = [], saltados = [], sinCabecera = [], sinTipo = [];
-    let sinFecha = [], demasiadoGrandes = [];
+    let sinFecha = [], demasiadoGrandes = [], sinPartir = [];
+    reiniciarHousesDescartadas();
 
     while (archivos.hasNext()) {
         let f = archivos.next();
@@ -1081,6 +1141,10 @@ function importarInboundAlIndice() {
         // Solo la cabecera para decidir columnas: no hace falta parsear el
         // archivo entero para saber dónde está cada cosa.
         let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
+        if (cabeceraSinPartir(datos[0] || [])) {
+            sinPartir.push(nombre);
+            continue;
+        }
         let cols = detectarColumnasInbound(datos[0] || []);
         // Solo la HOUSE es imprescindible. Sin columna de guía se barren las
         // filas enteras buscando 1Z enterradas, que es el caso de la prealerta.
@@ -1104,12 +1168,18 @@ function importarInboundAlIndice() {
                  "No había archivos nuevos que importar." +
                  (saltados.length ? "\n\nIgnorados (no son CSV): " + saltados.join(", ") : "") +
                  (sinCabecera.length ? "\n\n⚠️ Sin columnas reconocibles de guía y house: " +
-                                       sinCabecera.join(", ") : ""),
+                                       sinCabecera.join(", ") : "") +
+                 (sinPartir.length ? "\n\n" + AVISO_SIN_PARTIR + "\n\n" +
+                                     sinPartir.join(", ") : ""),
                  ui.ButtonSet.OK);
         return;
     }
 
     let msg = volcarAlIndice(ss, nuevas);
+
+    if (sinPartir.length) {
+        msg += "\n\n" + AVISO_SIN_PARTIR + "\n\nNO se importaron: " + sinPartir.join(", ");
+    }
 
     PropertiesService.getScriptProperties()
         .setProperty(PROP_ARCHIVOS_IMPORTADOS,
@@ -1156,6 +1226,18 @@ function volcarAlIndice(ss, nuevas) {
               "Índice caliente (últimos " + DIAS_INDICE_CALIENTE + " días): " +
               particion.calientes.length + "\n" +
               "Archivo frío: " + particion.frias.length;
+    // Descartes: filas cuyo campo «house» no parecía una house. Se dice siempre
+    // que las haya, porque un número alto aquí significa que el archivo se está
+    // leyendo mal y hay que mirarlo, no que el filtro esté haciendo su trabajo.
+    let tiradas = typeof housesDescartadas === 'function' ? housesDescartadas() : 0;
+    if (tiradas > 0) {
+        msg += "\n\n🚫 " + tiradas + " filas descartadas: lo que traían como house " +
+               "no lo parecía (demasiado largo, con una guía dentro o con una fecha).";
+        if (tiradas > (nuevas || []).length / 4) {
+            msg += "\n\nSon demasiadas. Ese archivo se está leyendo mal —casi seguro " +
+                   "el separador—. Vuelve a exportarlo como CSV delimitado por comas.";
+        }
+    }
     // Que la columna de fecha exista no basta: si Excel la exportó en un formato
     // que no se entiende, todas caen en el caliente y el disparador se ahoga sin
     // que nada lo diga. Este contador es lo que hace visible ese caso.
@@ -1571,6 +1653,7 @@ function importarInboundDesdeOneDrive() {
     // daría el mismo resultado -la regla del inbound no depende del orden- pero
     // así el resumen sale junto y el índice se reescribe una vez en vez de dos.
     let nuevas = [], problemas = [], sinFecha = [];
+    reiniciarHousesDescartadas();
     for (let i = 0; i < lista.length; i++) {
         let etiqueta = nombreDeOrigen(lista[i].tipo) || "SIN ETIQUETA";
         let r = bajarDeOneDrive(lista[i].url);
@@ -1596,6 +1679,12 @@ function importarInboundDesdeOneDrive() {
 
         let primeraLinea = r.texto.split("\n")[0] || "";
         let datos = Utilities.parseCsv(primeraLinea, separadorCsv(primeraLinea));
+        if (cabeceraSinPartir(datos[0] || [])) {
+            problemas.push(etiqueta + ": " + AVISO_SIN_PARTIR + "\nLa cabecera entera " +
+                           "quedó en una sola celda: " +
+                           String((datos[0] || [""])[0]).slice(0, 90));
+            continue;
+        }
         let cols = detectarColumnasInbound(datos[0] || []);
         if (cols.house === -1) {
             problemas.push(etiqueta + ": no encuentro la columna de la house" +
@@ -2186,6 +2275,91 @@ function limpiarHousesHuerfanasAhora() {
             ? "No había ninguna house sin su guía."
             : "Eran houses cuya guía ya no está. Se quitan porque, si alguien " +
               "escanea otra guía en esa fila, heredaría la house de la anterior."),
+        ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// REPARAR: sacar del índice lo que nunca debió entrar
+//
+// `houseSospechosa` impide que la basura vuelva a entrar, pero NO limpia la que
+// ya está: `volcarAlIndice` fusiona, no reconstruye, así que reimportar deja las
+// houses malas donde están. Esto es lo que las quita.
+//
+// Se quitan del índice Y de las pestañas, porque el disparador ya las escribió
+// en la columna de la house. Quitarlas de la hoja no pierde nada: la guía sigue
+// ahí y el relleno vuelve a buscarle house con los datos buenos.
+//
+// LO QUE ESTO NO PUEDE HACER: devolver la house buena que la basura pisó. Esa se
+// perdió al sobrescribirla. Hay que reimportar el archivo bueno después —el
+// menú «♻️ Reimportar todos los CSV» y otra importación—.
+// -------------------------------------------------------------------------
+function filasSinBasura(filas) {
+    let limpias = [], tiradas = 0;
+    (filas || []).forEach(f => {
+        if (houseSospechosa(f[1])) { tiradas++; return; }
+        limpias.push(f);
+    });
+    return { limpias: limpias, tiradas: tiradas };
+}
+
+function repararIndiceHouse() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let r = ui.alert("🧹 Reparar el índice",
+        "Voy a quitar del índice todas las houses que no parezcan houses " +
+        "—las que traen un renglón entero dentro— y a borrarlas también de las " +
+        "pestañas.\n\n" +
+        "Las guías NO se pierden: se quedan sin house y el relleno se la vuelve " +
+        "a buscar. Pero la house buena que la basura pisó solo vuelve " +
+        "reimportando el archivo.\n\n¿Sigo?", ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    let tiradasIndice = 0;
+    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+        let filas = leerIndice(ss, nombre);
+        if (!filas.length) return;
+        let limpio = filasSinBasura(filas);
+        if (limpio.tiradas === 0) return;
+        tiradasIndice += limpio.tiradas;
+        escribirIndice(ss, nombre, limpio.limpias);
+    });
+
+    let borradasHoja = 0;
+    ss.getSheets().forEach(hoja => {
+        let clave = claveHoja(hoja.getName());
+        if (!hojaLlevaHouse(clave)) return;
+        let lr = hoja.getLastRow();
+        if (lr < 1) return;
+        paresDeHouse(clave, hoja.getMaxColumns()).forEach(par => {
+            let col = hoja.getRange(1, par.house, lr, 1).getValues();
+            let items = [];
+            for (let i = 0; i < col.length; i++) {
+                let v = String(col[i][0]).trim();
+                if (v === "" || !houseSospechosa(v)) continue;
+                items.push({ fila: i + 1, valor: "" });
+                borradasHoja++;
+            }
+            bloquesContiguos(items).forEach(b => {
+                hoja.getRange(b.fila, par.house, b.valores.length, 1).setValues(b.valores);
+            });
+        });
+    });
+
+    // El caché lleva su propia copia guía → house. Se olvida para que el próximo
+    // escaneo no siga pegando la basura desde la memoria.
+    try { if (typeof olvidarMapaHouseEnRAM === 'function') olvidarMapaHouseEnRAM(); }
+    catch (err) { /* el caché se rehace solo en la siguiente vuelta */ }
+
+    ui.alert("🧹 Reparar el índice",
+        "Quitadas del índice: " + tiradasIndice + "\n" +
+        "Borradas de las pestañas: " + borradasHoja + "\n\n" +
+        (tiradasIndice === 0 && borradasHoja === 0
+            ? "No había ninguna house con pinta de renglón mal partido."
+            : "Ahora reimporta: «♻️ Reimportar todos los CSV» y después la " +
+              "importación normal, para recuperar las houses buenas que la " +
+              "basura había pisado."),
         ui.ButtonSet.OK);
 }
 
