@@ -3319,11 +3319,24 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // sin pedimento. Se avisa después, y solo de las que de verdad se manejen.
   let guiasPreformaSinPedimento = new Map();
 
+  // Guía -> fila donde está en la O. Solo de las que SÍ tienen pedimento: las
+  // otras van por el mapa de arriba.
+  let filaPreformaDeGuia = new Map();
+
+  // Guías escaneadas bajo un pedimento distinto del que dice su preforma. Se
+  // apuntan y se avisan después, en la fila de la O, una por una.
+  let guiasEnOtroPedimento = new Map();
+
   bloquesPreforma.forEach(bloque => {
     let pedimento = bloque.pedimento; let setGuias = new Set(bloque.guias);
     if (pedimento !== "" && pedimento !== "SIN_CABECERA") {
         mapaPreformas[pedimento] = setGuias;
         setGuias.forEach(g => mapaInversoPreforma.set(g, pedimento));
+        // Dónde vive cada guía en la O, para poder señalar ahí el renglón
+        // cuando se escanee bajo otro pedimento.
+        bloque.guias.forEach((g, k) => {
+            if (bloque.filasGuias[k] !== undefined) filaPreformaDeGuia.set(g, bloque.filasGuias[k]);
+        });
     } else if (bloque.filasGuias.length > 0 && !esRezago) {
         // GUÍAS DE LA PREFORMA SIN SU PEDIMENTO. Aquí solo se APUNTAN; el aviso
         // se escribe más abajo, y solo para las que se estén manejando.
@@ -3584,6 +3597,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                       if (pedReal && pedReal !== ped) {
                           resultadosB[filaG][0] = "❌ Va en: " + pedReal;
                           coloresB[filaG][0] = "#f5c6cb";
+                          guiasEnOtroPedimento.set(g, ped);
                           sobran++;
                       } else {
                           resultadosB[filaG][0] = "✅ Guía" + (origen ? " (Escaneado en " + origen + ")" : "");
@@ -3593,7 +3607,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                       resultadosB[filaG][0] = "✅ Ok" + (origen ? " (Escaneado en " + origen + ")" : "");
                       coloresB[filaG][0] = "#07c369";
                   } else {
-                      if (pedReal) { resultadosB[filaG][0] = "❌ Va en: " + pedReal; coloresB[filaG][0] = "#f5c6cb"; }
+                      if (pedReal) {
+                          resultadosB[filaG][0] = "❌ Va en: " + pedReal;
+                          coloresB[filaG][0] = "#f5c6cb";
+                          guiasEnOtroPedimento.set(g, ped);
+                      }
                       else { resultadosB[filaG][0] = "⚠️ Sobra (Ajena)" + (origen ? " (Escaneado en " + origen + ")" : txtFalta); coloresB[filaG][0] = "#df5f6b"; }
                       sobran++;
                   }
@@ -3676,6 +3694,24 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           }
       }
   });
+
+  // PEDIMENTOS QUE NO COINCIDEN, señalado también en la O.
+  //
+  // La columna A ya dice «❌ Va en: <el bueno>» en la fila escaneada. Pero
+  // mirando la preforma no se veía nada, y es ahí donde se corrige: el que
+  // revisa la O no tenía forma de saber qué renglón estaba descuadrado.
+  //
+  // Va aquí, cuando los bloques físicos ya están procesados y se sabe qué guías
+  // se escanearon de verdad bajo otro pedimento. Una por una, no el bloque
+  // entero: llenar la columna de avisos iguales es lo que hace que se ignoren.
+  if (guiasEnOtroPedimento.size > 0) {
+      guiasEnOtroPedimento.forEach((pedEscaneado, g) => {
+          let filaO = filaPreformaDeGuia.get(g);
+          if (filaO === undefined) return;
+          escribirAvisoPreforma(resultadosP, coloresP, filaO,
+              "⚠️ PEDIMENTOS NO COINCIDEN: se escaneó en " + pedEscaneado, "#ffc107");
+      });
+  }
 
   // Se pintan las DOS guías de la pareja, no solo la repetida. Va después de
   // los resúmenes de bloque para no pisarlos: si esta fila era la última del

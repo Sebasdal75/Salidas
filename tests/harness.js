@@ -2601,6 +2601,32 @@ escribirAvisoPreforma(sinPedAlerta, sinPedAlertaColor, 0, AVISO_SIN_PED, "#ffc10
 ok("y NO pisa una alerta que ya estaba",
    sinPedAlerta[0][0] === "⛔ DUPLICADO (En: GLOBAL 2)");
 
+console.log("\n--- 5z7. Pedimentos que no coinciden, visto desde la O ---");
+// La columna A ya decia «Va en: <el bueno>» en la fila escaneada. Pero mirando
+// la preforma no se veia nada, y es ahi donde se corrige: quien revisa la O no
+// tenia forma de saber que renglon estaba descuadrado.
+//
+// Son dos casos distintos y no hay que confundirlos:
+//   SIN PEDIMENTO          -> el bloque de la O no tiene pedimento ninguno.
+//   PEDIMENTOS NO COINCIDEN -> lo tiene, pero se escaneo bajo otro.
+const AVISO_NO_COINCIDEN = "⚠️ PEDIMENTOS NO COINCIDEN: se escaneó en 6103851";
+ok("los dos avisos son distintos", AVISO_NO_COINCIDEN !== AVISO_SIN_PED);
+ok("el de no coincidir nombra el pedimento donde se escaneo",
+   AVISO_NO_COINCIDEN.indexOf("6103851") !== -1);
+ok("y es de nivel AVISO, no critico",
+   nivelAlerta(AVISO_NO_COINCIDEN) === nivelAlerta("⚠️ Sobra (Ajena)"));
+
+// Como los demas avisos de la P: se antepone al resumen y NO pisa una alerta
+// que ya estuviera puesta.
+let noCoinResumen = [["► Resumen: 12 bultos"]], noCoinColor = [[""]];
+escribirAvisoPreforma(noCoinResumen, noCoinColor, 0, AVISO_NO_COINCIDEN, "#ffc107");
+ok("se antepone al resumen sin borrarlo",
+   noCoinResumen[0][0].startsWith(AVISO_NO_COINCIDEN) &&
+   noCoinResumen[0][0].indexOf("Resumen") !== -1);
+let noCoinAlerta = [["🛑 PEDIMENTO REPETIDO"]], noCoinAlertaColor = [[""]];
+escribirAvisoPreforma(noCoinAlerta, noCoinAlertaColor, 0, AVISO_NO_COINCIDEN, "#ffc107");
+ok("no pisa una alerta mas grave", noCoinAlerta[0][0] === "🛑 PEDIMENTO REPETIDO");
+
 console.log("\n--- 6h. Escribir por tramos, nunca el rango entero ---");
 // Mismo invariante que protege la columna A: entre leer un rango y devolverlo
 // cabe un escaneo ajeno, y devolver la copia leída lo borraría.
