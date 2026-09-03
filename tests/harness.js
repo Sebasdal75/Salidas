@@ -2572,6 +2572,12 @@ console.log("\n--- 5z6. Guias en la preforma sin su pedimento ---");
 // FUERA del indice de la preforma: para el resto del sistema era como si no
 // estuvieran escritas. Y tampoco contaban como esperadas, asi que los faltantes
 // y sobrantes de toda la hoja salian mal sin que nada lo explicara.
+//
+// PERO NO SE MARCA EL BLOQUE ENTERO. La primera version llenaba la P de
+// veinticuatro avisos identicos para un unico problema, y eso no se lee: se
+// ignora. Un aviso que nadie lee es peor que ninguno, porque tapa a los que si
+// importan. El aviso sale solo en la fila de la O de la guia que se acaba de
+// escanear en la A -una cada vez, segun se trabaja-.
 // OJO CON LA DIRECCION: en la O el pedimento va DEBAJO de sus guias y cierra el
 // bloque; en la A va ARRIBA y lo abre. Es al reves, y decirlo al reves manda al
 // operador a mirar donde no es -que fue justo lo que corrigio el usuario-.

@@ -3315,31 +3315,31 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       ? repetidasEnPreforma(bloquesPreforma)
       : new Map();
 
+  // Guía de la preforma -> fila donde está en la O, para las que se quedaron
+  // sin pedimento. Se avisa después, y solo de las que de verdad se manejen.
+  let guiasPreformaSinPedimento = new Map();
+
   bloquesPreforma.forEach(bloque => {
     let pedimento = bloque.pedimento; let setGuias = new Set(bloque.guias);
     if (pedimento !== "" && pedimento !== "SIN_CABECERA") {
         mapaPreformas[pedimento] = setGuias;
         setGuias.forEach(g => mapaInversoPreforma.set(g, pedimento));
     } else if (bloque.filasGuias.length > 0 && !esRezago) {
-        // GUÍAS DE LA PREFORMA SIN SU PEDIMENTO.
+        // GUÍAS DE LA PREFORMA SIN SU PEDIMENTO. Aquí solo se APUNTAN; el aviso
+        // se escribe más abajo, y solo para las que se estén manejando.
+        //
+        // Marcar el bloque entero llenaba la P de veinticuatro avisos idénticos
+        // para un único problema, y eso no se lee: se ignora. Un aviso que nadie
+        // lee es peor que ninguno, porque tapa a los que sí importan.
         //
         // OJO CON LA DIRECCIÓN: en la O el pedimento va DEBAJO de sus guías y
-        // cierra el bloque; en la A va ARRIBA y lo abre. Es al revés, y decirlo
-        // al revés manda al operador a mirar donde no es.
-        //
-        // Este caso son las guías que quedan al final sin ningún pedimento
-        // después. Sin él no se pueden asignar a nada, así que quedaban fuera
-        // del índice de la preforma: para el resto del sistema era como si no
-        // estuvieran escritas. El operador las veía ahí delante, las escaneaba,
-        // y el único mensaje que le llegaba era el de la M-S —que no habla del
-        // problema real—.
-        //
-        // Y el daño no acaba ahí: tampoco cuentan como esperadas, así que los
-        // faltantes y sobrantes del resto de la hoja salen mal sin que nada lo
-        // explique.
-        bloque.filasGuias.forEach(fG =>
-            escribirAvisoPreforma(resultadosP, coloresP, fG,
-                "⚠️ SIN PEDIMENTO: falta ponerlo DEBAJO, en la O", "#ffc107"));
+        // cierra el bloque; en la A va ARRIBA y lo abre. Es al revés entre las
+        // dos columnas, y decirlo al revés manda a mirar donde no es.
+        bloque.guias.forEach((g, k) => {
+            if (bloque.filasGuias[k] !== undefined) {
+                guiasPreformaSinPedimento.set(g, bloque.filasGuias[k]);
+            }
+        });
     }
 
     let colorFondoPreforma = "#00ff00";
@@ -3468,6 +3468,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               }
           }
           if (bAAct) bloquesFisicos.push(bAAct);
+
           bAAct = { pedimento: v, filaPedimento: i, guias: [], filasGuias: [], esErr: esErr, conAlerta: 0 };
       } else {
           // Una fila con alerta (duplicado, error, guía inválida) NO entra en el
@@ -3486,6 +3487,24 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       }
   }
   if (bAAct) bloquesFisicos.push(bAAct);
+
+  // EL AVISO DE «SIN PEDIMENTO», SOLO DONDE IMPORTA.
+  //
+  // Se escribe en la fila de la O de la guía que se acaba de escanear en la A,
+  // no en todo el bloque. Marcar el bloque entero llenaba la P de veinticuatro
+  // avisos idénticos para un único problema, y eso no se lee: se ignora. Un
+  // aviso que nadie lee es peor que ninguno, porque tapa a los que sí importan.
+  //
+  // Va DESPUÉS del bucle, no dentro: aquí `bloquesFisicos` ya está completo.
+  if (guiasPreformaSinPedimento.size > 0) {
+      bloquesFisicos.forEach(bf => bf.guias.forEach(g => {
+          let filaO = guiasPreformaSinPedimento.get(g);
+          if (filaO !== undefined) {
+              escribirAvisoPreforma(resultadosP, coloresP, filaO,
+                  "⚠️ SIN PEDIMENTO: falta ponerlo DEBAJO, en la O", "#ffc107");
+          }
+      }));
+  }
 
   // Una sola estructura: guía -> { ped, idx } de su PRIMERA aparición. Antes
   // había dos (un Set y un Map) que se llenaban a la vez, y el Set tapaba
@@ -3837,6 +3856,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
       }
   }
   if (bAAct) bloquesFisicos.push(bAAct);
+
 
   let primeraAparicion = new Map();      // guía -> { ped, idx } de la 1ª vez
   let repeticiones = new Map();          // idx de la 1ª -> { veces, fila }
