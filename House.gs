@@ -2405,9 +2405,12 @@ function repararIndiceHouse() {
         "Borradas de las pestañas: " + borradasHoja + "\n\n" +
         (tiradasIndice === 0 && borradasHoja === 0
             ? "No había ninguna house con pinta de renglón mal partido."
-            : "Ahora reimporta: «♻️ Reimportar todos los CSV» y después la " +
-              "importación normal, para recuperar las houses buenas que la " +
-              "basura había pisado."),
+            : "Ahora vuelve a importar para recuperar las houses buenas que la " +
+              "basura había pisado:\n" +
+              "  · desde OneDrive: «☁️ Importar inbound desde OneDrive» y ya está, " +
+              "los vínculos se bajan enteros cada vez.\n" +
+              "  · desde Drive: primero «♻️ Reimportar todos los CSV», porque si no " +
+              "se salta los archivos que ya leyó."),
         ui.ButtonSet.OK);
 }
 
