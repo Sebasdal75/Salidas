@@ -26,7 +26,8 @@ const ID_ARCHIVO = '';
 // sale «⛔ DUPLICADO (En: INDICE_HOUSE)». Duplicados falsos, todos, y
 // bloqueando el cierre de los bloques.
 const HOJAS_INTERNAS = ["CACHE_SISTEMA", "HISTORIAL_BORRADOS",
-                        "INDICE_HOUSE", "INDICE_HOUSE_FRIO", "HOUSE_ACTIVO"];
+                        "INDICE_HOUSE", "INDICE_HOUSE_FRIO", "HOUSE_ACTIVO",
+                        "INDICE_SALIDAS", "SALIDAS_RAPIDO"];
 
 // Hoja origen de la lista FEMAD (guías retenidas por la Guardia Nacional).
 // Su columna M alimenta la validación de datos y los colores del resto de
@@ -142,6 +143,11 @@ function esHojaInterna(nombreHoja) {
     // pestañas, ninguna puede colarse como hoja de escaneo. Equivocarse por este
     // lado solo esconde una pestaña interna; por el otro lado llena la operación
     // de duplicados falsos.
+    // Por prefijo también las de salidas: SALIDAS_RAPIDO guarda la lista
+    // comprimida de lo que ya se fue, y si el caché la tomara por una hoja de
+    // escaneo cada guía chocaría contra su propia copia. Es el mismo fallo que
+    // ya costó una tanda de duplicados falsos con el índice de houses.
+    if (n.indexOf("INDICE_SALIDAS") !== -1 || n.indexOf("SALIDAS_RAPIDO") !== -1) return true;
     return n.indexOf("INDICE_HOUSE") !== -1 || n === "HOUSE_ACTIVO";
 }
 
@@ -2056,6 +2062,32 @@ function contrastarAparicion(guia, valorReal) {
     return { ok: false, texto: "⚠️ FANTASMA: esa celda tiene «" + v + "»" };
 }
 
+// «⛔ YA SALIÓ el …» para una guía, o "" si no salió —o si el módulo de salidas
+// no está instalado en este archivo—.
+//
+// TRES GUARDAS, y ninguna sobra:
+//
+//   · `typeof`: Salidas.gs es un archivo aparte y puede no estar pegado. Sin
+//     esto, el recálculo entero reventaría en el primer escaneo.
+//   · try/catch: `perf` NO atrapa excepciones, así que cualquier fallo aquí
+//     dentro mataría `procesarEdicion` en silencio. Ya pasó una vez.
+//   · esMarcadorEstructural: los separadores de bloque y los pedimentos no son
+//     guías y no pueden pedir consulta.
+//
+// Ante cualquier duda devuelve "": quedarse sin aviso es un problema; bloquear
+// la operación por un fallo del módulo es mucho peor.
+function avisoDeYaSalio(source, valor) {
+    let v = String(valor === undefined || valor === null ? "" : valor).trim();
+    if (v === "" || esMarcadorEstructural(v)) return "";
+    if (/^\d{7}$/.test(v)) return "";
+    try {
+        if (typeof salidaPreviaDe !== 'function') return "";
+        let previa = salidaPreviaDe(source, v);
+        if (!previa) return "";
+        return avisoDeSalidaPrevia(previa);
+    } catch (err) { return ""; }
+}
+
 function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheInfo) {
     let res = new Map();
     if (!cacheInfo || !cacheInfo.map) return res;
@@ -3276,10 +3308,15 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // fijo, sin hora, sin color. Así borrar O limpia todo, no solo el dato.
     let esErrP = valP !== "" && estP.startsWith("🛑 ERROR");
 
-    resultadosP.push([esErrP ? estP : '']);
+    // El aviso de «ya salió» se pone aquí, en el estado de arranque de la fila,
+    // para que todo lo que venga después pueda pisarlo si tiene algo más
+    // importante que decir —un pedimento repetido, una captura inválida—. Al
+    // revés taparía diagnósticos que sí son de esta preforma.
+    let yaP = esErrP ? "" : avisoDeYaSalio(source, valP);
+    resultadosP.push([esErrP ? estP : yaP]);
     resultadosHorasP.push([horaPreservada(datosMasivos, i, 18, valP, horaActual)]);
-    coloresP.push([esErrP ? '#ffc107' : '#FFFFFF']);
-    coloresColumnaO.push(['#FFFFFF']);
+    coloresP.push([esErrP ? '#ffc107' : (yaP !== "" ? '#ff9800' : '#FFFFFF')]);
+    coloresColumnaO.push([yaP !== "" ? COLOR_A_DUPLICADO : '#FFFFFF']);
   }
 
   if (esRezago) {
@@ -3475,6 +3512,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     } else if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
+    else {
+        let ya = avisoDeYaSalio(source, valB);
+        if (ya !== "") { fijo = ya; color = '#ff9800'; }
+    }
 
     resultadosB.push([fijo]);
     resultadosHoras.push([horaPreservada(datosMasivos, i, 11, valB, horaActual)]);
@@ -3932,6 +3973,13 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
     if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
+    else {
+        // VA DESPUÉS del duplicado a propósito: si la guía además está repetida
+        // en otra pestaña de hoy, eso es más urgente y más accionable que
+        // decirle que salió hace tres semanas.
+        let ya = avisoDeYaSalio(source, valB);
+        if (ya !== "") { fijo = ya; color = '#ff9800'; }
+    }
 
     resultadosB.push([fijo]);
     resultadosHoras.push([horaPreservada(datosMasivos, i, 11, valB, horaActual)]);
@@ -4376,6 +4424,9 @@ function onOpen() {
                   .addItem('📆 Ventana: hasta dónde atrás importar', 'configurarVentanaDeSalidas')
                   .addItem('🧹 Quitar los vínculos', 'quitarUrlsSalidas')
                   .addSeparator()
+                  .addSeparator()
+                  .addItem('⚡ Rehacer la lista rápida del escaneo', 'reconstruirSalidasRapido')
+                  .addItem('✅ Autorizar esta guía (devolución)', 'autorizarGuiaDeSalida')
                   .addItem('📏 ¿Cuánto pesa el índice de salidas?', 'medirIndiceDeSalidas')
                   .addItem('♻️ Reimportar todos los CSV', 'olvidarSalidasImportadas'));
           }

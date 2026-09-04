@@ -394,6 +394,15 @@ function volcarAlIndiceSalidas(nuevas) {
 
     escribirIndiceSalidas(HOJA_INDICE_SALIDAS, calientes);
 
+    // Y el texto comprimido que consulta el escaneo. Si esto no se rehiciera
+    // aquí, el índice quedaría al día y el aviso seguiría contestando con los
+    // datos de la importación anterior, sin que nada lo dijera.
+    let celdasRapido = 0;
+    try {
+        celdasRapido = guardarBlobDeSalidas(obtenerArchivo(), calientes);
+        olvidarBlobSalidasEnRAM();
+    } catch (err) { celdasRapido = -1; }
+
     let conFecha = (nuevas || []).filter(n => n.fecha).length;
     let total = (nuevas || []).length;
     let msg = "Salidas leídas del archivo: " + total.toLocaleString() + "\n" +
@@ -404,6 +413,10 @@ function volcarAlIndiceSalidas(nuevas) {
         msg += "\n  · " + podadas.toLocaleString() + " se salieron de la ventana y " +
                "se podaron";
     }
+    msg += celdasRapido >= 0
+        ? "\nLista rápida del escaneo: " + celdasRapido + " celdas ✅"
+        : "\n⚠️ NO se pudo rehacer la lista rápida del escaneo. El aviso seguirá " +
+          "contestando con los datos de antes. Usa «⚡ Rehacer la lista rápida».";
 
     let tiradas = salidasDescartadas();
     if (tiradas > 0) {
@@ -859,4 +872,227 @@ function probarArchivoDeSalidas() {
 
     partes.push("\nNo se ha importado nada. Esto solo mira.");
     ui.alert("🔎 Probar el histórico de salidas", partes.join("\n\n"), ui.ButtonSet.OK);
+}
+
+// =========================================================================
+// EL CAMINO RÁPIDO: consultar 174.000 salidas dentro de un escaneo
+// =========================================================================
+//
+// EL PROBLEMA. El índice vive en OTRO archivo y son ~174.000 filas. Abrirlo
+// dentro de un escaneo cuesta segundos, y un escaneo entero dura medio. Meterlo
+// en CACHE_SISTEMA tampoco vale: el caché se lee ENTERO en cada escaneo, así
+// que 174.000 filas más se pagarían en todos, no solo en los que hacen falta.
+//
+// LO QUE SE HACE. Se guarda la lista COMPRIMIDA EN TEXTO, en una pestaña oculta
+// del archivo de operación, repartida en pocas celdas de 45.000 caracteres:
+//
+//     |1Z0139126764115028:260115|1Z013A440467552595:260803|…
+//
+// Buscar es un `indexOf` sobre esa cadena. V8 lo resuelve en un par de
+// milisegundos sobre megabytes —es búsqueda de texto nativa, no un bucle—, y el
+// separador «|…:» hace la coincidencia exacta sin tener que contar posiciones:
+// una guía corta no puede colarse dentro de otra más larga.
+//
+// El texto se lee UNA vez por ejecución y se queda en memoria, igual que el
+// mapa de houses. Son ~100 celdas: una sola llamada, no 174.000 filas.
+//
+// POR QUÉ NO A ANCHO FIJO. Sería un carácter más barato, pero las guías no
+// miden todas igual: las 1Z son de 18 y las cortas de lo que sean. Con ancho
+// fijo habría que rellenar y contar posiciones, y una guía corta acabaría
+// haciendo match dentro del hueco de otra. El separador lo hace imposible.
+// =========================================================================
+
+const HOJA_SALIDAS_RAPIDO = "SALIDAS_RAPIDO";
+// Por debajo del tope de 50.000 caracteres por celda, con margen.
+const CHARS_POR_CELDA_SALIDA = 45000;
+const FECHA_SALIDA_DESCONOCIDA = "000000";
+
+// La fecha en seis caracteres: aammdd. No hace falta más —el año 19xx no
+// existe en este archivo— y cada carácter se multiplica por 174.000.
+function claveFechaSalida(fecha) {
+    let d = aFechaInbound(fecha);
+    if (!d) return FECHA_SALIDA_DESCONOCIDA;
+    let p = n => (n < 10 ? "0" + n : String(n));
+    return p(d.getFullYear() % 100) + p(d.getMonth() + 1) + p(d.getDate());
+}
+
+function fechaDeClaveSalida(clave) {
+    let c = String(clave || "");
+    if (c.length !== 6 || c === FECHA_SALIDA_DESCONOCIDA) return null;
+    let a = Number(c.substring(0, 2)), m = Number(c.substring(2, 4)),
+        d = Number(c.substring(4, 6));
+    if (isNaN(a) || isNaN(m) || isNaN(d) || m < 1 || m > 12 || d < 1 || d > 31) return null;
+    return new Date(2000 + a, m - 1, d);
+}
+
+// De las filas del índice al texto comprimido, ya troceado en celdas.
+function empaquetarSalidas(filas) {
+    let trozos = [];
+    let actual = "";
+    (filas || []).forEach(f => {
+        let g = claveGuiaHouse(f[0]);
+        if (g === "") return;
+        let reg = "|" + g + ":" + claveFechaSalida(f[1]);
+        // Se corta ANTES de pasarse, nunca a mitad de un registro: un registro
+        // partido entre dos celdas se volvería a unir al leer, pero si alguien
+        // mira la pestaña vería basura y pensaría que está corrupta.
+        if (actual.length + reg.length > CHARS_POR_CELDA_SALIDA) {
+            trozos.push([actual]);
+            actual = "";
+        }
+        actual += reg;
+    });
+    if (actual !== "") trozos.push([actual]);
+    return trozos;
+}
+
+// La búsqueda. `blob` es el texto ya unido.
+//
+// El «|» delante y el «:» detrás son lo que hace exacta la coincidencia. Sin
+// ellos, buscar una guía corta encontraría cualquier guía larga que la
+// contuviera, y eso BLOQUEARÍA un escaneo bueno.
+function buscarSalidaEnBlob(blob, guia) {
+    let g = claveGuiaHouse(guia);
+    if (!blob || g === "") return null;
+    let i = blob.indexOf("|" + g + ":");
+    if (i === -1) return null;
+    return { fecha: fechaDeClaveSalida(blob.substr(i + g.length + 2, 6)),
+             pedimento: "" };
+}
+
+// -------------------------------------------------------------------------
+// EL TEXTO EN LA HOJA
+// -------------------------------------------------------------------------
+
+function hojaSalidasRapido(ss, crear) {
+    let h = ss.getSheetByName(HOJA_SALIDAS_RAPIDO);
+    if (!h && crear) {
+        h = ss.insertSheet(HOJA_SALIDAS_RAPIDO);
+        h.hideSheet();
+    }
+    return h;
+}
+
+function guardarBlobDeSalidas(ss, filas) {
+    let trozos = empaquetarSalidas(filas);
+    let h = hojaSalidasRapido(ss, true);
+    let maxAntes = h.getMaxRows();
+    if (maxAntes > 1) h.getRange(1, 1, maxAntes, 1).clearContent();
+    if (trozos.length === 0) return 0;
+    asegurarFilas(h, trozos.length + 1);
+    h.getRange(1, 1, trozos.length, 1).setValues(trozos);
+    return trozos.length;
+}
+
+// El texto vive en memoria entre escaneos mientras V8 conserve el proceso, que
+// es el mismo truco del mapa de houses. La primera consulta de cada proceso
+// paga una llamada; las siguientes son gratis.
+let globalBlobSalidas = null;
+
+function olvidarBlobSalidasEnRAM() { globalBlobSalidas = null; }
+
+function leerBlobDeSalidas(ss) {
+    if (globalBlobSalidas !== null) return globalBlobSalidas;
+    globalBlobSalidas = "";
+    try {
+        let h = hojaSalidasRapido(ss, false);
+        if (!h) return globalBlobSalidas;
+        let lr = h.getLastRow();
+        if (lr < 1) return globalBlobSalidas;
+        globalBlobSalidas = h.getRange(1, 1, lr, 1).getValues()
+            .map(f => String(f[0])).join("");
+    } catch (err) {
+        // Que esto falle NO puede tumbar un escaneo: sin lista, no hay aviso,
+        // y el sistema sigue haciendo todo lo demás igual que antes.
+        globalBlobSalidas = "";
+    }
+    return globalBlobSalidas;
+}
+
+// LA PUERTA DE ENTRADA para el recálculo. Devuelve null si la guía no salió.
+function salidaPreviaDe(ss, guia) {
+    try {
+        return buscarSalidaEnBlob(leerBlobDeSalidas(ss), guia);
+    } catch (err) { return null; }
+}
+
+// Reconstruye el texto rápido desde el índice. Lo llama la importación, y
+// también un botón: si alguien borra la pestaña oculta, esto la devuelve.
+function reconstruirSalidasRapido() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+    let filas = leerIndiceSalidas(HOJA_INDICE_SALIDAS);
+    let celdas = guardarBlobDeSalidas(ss, filas);
+    olvidarBlobSalidasEnRAM();
+    ui.alert("⚡ Lista rápida de salidas",
+             "Guías: " + filas.length.toLocaleString() + "\n" +
+             "Celdas ocupadas: " + celdas + "\n\n" +
+             (filas.length === 0
+                ? "El índice está vacío: importa el histórico primero."
+                : "Ya está activa. Al escanear una guía que salió en los " +
+                  "últimos " + diasDeImportacionSalidas() + " días, saldrá el aviso."),
+             ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// LA SALIDA DE EMERGENCIA
+//
+// Una devolución legítima es una guía que YA salió y que vuelve a entrar con
+// todo el derecho. Sin esto, el aviso la bloquearía para siempre y pararía la
+// línea sin forma de seguir. Es lo que convierte un bloqueo en algo que un
+// operador puede resolver en el momento.
+// -------------------------------------------------------------------------
+function autorizarGuiaDeSalida() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    let celda = ss.getActiveSheet().getActiveCell();
+    let guia = claveGuiaHouse(celda.getValue());
+
+    if (guia === "") {
+        let r = ui.prompt("✅ Autorizar una guía",
+            "Colócate en la celda de la guía, o escríbela aquí:",
+            ui.ButtonSet.OK_CANCEL);
+        if (r.getSelectedButton() !== ui.Button.OK) return;
+        guia = claveGuiaHouse(r.getResponseText());
+        if (guia === "") return;
+    }
+
+    let blob = leerBlobDeSalidas(ss);
+    let previa = buscarSalidaEnBlob(blob, guia);
+    if (!previa) {
+        ui.alert("✅ Autorizar una guía",
+                 guia + " no está en la lista de salidas.\nNo estaba " +
+                 "bloqueando nada.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let r = ui.alert("✅ Autorizar una guía",
+        guia + "\nSalió el " + textoFechaSalida(previa.fecha) + ".\n\n" +
+        "Si es una devolución, la quito de la lista y deja de bloquear.\n\n" +
+        "Solo afecta a esta guía, y solo hasta la próxima importación del " +
+        "histórico —donde volverá a entrar si sigue ahí—.\n\n¿La autorizo?",
+        ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    let i = blob.indexOf("|" + guia + ":");
+    let limpio = blob.substring(0, i) + blob.substring(i + guia.length + 8);
+    // Se reescribe desde el texto, no desde el índice: así la autorización vale
+    // aunque el índice viva en otro archivo al que ahora no se pueda llegar.
+    let trozos = [];
+    for (let p = 0; p < limpio.length; p += CHARS_POR_CELDA_SALIDA) {
+        trozos.push([limpio.substr(p, CHARS_POR_CELDA_SALIDA)]);
+    }
+    let h = hojaSalidasRapido(ss, true);
+    let maxAntes = h.getMaxRows();
+    if (maxAntes > 1) h.getRange(1, 1, maxAntes, 1).clearContent();
+    if (trozos.length) {
+        asegurarFilas(h, trozos.length + 1);
+        h.getRange(1, 1, trozos.length, 1).setValues(trozos);
+    }
+    olvidarBlobSalidasEnRAM();
+
+    ui.alert("✅ Autorizar una guía",
+             guia + " autorizada. Usa «🔄 Forzar Actualización» en esa pestaña " +
+             "para que se le quite el aviso.", ui.ButtonSet.OK);
 }

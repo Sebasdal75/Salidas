@@ -3349,5 +3349,66 @@ ok("poda y corte usan la misma cuenta de días",
    corteDeImportacion(new Date(2026, 8, 4), 60).getTime() ===
    new Date(new Date(2026, 8, 4).getTime() - 60 * 86400000).getTime());
 
+console.log("\n--- 7k. El camino rápido: buscar en texto comprimido ---");
+// 174.000 salidas no caben ni en el caché ni en una consulta por escaneo. Se
+// guardan comprimidas en texto y se buscan con indexOf, que V8 resuelve en
+// milisegundos sobre megabytes.
+ok("la fecha cabe en seis caracteres",
+   claveFechaSalida(new Date(2026, 0, 15)) === "260115");
+ok("con día y mes de una cifra se rellena",
+   claveFechaSalida(new Date(2026, 8, 4)) === "260904");
+ok("sin fecha hay una clave para eso",
+   claveFechaSalida(null) === "000000");
+ok("y se vuelve a leer igual",
+   fechaDeClaveSalida("260115").getTime() === new Date(2026, 0, 15).getTime());
+ok("la clave de «sin fecha» vuelve como null",
+   fechaDeClaveSalida("000000") === null);
+ok("una clave rota no inventa una fecha", fechaDeClaveSalida("26xx15") === null);
+
+let blobT = empaquetarSalidas([
+    ["1Z0139126764115028", new Date(2026, 0, 15), "", ""],
+    ["1Z013A440467552595", new Date(2026, 7, 3), "", ""],
+    ["ABC12345", "", "", ""]           // guía corta, sin fecha
+]).map(t => t[0]).join("");
+
+ok("encuentra una guía que salió",
+   buscarSalidaEnBlob(blobT, "1Z0139126764115028") !== null);
+ok("con su fecha",
+   buscarSalidaEnBlob(blobT, "1Z0139126764115028").fecha.getTime() ===
+   new Date(2026, 0, 15).getTime());
+ok("una guía que no salió da null",
+   buscarSalidaEnBlob(blobT, "1Z999AA10123456784") === null);
+ok("la guía corta también se encuentra",
+   buscarSalidaEnBlob(blobT, "ABC12345") !== null);
+ok("y su fecha desconocida no revienta",
+   buscarSalidaEnBlob(blobT, "ABC12345").fecha === null);
+
+// LO QUE EL SEPARADOR EVITA: sin el «|» delante y el «:» detrás, buscar una
+// guía corta encontraría cualquier guía larga que la contuviera dentro, y eso
+// BLOQUEARÍA un escaneo bueno. «12345028» está dentro de «…4115028»… no, pero
+// «4115028» sí es un trozo literal de la primera guía.
+ok("un trozo de otra guía NO cuenta como salida",
+   buscarSalidaEnBlob(blobT, "4115028") === null);
+ok("ni el principio de otra guía",
+   buscarSalidaEnBlob(blobT, "1Z01391267") === null);
+
+ok("un blob vacío no encuentra nada", buscarSalidaEnBlob("", "1Z0139126764115028") === null);
+ok("null tampoco revienta", buscarSalidaEnBlob(null, "1Z0139126764115028") === null);
+ok("una guía vacía no encuentra nada", buscarSalidaEnBlob(blobT, "") === null);
+
+// El troceado en celdas no puede partir un registro por la mitad.
+let muchas = [];
+for (let i = 0; i < 5000; i++) {
+    muchas.push(["1Z0139126764115" + String(1000 + i), new Date(2026, 0, 15), "", ""]);
+}
+let trozos = empaquetarSalidas(muchas);
+ok("se trocea en varias celdas", trozos.length > 1);
+ok("ningún trozo pasa del tope de la celda",
+   trozos.every(t => t[0].length <= 45000));
+ok("ningún trozo empieza cortando un registro",
+   trozos.every(t => t[0].charAt(0) === "|"));
+ok("al unirlos se encuentran todas",
+   trozos.map(t => t[0]).join("").split("|").length - 1 === 5000);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
