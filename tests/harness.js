@@ -3172,20 +3172,20 @@ ok("un índice vacío se llena", fusS4.anadidas === 2);
 ok("sin choques", fusS4.repetidas.length === 0);
 ok("null no revienta", fusionarEnIndiceSalidas(null, null).filas.length === 0);
 
-console.log("\n--- 7d. Caliente y frío ---");
+console.log("\n--- 7d. La poda: lo que se sale de la ventana ---");
 let hoyS = new Date(2026, 8, 4);
 let partS = particionSalidasPorAntiguedad([
     ["1Z1", new Date(2026, 8, 1), "", ""],    // hace 3 días
     ["1Z2", new Date(2026, 2, 1), "", ""],    // hace medio año
     ["1Z3", "", "", ""]                        // sin fecha
 ], hoyS, 120);
-ok("lo reciente va al caliente", partS.calientes.length === 2);
-ok("lo viejo al frío", partS.frias.length === 1);
+ok("lo reciente se queda", partS.calientes.length === 2);
+ok("lo viejo se poda", partS.frias.length === 1);
 ok("y lo viejo es el que toca", partS.frias[0][0] === "1Z2");
-// SIN FECHA AL CALIENTE, y aquí importa más que en las houses: al otro lado hay
-// un aviso que BLOQUEA, y mandar al frío una salida cuya fecha no se entendió
-// es esconder justo el caso que hay que ver.
-ok("sin fecha se queda en el caliente",
+// SIN FECHA SE QUEDA, y aquí importa más que en las houses: al otro lado hay un
+// aviso que BLOQUEA, y podar una salida cuya fecha no se entendió es esconder
+// justo el caso que hay que ver.
+ok("sin fecha no se poda",
    partS.calientes.some(f => f[0] === "1Z3"));
 ok("una lista vacía no revienta",
    particionSalidasPorAntiguedad([], hoyS, 120).calientes.length === 0);
@@ -3324,6 +3324,30 @@ ok("sin corte no se filtra nada",
    filasDeSalidas([["1Z", "Fecha"], ["1Z0139126764115028", "15/01/2026"]],
                   colsV, "h", null).length === 1);
 ok("y no cuenta ninguna como vieja", salidasViejas() === 0);
+
+console.log("\n--- 7j. La ventana también PODA, o el índice crece solo ---");
+// EL FALLO QUE ESTO EVITA: cada importación mete los últimos 60 días y CONSERVA
+// lo que ya estaba. Sin poda, en dos meses el índice llevaría 120 días dentro,
+// en tres meses 180, y «60 días» no querría decir nada — hasta dejar de caber.
+// Se poda contra la MISMA ventana con la que se importa: un número, un
+// significado.
+let indiceViejo = [
+    ["1ZVIEJA00000000001", new Date(2026, 5, 1), "", ""],   // importada hace meses
+    ["1ZNUEVA00000000002", new Date(2026, 8, 1), "", ""]    // reciente
+];
+let trasPoda = particionSalidasPorAntiguedad(indiceViejo, new Date(2026, 8, 4), 60);
+ok("lo que ya no cabe en la ventana se poda", trasPoda.frias.length === 1);
+ok("y es lo viejo", trasPoda.frias[0][0] === "1ZVIEJA00000000001");
+ok("lo reciente sobrevive a la poda", trasPoda.calientes.length === 1);
+
+// La ventana de importación y la de poda son EL MISMO número. Si divergieran,
+// el índice guardaría más días de los que se pidieron y nadie lo vería hasta
+// que dejara de caber.
+// Sin nada guardado, la ventana por defecto tiene que ser la acordada: 60.
+ok("la ventana por defecto son 60 días", diasDeImportacionSalidas() === 60);
+ok("poda y corte usan la misma cuenta de días",
+   corteDeImportacion(new Date(2026, 8, 4), 60).getTime() ===
+   new Date(new Date(2026, 8, 4).getTime() - 60 * 86400000).getTime());
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

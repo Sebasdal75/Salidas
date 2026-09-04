@@ -38,13 +38,10 @@
 // =========================================================================
 
 const HOJA_INDICE_SALIDAS = "INDICE_SALIDAS";
-const HOJA_INDICE_SALIDAS_FRIO = "INDICE_SALIDAS_FRIO";
 
-// Cuántos días se consideran «recientes». Una guía que salió hace ocho meses y
-// vuelve hoy es casi seguro una devolución legítima; una que salió hace tres
-// semanas y vuelve es lo que hay que mirar. El corte acota además el tamaño de
-// lo que algún día habrá que llevar al camino rápido del escaneo.
-const DIAS_SALIDAS_CALIENTE = 120;
+// UN SOLO NÚMERO manda aquí: la ventana de días (ver «LA VENTANA»). Es el que
+// decide qué se importa Y qué se conserva. Tener dos —uno para importar y otro
+// para archivar— es cómo el índice acabaría con el triple de lo que se pidió.
 
 const CARPETA_SALIDAS = "SALIDAS_HISTORICO";
 const PROP_URL_SALIDAS = 'SALIDAS_URLS_ONEDRIVE';
@@ -171,7 +168,7 @@ function filasDeSalidas(datos, cols, origen, corte) {
 // volver a importar con otro número.
 // -------------------------------------------------------------------------
 const PROP_DIAS_SALIDAS_IMPORT = 'SALIDAS_DIAS_IMPORT';
-const DIAS_SALIDAS_IMPORT_DEFECTO = 90;
+const DIAS_SALIDAS_IMPORT_DEFECTO = 60;
 
 let globalSalidasViejas = 0;
 let globalSalidasSinFecha = 0;
@@ -206,6 +203,9 @@ function configurarVentanaDeSalidas() {
         "Con ~2.900 salidas al día, cada 30 días son unas 87.000 guías. " +
         "Cuantas más, más tarda la importación y más pesa el aviso al " +
         "escanear.\n\n" +
+        "ESTE NÚMERO TAMBIÉN PODA: lo que se salga de la ventana se quita del " +
+        "índice en la próxima importación. Es lo que impide que crezca solo " +
+        "hasta no caber.\n\n" +
         "Escribe un número de días (0 = todo, y con tu volumen eso NO va a " +
         "entrar).", ui.ButtonSet.OK_CANCEL);
     if (r.getSelectedButton() !== ui.Button.OK) return;
@@ -356,10 +356,9 @@ function escribirIndiceSalidas(nombre, filas) {
 // alternativa era remapear cada fila para volver a remapearla después, y eso en
 // cientos de miles de filas es una búsqueda dentro de un bucle.
 //
-// Sin fecha se queda en el CALIENTE, igual que las houses y por una razón más
-// fuerte todavía: aquí lo que hay al otro lado es un aviso que BLOQUEA. Mandar
-// al frío una salida cuya fecha no se entendió sería esconder justo el caso que
-// hay que ver.
+// Sin fecha se QUEDA, igual que en las houses y por una razón más fuerte
+// todavía: aquí lo que hay al otro lado es un aviso que BLOQUEA. Tirar una
+// salida cuya fecha no se entendió sería esconder justo el caso que hay que ver.
 function particionSalidasPorAntiguedad(filas, hoy, dias) {
     let corte = new Date(hoy.getTime() - dias * 24 * 60 * 60 * 1000);
     let calientes = [], frias = [];
@@ -371,27 +370,40 @@ function particionSalidasPorAntiguedad(filas, hoy, dias) {
     return { calientes: calientes, frias: frias };
 }
 
-// Fusiona, reparte caliente/frío, escribe, y devuelve el resumen.
+// Fusiona, PODA lo que se salió de la ventana, escribe, y devuelve el resumen.
+//
+// LA PODA ES LO QUE MANTIENE ESTO ACOTADO, y sin ella el índice crecería solo:
+// cada importación mete los últimos 60 días y CONSERVA lo que ya estaba, así
+// que en dos meses el índice tendría 120 días dentro, en tres meses 180, y la
+// ventana que elegiste no querría decir nada. Se poda contra la MISMA ventana
+// con la que se importa: un número, un significado.
+//
+// Y aquí no hay archivo frío, al revés que en las houses. Allí una prealerta
+// vieja sigue sirviendo —la guía que llega hoy pudo prealertarse hace meses—.
+// Aquí una salida fuera de la ventana está fuera POR DECISIÓN: no se consulta
+// nunca, así que guardarla solo sería un archivo que crece sin parar y que hay
+// que reescribir entero en cada importación. El archivo de verdad es tu Excel,
+// y ampliar la ventana lo trae de vuelta.
 function volcarAlIndiceSalidas(nuevas) {
     let fusion = fusionarEnIndiceSalidas(
-        leerIndiceSalidas(HOJA_INDICE_SALIDAS)
-            .concat(leerIndiceSalidas(HOJA_INDICE_SALIDAS_FRIO)), nuevas);
-    let particion = particionSalidasPorAntiguedad(
-        fusion.filas, new Date(), DIAS_SALIDAS_CALIENTE);
+        leerIndiceSalidas(HOJA_INDICE_SALIDAS), nuevas);
+    let dias = diasDeImportacionSalidas();
+    let particion = particionSalidasPorAntiguedad(fusion.filas, new Date(), dias);
     let calientes = particion.calientes;
-    let frias = particion.frias;
+    let podadas = particion.frias.length;
 
     escribirIndiceSalidas(HOJA_INDICE_SALIDAS, calientes);
-    escribirIndiceSalidas(HOJA_INDICE_SALIDAS_FRIO, frias);
 
     let conFecha = (nuevas || []).filter(n => n.fecha).length;
     let total = (nuevas || []).length;
-    let msg = "Salidas leídas del archivo: " + total + "\n" +
-              "  · con fecha reconocida: " + conFecha + "\n" +
-              "Guías nuevas en el índice: " + fusion.anadidas + "\n" +
-              "Índice caliente (últimos " + DIAS_SALIDAS_CALIENTE + " días): " +
-              calientes.length + "\n" +
-              "Archivo frío: " + frias.length;
+    let msg = "Salidas leídas del archivo: " + total.toLocaleString() + "\n" +
+              "  · con fecha reconocida: " + conFecha.toLocaleString() + "\n" +
+              "Guías nuevas en el índice: " + fusion.anadidas.toLocaleString() + "\n" +
+              "Índice (ventana de " + dias + " días): " + calientes.length.toLocaleString();
+    if (podadas > 0) {
+        msg += "\n  · " + podadas.toLocaleString() + " se salieron de la ventana y " +
+               "se podaron";
+    }
 
     let tiradas = salidasDescartadas();
     if (tiradas > 0) {
@@ -689,16 +701,14 @@ function medirIndiceDeSalidas() {
     let t0 = Date.now();
     let calientes = leerIndiceSalidas(HOJA_INDICE_SALIDAS);
     let msLectura = Date.now() - t0;
-    let frias = leerIndiceSalidas(HOJA_INDICE_SALIDAS_FRIO);
 
     let t1 = Date.now();
     let mapa = mapaDeSalidas(calientes);
     let msMapa = Date.now() - t1;
 
     let L = [];
-    L.push("Índice caliente: " + calientes.length.toLocaleString() + " guías");
-    L.push("Archivo frío:    " + frias.length.toLocaleString() + " guías");
-    L.push("Corte: " + DIAS_SALIDAS_CALIENTE + " días");
+    L.push("Guías en el índice: " + calientes.length.toLocaleString());
+    L.push("Ventana: " + diasDeImportacionSalidas() + " días");
     L.push("");
     L.push("Leer el caliente:      " + msLectura + " ms");
     L.push("Armar el Map:          " + msMapa + " ms");
@@ -718,9 +728,9 @@ function medirIndiceDeSalidas() {
         L.push("✅ Cabe de sobra. El aviso instantáneo al escanear es viable");
         L.push("   con este volumen.");
     } else {
-        L.push("⚠️ Es mucho para llevarlo en cada escaneo. Habría que bajar el");
-        L.push("   corte de " + DIAS_SALIDAS_CALIENTE + " días, o cambiar de");
-        L.push("   estrategia. Dímelo antes de seguir.");
+        L.push("⚠️ Es mucho para llevarlo en cada escaneo. Habría que bajar la");
+        L.push("   ventana de " + diasDeImportacionSalidas() + " días, o cambiar");
+        L.push("   de estrategia. Dímelo antes de seguir.");
     }
     ui.alert("📏 Índice de salidas", L.join("\n"), ui.ButtonSet.OK);
 }
