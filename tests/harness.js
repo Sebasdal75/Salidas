@@ -3435,5 +3435,70 @@ ok("ningún trozo empieza cortando un registro",
 ok("al unirlos se encuentran todas",
    trozos.map(t => t[0]).join("").split("|").length - 1 === 5000);
 
+console.log("\n--- 7l. Pedimentos ya usados otro día ---");
+// Un pedimento sale UN día. Si reaparece otro día es un error, y hasta ahora no
+// lo veía nadie: la comprobación de pedimentos repetidos solo mira las pestañas
+// VIVAS, así que en cuanto el bloque de aquel día se cerró y se limpió, ese
+// pedimento volvía a ser «nuevo».
+let blobPed = empaquetarPedimentos([
+    ["1Z0139126764115028", new Date(2026, 0, 15), "1234567", ""],
+    ["1Z013A440467552595", new Date(2026, 0, 15), "1234567", ""],   // mismo ped.
+    ["1Z0177106742456991", new Date(2026, 7, 3), "7654321", ""],
+    ["1Z0182420499984228", new Date(2026, 7, 4), "", ""]            // sin pedimento
+]).join("");
+
+ok("el pedimento se encuentra", buscarPedimentoEnBlob(blobPed, "1234567") !== null);
+ok("con su fecha",
+   buscarPedimentoEnBlob(blobPed, "1234567").fecha.getTime() ===
+   new Date(2026, 0, 15).getTime());
+ok("no se repite aunque venga en varias guías",
+   (blobPed.match(/1234567/g) || []).length === 1);
+ok("un pedimento que no salió da null",
+   buscarPedimentoEnBlob(blobPed, "9999999") === null);
+ok("lo que no es un pedimento de 7 dígitos no se busca",
+   buscarPedimentoEnBlob(blobPed, "123") === null);
+ok("las salidas sin pedimento no ensucian la lista",
+   blobPed.indexOf("|:") === -1);
+
+// Gana el día MÁS ANTIGUO, igual que con las guías: es el que convierte al
+// segundo uso en sospechoso.
+let blobPed2 = empaquetarPedimentos([
+    ["1ZA", new Date(2026, 7, 3), "1234567", ""],
+    ["1ZB", new Date(2026, 0, 15), "1234567", ""]
+]).join("");
+ok("se guarda el primer día en que se usó",
+   buscarPedimentoEnBlob(blobPed2, "1234567").fecha.getTime() ===
+   new Date(2026, 0, 15).getTime());
+
+console.log("\n--- 7m. Lo de HOY no avisa, o sería una tormenta ---");
+// LA TRAMPA: el histórico que importas INCLUYE lo de hoy. Sin esta regla, en
+// cuanto importaras a media mañana, cada guía y cada pedimento que el turno
+// llevara escaneado empezaría a gritar «YA SALIÓ hoy» — decenas de alertas
+// falsas de golpe, y a partir de ahí nadie vuelve a mirar ninguna.
+let hoyM = new Date(2026, 8, 4);
+ok("una salida de HOY no avisa",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 4), pedimento: "" }, hoyM) === "");
+ok("aunque lleve pedimento",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 4), pedimento: "1234567" }, hoyM) === "");
+ok("una salida de AYER sí avisa",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 3), pedimento: "" }, hoyM) !== "");
+ok("un pedimento usado HOY no avisa",
+   avisoDePedimentoPrevio({ fecha: new Date(2026, 8, 4) }, hoyM) === "");
+ok("uno usado otro día sí",
+   avisoDePedimentoPrevio({ fecha: new Date(2026, 0, 15) }, hoyM) !== "");
+ok("y dice el día",
+   avisoDePedimentoPrevio({ fecha: new Date(2026, 0, 15) }, hoyM)
+       .indexOf("15/01/2026") !== -1);
+// La hora no puede decidir esto: el histórico trae medianoche y el escaneo no.
+ok("la hora no cuenta, solo el día",
+   esMismoDiaSalida(new Date(2026, 8, 4, 0, 0, 0), new Date(2026, 8, 4, 17, 32, 9)));
+ok("días distintos no se confunden",
+   !esMismoDiaSalida(new Date(2026, 8, 4), new Date(2026, 8, 5)));
+ok("sin fecha no se compara nada", !esMismoDiaSalida(null, hoyM));
+// Sin fecha conocida SÍ avisa: es el lado seguro, porque no poder fecharla no
+// la convierte en buena.
+ok("una salida sin fecha avisa igual",
+   avisoDeSalidaPrevia({ fecha: null, pedimento: "" }, hoyM) !== "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

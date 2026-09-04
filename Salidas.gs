@@ -401,6 +401,7 @@ function volcarAlIndiceSalidas(nuevas) {
     try {
         celdasRapido = guardarBlobDeSalidas(obtenerArchivo(), calientes);
         olvidarBlobSalidasEnRAM();
+        olvidarBlobPedimentosEnRAM();
     } catch (err) { celdasRapido = -1; }
 
     let conFecha = (nuevas || []).filter(n => n.fecha).length;
@@ -494,8 +495,13 @@ function mapaDeSalidas(filas) {
 // Se separa del resto para que el día que esto entre en el camino del escaneo
 // —que es a donde va— el mensaje ya esté decidido y probado, y no haya que
 // inventarlo dentro del bucle caliente.
-function avisoDeSalidaPrevia(info) {
+// `hoy` es opcional. Cuando se pasa, una salida REGISTRADA HOY no avisa: ver
+// la explicación larga en `avisoDePedimentoPrevio`. En resumen, el histórico
+// que importas incluye lo de hoy, y sin esta regla importar a media mañana
+// encendería una alerta falsa en cada guía que el turno lleve escaneada.
+function avisoDeSalidaPrevia(info, hoy) {
     if (!info) return "";
+    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy)) return "";
     let f = textoFechaSalida(info.fecha);
     return "⛔ YA SALIÓ el " + f +
            (info.pedimento ? " (ped. " + info.pedimento + ")" : "");
@@ -992,15 +998,27 @@ function hojaSalidasRapido(ss, crear) {
     return h;
 }
 
+// Columna A: las guías. Columna B: los pedimentos. Se escriben JUNTAS a
+// propósito —las dos salen del mismo índice—: si se pudieran rehacer por
+// separado, un despiste dejaría una al día y la otra contestando con los datos
+// de la semana pasada, y nada lo diría.
 function guardarBlobDeSalidas(ss, filas) {
-    let trozos = empaquetarSalidas(filas);
+    let trozosG = empaquetarSalidas(filas);
+    let trozosP = empaquetarPedimentos(filas);
     let h = hojaSalidasRapido(ss, true);
+
     let maxAntes = h.getMaxRows();
-    if (maxAntes > 1) h.getRange(1, 1, maxAntes, 1).clearContent();
-    if (trozos.length === 0) return 0;
-    asegurarFilas(h, trozos.length + 1);
-    h.getRange(1, 1, trozos.length, 1).setValues(trozos);
-    return trozos.length;
+    if (h.getMaxColumns() < 2) h.insertColumnsAfter(h.getMaxColumns(), 2 - h.getMaxColumns());
+    if (maxAntes > 1) h.getRange(1, 1, maxAntes, 2).clearContent();
+
+    let alto = Math.max(trozosG.length, trozosP.length);
+    if (alto === 0) return 0;
+    asegurarFilas(h, alto + 1);
+    if (trozosG.length) h.getRange(1, 1, trozosG.length, 1).setValues(trozosG);
+    if (trozosP.length) {
+        h.getRange(1, 2, trozosP.length, 1).setValues(trozosP.map(t => [t]));
+    }
+    return alto;
 }
 
 // El texto vive en memoria entre escaneos mientras V8 conserve el proceso, que
@@ -1044,6 +1062,7 @@ function reconstruirSalidasRapido() {
     let filas = leerIndiceSalidas(HOJA_INDICE_SALIDAS);
     let celdas = guardarBlobDeSalidas(ss, filas);
     olvidarBlobSalidasEnRAM();
+    olvidarBlobPedimentosEnRAM();
     ui.alert("⚡ Lista rápida de salidas",
              "Guías: " + filas.length.toLocaleString() + "\n" +
              "Celdas ocupadas: " + celdas + "\n\n" +
@@ -1114,4 +1133,98 @@ function autorizarGuiaDeSalida() {
     ui.alert("✅ Autorizar una guía",
              guia + " autorizada. Usa «🔄 Forzar Actualización» en esa pestaña " +
              "para que se le quite el aviso.", ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// PEDIMENTOS YA USADOS
+//
+// Un pedimento sale UN día. Si reaparece otro día es un error, y hasta ahora no
+// lo veía nadie: la comprobación de pedimentos repetidos solo mira las pestañas
+// VIVAS del archivo, así que en cuanto el bloque de aquel día se cerró y se
+// limpió, ese pedimento volvió a ser «nuevo».
+//
+// Son muy pocos comparados con las guías —decenas al día, no miles—, así que
+// caben de sobra en su propia lista comprimida, en la columna de al lado.
+// -------------------------------------------------------------------------
+
+// De las filas del índice a la lista de pedimentos, cada uno con su día MÁS
+// ANTIGUO. Igual que con las guías: si un pedimento aparece dos veces, la fecha
+// útil es la primera, porque es la que convierte a la segunda en sospechosa.
+function empaquetarPedimentos(filas) {
+    let primero = new Map();
+    (filas || []).forEach(f => {
+        let p = String(f[2] === undefined || f[2] === null ? "" : f[2]).trim();
+        if (!/^\d{7}$/.test(p)) return;
+        let d = aFechaInbound(f[1]);
+        let previo = primero.get(p);
+        if (previo === undefined || (d && previo && d < previo) ||
+            (d && previo === null)) {
+            primero.set(p, d);
+        }
+    });
+
+    let trozos = [], actual = "";
+    primero.forEach((d, p) => {
+        let reg = "|" + p + ":" + claveFechaSalida(d);
+        if (actual.length + reg.length > CHARS_POR_CELDA_SALIDA) {
+            trozos.push(actual); actual = "";
+        }
+        actual += reg;
+    });
+    if (actual !== "") trozos.push(actual);
+    return trozos;
+}
+
+function buscarPedimentoEnBlob(blob, pedimento) {
+    let p = String(pedimento === undefined || pedimento === null ? "" : pedimento).trim();
+    if (!blob || !/^\d{7}$/.test(p)) return null;
+    let i = blob.indexOf("|" + p + ":");
+    if (i === -1) return null;
+    return { fecha: fechaDeClaveSalida(blob.substr(i + p.length + 2, 6)) };
+}
+
+// ¿Son el mismo día? Se comparan año, mes y día, no los milisegundos: las
+// fechas del histórico vienen a medianoche y las de hoy no.
+function esMismoDiaSalida(a, b) {
+    if (!a || !b) return false;
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() &&
+           a.getDate() === b.getDate();
+}
+
+// LA TRAMPA QUE ESTO EVITA, y que vale para las guías igual que para los
+// pedimentos: el histórico que importas INCLUYE lo de hoy. Sin esta regla, en
+// cuanto importaras a media mañana, cada guía y cada pedimento que el turno
+// llevara escaneado empezaría a gritar «YA SALIÓ hoy» — decenas de alertas de
+// golpe, todas falsas, y a partir de ahí nadie vuelve a mirar ninguna.
+//
+// Lo de HOY ya está cubierto por el ⛔ DUPLICADO contra las pestañas abiertas,
+// que además dice la fila exacta. Este aviso es solo para OTROS días.
+function avisoDePedimentoPrevio(info, hoy) {
+    if (!info) return "";
+    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy)) return "";
+    return "🛑 PEDIMENTO YA USADO el " + textoFechaSalida(info.fecha);
+}
+
+let globalBlobPedimentos = null;
+
+function olvidarBlobPedimentosEnRAM() { globalBlobPedimentos = null; }
+
+function leerBlobDePedimentos(ss) {
+    if (globalBlobPedimentos !== null) return globalBlobPedimentos;
+    globalBlobPedimentos = "";
+    try {
+        let h = hojaSalidasRapido(ss, false);
+        if (!h || h.getLastColumn() < 2) return globalBlobPedimentos;
+        let lr = h.getLastRow();
+        if (lr < 1) return globalBlobPedimentos;
+        globalBlobPedimentos = h.getRange(1, 2, lr, 1).getValues()
+            .map(f => String(f[0])).join("");
+    } catch (err) { globalBlobPedimentos = ""; }
+    return globalBlobPedimentos;
+}
+
+function pedimentoPrevioDe(ss, pedimento) {
+    try {
+        return buscarPedimentoEnBlob(leerBlobDePedimentos(ss), pedimento);
+    } catch (err) { return null; }
 }

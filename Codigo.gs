@@ -2084,7 +2084,23 @@ function avisoDeYaSalio(source, valor) {
         if (typeof salidaPreviaDe !== 'function') return "";
         let previa = salidaPreviaDe(source, v);
         if (!previa) return "";
-        return avisoDeSalidaPrevia(previa);
+        // `new Date()` para que una salida registrada HOY no avise: el
+        // histórico incluye lo de hoy, y sin eso importar a media mañana
+        // encendería una alerta falsa en cada guía del turno.
+        return avisoDeSalidaPrevia(previa, new Date());
+    } catch (err) { return ""; }
+}
+
+// «🛑 PEDIMENTO YA USADO el …» para un pedimento de 7 dígitos, o "".
+// Mismas tres guardas que arriba, y por los mismos motivos.
+function avisoDePedimentoUsado(source, valor) {
+    let v = String(valor === undefined || valor === null ? "" : valor).trim();
+    if (!/^\d{7}$/.test(v)) return "";
+    try {
+        if (typeof pedimentoPrevioDe !== 'function') return "";
+        let previo = pedimentoPrevioDe(source, v);
+        if (!previo) return "";
+        return avisoDePedimentoPrevio(previo, new Date());
     } catch (err) { return ""; }
 }
 
@@ -2184,6 +2200,23 @@ function marcarPedimentosRepetidosDentro(resultadosB, coloresB, filasDuplicadas,
         // que deja ver la pareja de un vistazo sin leer la columna B.
         if (filasParejaDuplicada) filasParejaDuplicada.add(fila);
     });
+}
+
+// Un pedimento que ya se usó OTRO DÍA. Va el último de los tres avisos de
+// pedimento, y solo escribe donde no hay nada: los otros dos hablan de hoy
+// —dicen la pestaña y la fila donde está el gemelo—, así que son más
+// accionables y mandan si se dan a la vez.
+function marcarPedimentosYaUsados(resultadosB, coloresB, datosMasivos, ultimaFila, source) {
+    if (typeof avisoDePedimentoUsado !== 'function') return;
+    for (let i = 0; i < ultimaFila; i++) {
+        if (String(resultadosB[i][0]).trim() !== "") continue;
+        let v = String(datosMasivos[i][0]).trim();
+        if (!/^\d{7}$/.test(v)) continue;
+        let aviso = avisoDePedimentoUsado(source, v);
+        if (aviso === "") continue;
+        resultadosB[i][0] = aviso;
+        coloresB[i][0] = "#dc3545";
+    }
 }
 
 function marcarPedimentosRepetidosFuera(resultadosB, coloresB, mapa, filasParejaDuplicada) {
@@ -3857,6 +3890,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHoja, cacheInfo),
       filasParejaDuplicada);
 
+  // Y el que mira OTROS DÍAS, que es el único que sobrevive a que el bloque de
+  // aquel día se cerrara y se limpiara.
+  marcarPedimentosYaUsados(resultadosB, coloresB, datosMasivos, ultimaFila, source);
+
   if (esRezago) {
       bloquesPreforma.forEach(bloque => {
         if (bloque.pedimento !== "" && bloque.pedimento !== "SIN_CABECERA" && !bloque.esErr) {
@@ -4130,6 +4167,10 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   marcarPedimentosRepetidosFuera(resultadosB, coloresB,
       calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo),
       filasParejaDuplicada);
+
+  // Y el que mira OTROS DÍAS, que es el único que sobrevive a que el bloque de
+  // aquel día se cerrara y se limpiara.
+  marcarPedimentosYaUsados(resultadosB, coloresB, datosMasivos, ultimaFila, source);
 
   // Una alerta grave no se cae sola: si lo recalculado es menos grave que
   // lo que ya había, se conserva lo que había. Ver conservarAlertasGraves.
