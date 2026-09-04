@@ -22,11 +22,11 @@
 //
 // LO QUE ESTE ARCHIVO NO HACE TODAVÍA
 //
-// El aviso al escanear. Esa parte tiene que ser INSTANTÁNEA y BLOQUEANTE, y su
-// coste depende de cuántas guías acabe teniendo el índice caliente —que es un
-// dato que ahora mismo nadie tiene—. Importar primero y medir después es el
-// orden correcto: diseñar el camino rápido a ojo es cómo se acaba con un
-// escaneo de tres segundos.
+// El aviso al escanear. Tiene que ser INSTANTÁNEO y BLOQUEANTE, y ya sabemos
+// contra qué: el histórico real son 677.262 renglones, unas 2.900 salidas
+// diarias. Ese número es el que manda, y por eso lo primero que hay aquí es una
+// VENTANA que acota cuánto entra. Sin ella no hay camino rápido posible, ni
+// siquiera importación posible.
 //
 // LA REGLA QUE MANDA AQUÍ: GANA LA PRIMERA SALIDA
 //
@@ -93,7 +93,11 @@ function detectarColumnasSalida(headers) {
 // Cuántas salidas se descartaron por no traer una guía reconocible.
 let globalSalidasDescartadas = 0;
 function salidasDescartadas() { return globalSalidasDescartadas; }
-function reiniciarSalidasDescartadas() { globalSalidasDescartadas = 0; }
+function reiniciarSalidasDescartadas() {
+    globalSalidasDescartadas = 0;
+    globalSalidasViejas = 0;
+    globalSalidasSinFecha = 0;
+}
 
 // Del CSV crudo a filas limpias.
 //
@@ -110,9 +114,11 @@ function reiniciarSalidasDescartadas() { globalSalidasDescartadas = 0; }
 //
 // Sin columna de guía no se importa nada, y se dice por qué. Barrer «por si
 // acaso» es justo lo que no se puede hacer cuando el resultado bloquea.
-function filasDeSalidas(datos, cols, origen) {
+// `corte` es la fecha más antigua que se acepta, o null para aceptarlo todo.
+// Lo anterior NI SIQUIERA SE CONSTRUYE: ver «LA VENTANA» más abajo.
+function filasDeSalidas(datos, cols, origen, corte) {
     let salida = [];
-    let descartadas = 0;
+    let descartadas = 0, viejas = 0, sinFecha = 0;
     if (!datos || !cols || cols.guia === -1) return salida;
 
     for (let i = 1; i < datos.length; i++) {
@@ -120,6 +126,12 @@ function filasDeSalidas(datos, cols, origen) {
         if (!fila) continue;
 
         let fecha = cols.fecha === -1 ? null : aFechaInbound(fila[cols.fecha]);
+
+        // El filtro va ANTES de todo lo demás: es lo que hace que un histórico
+        // de 677.000 renglones quepa en memoria (ver «LA VENTANA»).
+        if (corte && fecha && fecha < corte) { viejas++; continue; }
+        if (fecha === null) sinFecha++;
+
         let ped = cols.pedimento === -1 ? ""
                 : String(fila[cols.pedimento] === undefined ? "" : fila[cols.pedimento]).trim();
         // Un pedimento es de 7 dígitos. Lo que no lo sea no se guarda como tal:
@@ -133,17 +145,93 @@ function filasDeSalidas(datos, cols, origen) {
                       origen: String(origen || "") });
     }
     globalSalidasDescartadas += descartadas;
+    globalSalidasViejas += viejas;
+    globalSalidasSinFecha += sinFecha;
     return salida;
 }
 
-function filasDeCsvDeSalidas(texto, cols, origen) {
+// -------------------------------------------------------------------------
+// LA VENTANA: hasta dónde atrás se importa
+//
+// EL NÚMERO QUE OBLIGA A ESTO: el histórico real trae 677.262 renglones, o sea
+// unas 2.900 salidas al día desde enero. Meterlo entero no es cuestión de
+// paciencia, es que no cabe:
+//
+//   · construir 677.000 objetos en memoria revienta el límite de Apps Script;
+//   · escribirlos son 2,7 millones de celdas y catorce llamadas, y cada
+//     importación posterior tendría que volver a LEERLAS todas para fusionar,
+//     contra un tope de ejecución de seis minutos;
+//   · y para el aviso instantáneo habría que llevar esa lista al escaneo, que
+//     hoy entero dura medio segundo.
+//
+// Así que se importa una VENTANA. Y el corte no lo pongo yo a ojo: lo pone
+// quien sabe hasta cuándo puede reaparecer una guía en el muelle.
+//
+// Lo que queda fuera no se pierde —sigue en tu Excel— y ampliar la ventana es
+// volver a importar con otro número.
+// -------------------------------------------------------------------------
+const PROP_DIAS_SALIDAS_IMPORT = 'SALIDAS_DIAS_IMPORT';
+const DIAS_SALIDAS_IMPORT_DEFECTO = 90;
+
+let globalSalidasViejas = 0;
+let globalSalidasSinFecha = 0;
+function salidasViejas() { return globalSalidasViejas; }
+function salidasSinFechaLeidas() { return globalSalidasSinFecha; }
+
+function diasDeImportacionSalidas() {
+    let v = 0;
+    try {
+        v = Number(PropertiesService.getScriptProperties()
+                   .getProperty(PROP_DIAS_SALIDAS_IMPORT) || 0);
+    } catch (err) { v = 0; }
+    return (v > 0) ? v : DIAS_SALIDAS_IMPORT_DEFECTO;
+}
+
+// La fecha más antigua que se acepta. Se calcula UNA vez por importación: con
+// 677.000 filas, hacerlo dentro del bucle son 677.000 restas de fechas.
+function corteDeImportacion(hoy, dias) {
+    if (!dias || dias <= 0) return null;
+    return new Date(hoy.getTime() - dias * 24 * 60 * 60 * 1000);
+}
+
+function configurarVentanaDeSalidas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let actual = diasDeImportacionSalidas();
+    let r = ui.prompt("📆 Ventana del histórico de salidas",
+        "¿Cuántos días hacia atrás quieres importar?\n\n" +
+        "Ahora: " + actual + " días.\n\n" +
+        "Con ~2.900 salidas al día, cada 30 días son unas 87.000 guías. " +
+        "Cuantas más, más tarda la importación y más pesa el aviso al " +
+        "escanear.\n\n" +
+        "Escribe un número de días (0 = todo, y con tu volumen eso NO va a " +
+        "entrar).", ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return;
+
+    let n = Number(String(r.getResponseText()).trim());
+    if (isNaN(n) || n < 0) {
+        ui.alert("📆 Ventana", "Eso no es un número de días.", ui.ButtonSet.OK);
+        return;
+    }
+    PropertiesService.getScriptProperties()
+        .setProperty(PROP_DIAS_SALIDAS_IMPORT, String(n));
+    ui.alert("📆 Ventana",
+             n === 0 ? "Guardado: se importará TODO. Prepárate para que la " +
+                       "importación se pase de tiempo."
+                     : "Guardado: se importarán los últimos " + n + " días.",
+             ui.ButtonSet.OK);
+}
+
+function filasDeCsvDeSalidas(texto, cols, origen, corte) {
     let lineas = String(texto).split("\n");
     let cabecera = lineas[0] || "";
     let sep = separadorCsv(cabecera);
     let salida = [];
     bloquesDeLineas(texto, LINEAS_POR_BLOQUE, cabecera).forEach(bloque => {
         let datos = Utilities.parseCsv(bloque, sep);
-        filasDeSalidas(datos, cols, origen).forEach(r => salida.push(r));
+        filasDeSalidas(datos, cols, origen, corte).forEach(r => salida.push(r));
     });
     return salida;
 }
@@ -307,8 +395,15 @@ function volcarAlIndiceSalidas(nuevas) {
 
     let tiradas = salidasDescartadas();
     if (tiradas > 0) {
-        msg += "\n\n🚫 " + tiradas + " renglones sin ninguna guía reconocible " +
-               "(totales, subtotales, filas en blanco).";
+        msg += "\n\n🚫 " + tiradas.toLocaleString() + " renglones sin ninguna guía " +
+               "reconocible (totales, subtotales, filas en blanco).";
+    }
+    let fuera = salidasViejas();
+    if (fuera > 0) {
+        msg += "\n\n📆 " + fuera.toLocaleString() + " salidas quedaron FUERA de la " +
+               "ventana de " + diasDeImportacionSalidas() + " días.\n" +
+               "No se pierden: siguen en tu Excel. Para meterlas, amplía la " +
+               "ventana y vuelve a importar.";
     }
 
     if (total > 0 && conFecha < total / 2) {
@@ -445,7 +540,8 @@ function salidasDeTexto(texto, etiqueta) {
                   "promueve los encabezados en Power Query)" : "") +
                  ".\nCabeceras: " + cab.slice(0, 8).join(" | ") };
     }
-    return { filas: filasDeCsvDeSalidas(texto, cols, etiqueta), problema: "",
+    let corte = corteDeImportacion(new Date(), diasDeImportacionSalidas());
+    return { filas: filasDeCsvDeSalidas(texto, cols, etiqueta, corte), problema: "",
              cols: cols, cabeceras: cab };
 }
 

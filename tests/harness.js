@@ -3288,5 +3288,42 @@ ok("sin pedimento el aviso lleva la fecha igual",
 ok("una fecha exportada como número de Excel se entiende",
    aFechaInbound("46037").getFullYear() === 2026);
 
+console.log("\n--- 7i. La ventana: 677.262 renglones no caben ---");
+// EL NÚMERO REAL: el histórico trae 677.262 renglones, ~2.900 salidas al día.
+// Construir 677.000 objetos revienta la memoria de Apps Script, escribirlos son
+// 2,7 millones de celdas, y cada importación posterior tendría que releerlas
+// todas contra un tope de seis minutos. La ventana es lo que lo hace posible.
+let hoyV = new Date(2026, 8, 4);            // 04/09/2026
+let corteV = corteDeImportacion(hoyV, 90);  // → 06/06/2026
+ok("el corte se calcula hacia atrás", corteV < hoyV);
+ok("y son 90 días justos",
+   Math.round((hoyV - corteV) / 86400000) === 90);
+ok("0 días = sin corte", corteDeImportacion(hoyV, 0) === null);
+ok("sin días tampoco corta", corteDeImportacion(hoyV, null) === null);
+
+reiniciarSalidasDescartadas();
+let colsV = detectarColumnasSalida(["1Z", "Fecha"]);
+let filasV = filasDeSalidas([
+    ["1Z", "Fecha"],
+    ["1Z0139126764115028", "15/01/2026"],   // fuera de ventana
+    ["1Z013A440467552595", "01/08/2026"],   // dentro
+    ["1Z0177106742456991", ""]              // sin fecha: no se puede filtrar
+], colsV, "hist.csv", corteV);
+ok("lo viejo NO se construye siquiera", filasV.length === 2);
+ok("lo de dentro de la ventana entra",
+   filasV.some(f => f.guia === "1Z013A440467552595"));
+ok("y se cuenta lo que quedó fuera", salidasViejas() === 1);
+// SIN FECHA NO SE PUEDE FILTRAR, así que pasa. Tirarlo sería esconder salidas
+// reales por un fallo de formato en Excel; por eso además se cuenta y se dice.
+ok("sin fecha pasa el filtro", filasV.some(f => f.fecha === null));
+ok("y se cuenta aparte", salidasSinFechaLeidas() === 1);
+
+// Sin corte entra todo, que es el comportamiento de antes.
+reiniciarSalidasDescartadas();
+ok("sin corte no se filtra nada",
+   filasDeSalidas([["1Z", "Fecha"], ["1Z0139126764115028", "15/01/2026"]],
+                  colsV, "h", null).length === 1);
+ok("y no cuenta ninguna como vieja", salidasViejas() === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
