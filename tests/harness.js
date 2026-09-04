@@ -3207,5 +3207,51 @@ ok("sin fecha el aviso sigue saliendo",
 ok("una guía que no salió nunca no da aviso",
    avisoDeSalidaPrevia(mapS.get("1ZNOEXISTE")) === "");
 
+console.log("\n--- 7f. Subir la base entera: solo la columna de la guía ---");
+// EL PELIGRO DE «SUBE TODO»: una base de datos completa arrastra columnas de
+// referencias, observaciones, guías relacionadas y devoluciones. En el inbound
+// se barre la fila entera buscando 1Z enterradas y eso solo AÑADE una house.
+// Aquí al otro lado hay un aviso que BLOQUEA, así que una 1Z que aparezca en un
+// campo de comentarios frenaría la línea sin haberse embarcado nunca.
+let filaAncha = [
+    ["FECHA SALIDA", "GUIA", "PEDIMENTO", "OBSERVACIONES", "REFERENCIA"],
+    ["12/08/2026", "1Z08E27V0411529440", "1234567",
+     "devolucion de 1ZR1H0146727522666", "1ZX299X1043419588 0"]
+];
+reiniciarSalidasDescartadas();
+let anchas = filasDeSalidas(filaAncha, detectarColumnasSalida(filaAncha[0]), "base.csv");
+ok("solo entra la guía de su columna", anchas.length === 1);
+ok("y es la correcta", anchas[0].guia === "1Z08E27V0411529440");
+ok("la 1Z del campo de observaciones NO entra",
+   !anchas.some(f => f.guia === "1ZR1H0146727522666"));
+
+// Muchas columnas de sobra no estorban: el índice guarda cuatro y ya.
+let cabAncha = ["ID", "FECHA SALIDA", "CLIENTE", "GUIA", "PESO", "PEDIMENTO",
+                "ADUANA", "OBSERVACIONES"];
+let colsAncha = detectarColumnasSalida(cabAncha);
+ok("en una base ancha encuentra la guía", colsAncha.guia === 3);
+ok("la fecha de salida", colsAncha.fecha === 1);
+ok("y el pedimento", colsAncha.pedimento === 5);
+
+console.log("\n--- 7g. El informe de qué escogí y qué ignoro ---");
+let inf = informeDeColumnasSalida(cabAncha, colsAncha);
+ok("dice la columna de guía elegida", inf.indexOf("«GUIA»") !== -1);
+ok("con su número", inf.indexOf("columna 4") !== -1);
+ok("dice cuántas ignora", inf.indexOf("5 columnas") !== -1);
+ok("y las nombra", inf.indexOf("CLIENTE") !== -1 && inf.indexOf("PESO") !== -1);
+ok("no nombra las que sí usa entre las ignoradas",
+   inf.split("LO QUE IGNORO")[1].indexOf("PEDIMENTO") === -1);
+
+// Sin guía hay que decirlo fuerte: es lo único que impide importar.
+let infSin = informeDeColumnasSalida(["FECHA", "CLIENTE"],
+                                     detectarColumnasSalida(["FECHA", "CLIENTE"]));
+ok("sin columna de guía lo dice", infSin.indexOf("NO LA ENCUENTRO") !== -1);
+// Sin fecha SÍ se importa, pero todo cae al caliente y eso hay que avisarlo.
+ok("sin fecha avisa del caliente",
+   informeDeColumnasSalida(["GUIA"], detectarColumnasSalida(["GUIA"]))
+       .indexOf("caliente") !== -1);
+ok("sin cabeceras no revienta",
+   informeDeColumnasSalida([], detectarColumnasSalida([])).length > 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

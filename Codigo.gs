@@ -4372,6 +4372,7 @@ function onOpen() {
                   .addItem('☁️ Importar salidas desde OneDrive', 'importarSalidasDesdeOneDrive')
                   .addItem('📥 Importar salidas desde Drive', 'importarSalidasDesdeDrive')
                   .addItem('🔗 Añadir vínculo del histórico', 'configurarUrlSalidas')
+                  .addItem('🔎 Probar el archivo (sin importar)', 'probarArchivoDeSalidas')
                   .addItem('🧹 Quitar los vínculos', 'quitarUrlsSalidas')
                   .addSeparator()
                   .addItem('📏 ¿Cuánto pesa el índice de salidas?', 'medirIndiceDeSalidas')

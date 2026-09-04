@@ -97,14 +97,23 @@ function reiniciarSalidasDescartadas() { globalSalidasDescartadas = 0; }
 
 // Del CSV crudo a filas limpias.
 //
-// Igual que en el inbound, se barre la fila entera buscando guías enterradas en
-// texto: los concentrados de salida arrastran referencias y descripciones donde
-// la guía viene pegada a otras cosas. Y por el mismo motivo que allí, ese
-// trabajo se paga UNA vez al importar y no en cada consulta.
+// AQUÍ NO SE BARRE LA FILA ENTERA, Y ES A PROPÓSITO. En el inbound sí: rescatar
+// una 1Z enterrada en un campo de referencias solo puede AÑADIR una house, y
+// equivocarse cuesta un dato de más.
+//
+// Aquí lo que hay al otro lado es un aviso que BLOQUEA. Una base de datos
+// completa arrastra columnas de referencias, observaciones, guías relacionadas,
+// devoluciones y comentarios; cualquier 1Z que aparezca ahí quedaría marcada
+// como «YA SALIÓ» y frenaría la línea la próxima vez que alguien la escanee,
+// aunque esa guía no se haya embarcado nunca. Se lee LA COLUMNA DE LA GUÍA y
+// nada más.
+//
+// Sin columna de guía no se importa nada, y se dice por qué. Barrer «por si
+// acaso» es justo lo que no se puede hacer cuando el resultado bloquea.
 function filasDeSalidas(datos, cols, origen) {
     let salida = [];
     let descartadas = 0;
-    if (!datos || cols.guia === -1) return salida;
+    if (!datos || !cols || cols.guia === -1) return salida;
 
     for (let i = 1; i < datos.length; i++) {
         let fila = datos[i];
@@ -118,17 +127,10 @@ function filasDeSalidas(datos, cols, origen) {
         // que bloquea.
         if (!/^\d{7}$/.test(ped)) ped = "";
 
-        let guias = [];
-        let exacta = claveGuiaHouse(fila[cols.guia]);
-        if (exacta !== "" && esGuiaUPSValida(exacta)) guias.push(exacta);
-        guiasDeFila(fila, cols.guia).forEach(g => {
-            if (guias.indexOf(g) === -1) guias.push(g);
-        });
-
-        if (guias.length === 0) { descartadas++; continue; }
-        guias.forEach(g => salida.push({
-            guia: g, fecha: fecha, pedimento: ped, origen: String(origen || "")
-        }));
+        let g = claveGuiaHouse(fila[cols.guia]);
+        if (g === "" || !esGuiaUPSValida(g)) { descartadas++; continue; }
+        salida.push({ guia: g, fecha: fecha, pedimento: ped,
+                      origen: String(origen || "") });
     }
     globalSalidasDescartadas += descartadas;
     return salida;
@@ -625,4 +627,130 @@ function medirIndiceDeSalidas() {
         L.push("   estrategia. Dímelo antes de seguir.");
     }
     ui.alert("📏 Índice de salidas", L.join("\n"), ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// PROBAR SIN IMPORTAR
+//
+// «Sube todo y tú escoges» solo funciona si puedes VER qué escogí antes de que
+// entre nada. Una base de datos entera trae veinte columnas y yo me quedo con
+// tres; si me equivoco de columna de fecha, el reparto caliente/frío se va al
+// traste en silencio, y si me equivoco de columna de guía, el índice se llena
+// de basura que después BLOQUEA escaneos.
+//
+// Esto lee el archivo, enseña qué columnas encontró, cuáles ignora y cómo
+// quedarían las primeras filas — y no escribe absolutamente nada.
+// -------------------------------------------------------------------------
+
+// El informe, dadas las cabeceras y lo que se detectó. Puro, para poder
+// probarlo: es el texto que decide si el usuario aprueba o corrige.
+function informeDeColumnasSalida(cab, cols) {
+    let L = [];
+    let nombre = i => (i === -1 ? null : String((cab || [])[i] === undefined ? "" : cab[i]).trim());
+
+    L.push("── LO QUE VOY A USAR ──");
+    L.push("  Guía:      " + (cols.guia === -1
+        ? "❌ NO LA ENCUENTRO — sin esto no se importa nada"
+        : "columna " + (cols.guia + 1) + "  «" + nombre(cols.guia) + "»"));
+    L.push("  Fecha:     " + (cols.fecha === -1
+        ? "⚠️ ninguna — TODO se quedaría en el índice caliente"
+        : "columna " + (cols.fecha + 1) + "  «" + nombre(cols.fecha) + "»"));
+    L.push("  Pedimento: " + (cols.pedimento === -1
+        ? "(ninguna; el aviso saldrá sin número de pedimento)"
+        : "columna " + (cols.pedimento + 1) + "  «" + nombre(cols.pedimento) + "»"));
+
+    let usadas = [cols.guia, cols.fecha, cols.pedimento];
+    let ignoradas = [];
+    for (let i = 0; i < (cab || []).length; i++) {
+        if (usadas.indexOf(i) !== -1) continue;
+        let n = nombre(i);
+        ignoradas.push(n === "" ? "(sin nombre)" : n);
+    }
+
+    L.push("");
+    L.push("── LO QUE IGNORO (" + ignoradas.length + " columnas) ──");
+    if (ignoradas.length === 0) L.push("  Ninguna: uso el archivo entero.");
+    else {
+        L.push("  " + ignoradas.slice(0, 25).join(" · "));
+        if (ignoradas.length > 25) L.push("  …y " + (ignoradas.length - 25) + " más.");
+        L.push("");
+        L.push("  Sobran sin coste: el índice solo guarda guía, fecha y pedimento.");
+        L.push("  Si alguna de esas te sirve más que la que elegí, dímelo.");
+    }
+    return L.join("\n");
+}
+
+function probarArchivoDeSalidas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let lista = urlsDeSalidas();
+    if (lista.length === 0) {
+        ui.alert("🔎 Probar el histórico de salidas",
+                 "No hay ningún vínculo guardado.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let partes = [];
+    for (let i = 0; i < lista.length; i++) {
+        let etiqueta = "SALIDAS #" + (i + 1);
+        let r = bajarDeOneDrive(lista[i]);
+
+        if (!r || r.error) {
+            partes.push("── " + etiqueta + " ──\n❌ No se pudo conectar: " +
+                        ((r && r.error) || "sin respuesta"));
+            continue;
+        }
+        let d = "── " + etiqueta + " ──\n" +
+                "HTTP " + r.codigo + " · " + (r.texto.length / 1048576).toFixed(1) +
+                " MB · parece " + String(r.clase).toUpperCase() + "\n";
+        if (r.codigo !== 200 || r.clase !== "csv") {
+            partes.push(d + "❌ " + explicarDescargaMala(r.clase));
+            continue;
+        }
+        if (excedeElLimite(r.texto.length)) {
+            partes.push(d + "❌ " + avisoDeTamano(r.texto.length));
+            continue;
+        }
+
+        let lineas = r.texto.split("\n");
+        // −1 por la cabecera. Es una cuenta de renglones, no de guías: una fila
+        // sin guía válida no entrará.
+        d += "Renglones: ~" + Math.max(0, lineas.length - 1).toLocaleString() + "\n";
+
+        let sepDiag = diagnosticoDelSeparador(lineas[0] || "");
+        d += sepDiag.texto + "\n";
+        if (sepDiag.campos < 2) { partes.push(d + "\n" + AVISO_SIN_PARTIR); continue; }
+
+        let cab = Utilities.parseCsv(lineas[0] || "", sepDiag.sep)[0] || [];
+        let cols = detectarColumnasSalida(cab);
+        d += "\n" + informeDeColumnasSalida(cab, cols) + "\n";
+
+        if (cols.guia !== -1) {
+            // Solo las primeras filas: es una muestra para mirar con los ojos,
+            // no una validación del archivo entero.
+            let muestra = Utilities.parseCsv(
+                lineas.slice(0, 6).join("\n"), sepDiag.sep);
+            reiniciarSalidasDescartadas();
+            let filas = filasDeSalidas(muestra, cols, etiqueta);
+            d += "\n── CÓMO QUEDARÍAN LAS PRIMERAS FILAS ──\n";
+            if (filas.length === 0) {
+                d += "  ⚠️ Ninguna de las primeras 5 trae una guía válida.\n" +
+                     "     Comprueba que la columna que elegí es la correcta.";
+            } else {
+                filas.forEach(f => {
+                    d += "  " + f.guia + "   ·   " + textoFechaSalida(f.fecha) +
+                         (f.pedimento ? "   ·   ped. " + f.pedimento : "") + "\n";
+                });
+                if (salidasDescartadas() > 0) {
+                    d += "  (" + salidasDescartadas() + " de esas 5 sin guía válida)";
+                }
+            }
+        }
+        partes.push(d);
+    }
+
+    partes.push("\nNo se ha importado nada. Esto solo mira.");
+    ui.alert("🔎 Probar el histórico de salidas", partes.join("\n\n"), ui.ButtonSet.OK);
 }
