@@ -932,7 +932,13 @@ function empaquetarSalidas(filas) {
     (filas || []).forEach(f => {
         let g = claveGuiaHouse(f[0]);
         if (g === "") return;
-        let reg = "|" + g + ":" + claveFechaSalida(f[1]);
+        // Tercer campo: el pedimento. Sin él el aviso solo puede decir el DÍA,
+        // y con eso el operador sabe que algo pasa pero no dónde ir a mirar.
+        // Va al final y de largo variable —hay salidas sin pedimento— así que
+        // se lee hasta el siguiente «|».
+        let ped = String(f[2] === undefined || f[2] === null ? "" : f[2]).trim();
+        if (!/^\d{7}$/.test(ped)) ped = "";
+        let reg = "|" + g + ":" + claveFechaSalida(f[1]) + ":" + ped;
         // Se corta ANTES de pasarse, nunca a mitad de un registro: un registro
         // partido entre dos celdas se volvería a unir al leer, pero si alguien
         // mira la pestaña vería basura y pensaría que está corrupta.
@@ -956,8 +962,21 @@ function buscarSalidaEnBlob(blob, guia) {
     if (!blob || g === "") return null;
     let i = blob.indexOf("|" + g + ":");
     if (i === -1) return null;
-    return { fecha: fechaDeClaveSalida(blob.substr(i + g.length + 2, 6)),
-             pedimento: "" };
+
+    let desde = i + g.length + 2;                 // justo tras «|guía:»
+    let fecha = fechaDeClaveSalida(blob.substr(desde, 6));
+
+    // El pedimento es opcional Y de largo variable, así que se lee hasta el
+    // siguiente separador. Una lista escrita por una versión anterior no lo
+    // lleva, y entonces aquí no hay «:» —el aviso sale sin pedimento en vez de
+    // con basura—.
+    let ped = "";
+    if (blob.charAt(desde + 6) === ":") {
+        let fin = blob.indexOf("|", desde + 7);
+        ped = blob.substring(desde + 7, fin === -1 ? blob.length : fin);
+        if (!/^\d{7}$/.test(ped)) ped = "";
+    }
+    return { fecha: fecha, pedimento: ped };
 }
 
 // -------------------------------------------------------------------------

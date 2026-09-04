@@ -3392,6 +3392,31 @@ ok("un trozo de otra guía NO cuenta como salida",
 ok("ni el principio de otra guía",
    buscarSalidaEnBlob(blobT, "1Z01391267") === null);
 
+// EL PEDIMENTO EN LA LISTA RÁPIDA. Sin él el aviso solo puede decir el día, y
+// con eso el operador sabe que algo pasa pero no dónde ir a mirar.
+let blobP = empaquetarSalidas([
+    ["1Z0139126764115028", new Date(2026, 0, 15), "1234567", ""],
+    ["1Z013A440467552595", new Date(2026, 7, 3), "", ""]
+]).map(t => t[0]).join("");
+ok("el pedimento viaja en la lista rápida",
+   buscarSalidaEnBlob(blobP, "1Z0139126764115028").pedimento === "1234567");
+ok("y sale en el aviso",
+   avisoDeSalidaPrevia(buscarSalidaEnBlob(blobP, "1Z0139126764115028"))
+       .indexOf("1234567") !== -1);
+ok("sin pedimento el aviso sigue saliendo con la fecha",
+   avisoDeSalidaPrevia(buscarSalidaEnBlob(blobP, "1Z013A440467552595"))
+       .indexOf("03/08/2026") !== -1);
+ok("una salida sin pedimento no arrastra el de la siguiente",
+   buscarSalidaEnBlob(blobP, "1Z013A440467552595").pedimento === "");
+// Una lista escrita por la versión anterior no lleva el tercer campo. Tiene que
+// seguir funcionando, o el primer escaneo tras actualizar daría basura.
+ok("una lista vieja (sin pedimento) se sigue leyendo",
+   buscarSalidaEnBlob("|1Z0139126764115028:260115", "1Z0139126764115028")
+       .fecha.getTime() === new Date(2026, 0, 15).getTime());
+ok("y devuelve el pedimento vacío, no basura",
+   buscarSalidaEnBlob("|1Z0139126764115028:260115", "1Z0139126764115028")
+       .pedimento === "");
+
 ok("un blob vacío no encuentra nada", buscarSalidaEnBlob("", "1Z0139126764115028") === null);
 ok("null tampoco revienta", buscarSalidaEnBlob(null, "1Z0139126764115028") === null);
 ok("una guía vacía no encuentra nada", buscarSalidaEnBlob(blobT, "") === null);
