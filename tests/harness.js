@@ -3253,5 +3253,40 @@ ok("sin fecha avisa del caliente",
 ok("sin cabeceras no revienta",
    informeDeColumnasSalida([], detectarColumnasSalida([])).length > 0);
 
+console.log("\n--- 7h. El archivo real: cabeceras «1Z» y «Fecha» ---");
+// Las cabeceras que trae el histórico de verdad. «1Z» como nombre de columna es
+// un caso al filo: la búsqueda de la guía mira si la cabecera CONTIENE «1Z», y
+// aquí la cabecera ES «1Z». Y «Fecha» a secas tiene que ganar aunque no diga
+// «salida» por ningún lado.
+let cabHist = ["1Z", "Fecha"];
+let colsHist = detectarColumnasSalida(cabHist);
+ok("«1Z» se reconoce como la columna de la guía", colsHist.guia === 0);
+ok("«Fecha» a secas vale como fecha", colsHist.fecha === 1);
+ok("sin pedimento no pasa nada", colsHist.pedimento === -1);
+
+// Y las filas de verdad, tal como salen del CSV.
+reiniciarSalidasDescartadas();
+let realS = filasDeSalidas([
+    ["1Z", "Fecha"],
+    ["1Z0139126764115028", "15/01/2026"],
+    ["1Z01E9E1670102996", "15/01/2026"]      // 17 caracteres: no es válida
+], colsHist, "historico.csv");
+ok("la guía de 18 entra", realS.length === 1);
+ok("con su fecha bien leída",
+   realS[0].fecha.getFullYear() === 2026 && realS[0].fecha.getMonth() === 0 &&
+   realS[0].fecha.getDate() === 15);
+ok("una guía corta no entra", salidasDescartadas() === 1);
+
+// El aviso sin pedimento sigue siendo útil: dice el día.
+ok("sin pedimento el aviso lleva la fecha igual",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 0, 15), pedimento: "" })
+       .indexOf("15/01/2026") !== -1);
+
+// Excel exporta la fecha como número si la columna no tiene formato de fecha.
+// Con dos columnas y una siendo la fecha, que eso pase inadvertido dejaría el
+// histórico ENTERO en el caliente.
+ok("una fecha exportada como número de Excel se entiende",
+   aFechaInbound("46037").getFullYear() === 2026);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
