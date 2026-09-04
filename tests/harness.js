@@ -3500,5 +3500,31 @@ ok("sin fecha no se compara nada", !esMismoDiaSalida(null, hoyM));
 ok("una salida sin fecha avisa igual",
    avisoDeSalidaPrevia({ fecha: null, pedimento: "" }, hoyM) !== "");
 
+console.log("\n--- 7n. El aviso del pedimento tiene que caber donde ya hay resumen ---");
+// EL FALLO REAL, visto en una captura: la guía decía «⛔ YA SALIÓ el 03/09/2026
+// (ped. 6103516)» y el pedimento de arriba no decía nada. La causa: la fila de
+// un pedimento NUNCA está vacía —siempre lleva «Bultos: N | …»— y mi guarda era
+// «solo escribo donde no hay nada». Así no salía nunca.
+let rBped = [["Bultos: 0" + SEP_RESUMEN + "⚠️ 1 con alerta"], [""]];
+let cBped = [["#FFFFFF"], ["#FFFFFF"]];
+let dMped = [["6103516"], ["1ZY359X26713457482"]];
+// Sin módulo de salidas no puede reventar: es un archivo aparte que puede no
+// estar pegado.
+marcarPedimentosYaUsados(rBped, cBped, dMped, 2, null);
+ok("sin módulo de salidas no revienta ni ensucia",
+   rBped[0][0].indexOf("Bultos: 0") === 0);
+
+// Un 🛑 ya puesto habla de HOY y dice dónde está el gemelo: no se pisa.
+ok("un 🛑 crítico manda sobre el aviso de otro día",
+   nivelAlerta("🛑 PEDIMENTO REPETIDO (también en la fila 40)") >
+   nivelAlerta("Bultos: 12" + SEP_RESUMEN + "⚠️ 1 con alerta"));
+// Y el resumen del bloque NO es una alerta: por eso el aviso puede pisarlo.
+ok("el resumen del bloque no bloquea el aviso",
+   nivelAlerta("Bultos: 12") < nivelAlerta("🛑 PEDIMENTO YA USADO el 15/01/2026"));
+// Y el recuento de bultos no se puede perder al poner el aviso.
+ok("la cola del resumen se conserva",
+   colaResumen("Bultos: 12" + SEP_RESUMEN + "⚠️ 1 con alerta") !== "");
+ok("y una fila sin resumen no inventa cola", colaResumen("") === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

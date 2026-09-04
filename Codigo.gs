@@ -2206,15 +2206,21 @@ function marcarPedimentosRepetidosDentro(resultadosB, coloresB, filasDuplicadas,
 // pedimento, y solo escribe donde no hay nada: los otros dos hablan de hoy
 // —dicen la pestaña y la fila donde está el gemelo—, así que son más
 // accionables y mandan si se dan a la vez.
+// LO QUE SE ME ESCAPÓ LA PRIMERA VEZ: la fila de un pedimento NUNCA está
+// vacía. Siempre lleva el resumen del bloque —«Bultos: 12 | …»—, así que una
+// guarda de «solo escribo donde no hay nada» no dejaba salir este aviso jamás.
+// Se hace como los otros dos: se compara por NIVEL y se conserva la cola del
+// resumen, que es el recuento de bultos y no se puede perder.
 function marcarPedimentosYaUsados(resultadosB, coloresB, datosMasivos, ultimaFila, source) {
     if (typeof avisoDePedimentoUsado !== 'function') return;
     for (let i = 0; i < ultimaFila; i++) {
-        if (String(resultadosB[i][0]).trim() !== "") continue;
+        // Un 🛑 ya puesto habla de HOY y dice dónde está el gemelo: manda.
+        if (nivelAlerta(resultadosB[i][0]) >= NIVEL_CRITICO) continue;
         let v = String(datosMasivos[i][0]).trim();
         if (!/^\d{7}$/.test(v)) continue;
         let aviso = avisoDePedimentoUsado(source, v);
         if (aviso === "") continue;
-        resultadosB[i][0] = aviso;
+        resultadosB[i][0] = aviso + colaResumen(resultadosB[i][0]);
         coloresB[i][0] = "#dc3545";
     }
 }
