@@ -4366,6 +4366,17 @@ function onOpen() {
                   .addSeparator()
                   .addItem('⛔ Apagar el módulo en este archivo',
                            'desactivarHousesEnEsteArchivo'));
+
+          if (typeof importarSalidasDesdeOneDrive === 'function') {
+              menu.addSubMenu(ui.createMenu('📤 Histórico de salidas')
+                  .addItem('☁️ Importar salidas desde OneDrive', 'importarSalidasDesdeOneDrive')
+                  .addItem('📥 Importar salidas desde Drive', 'importarSalidasDesdeDrive')
+                  .addItem('🔗 Añadir vínculo del histórico', 'configurarUrlSalidas')
+                  .addItem('🧹 Quitar los vínculos', 'quitarUrlsSalidas')
+                  .addSeparator()
+                  .addItem('📏 ¿Cuánto pesa el índice de salidas?', 'medirIndiceDeSalidas')
+                  .addItem('♻️ Reimportar todos los CSV', 'olvidarSalidasImportadas'));
+          }
       } else if (typeof activarHousesEnEsteArchivo === 'function') {
           menu.addSeparator()
               .addItem('🏠 Activar el índice de houses…', 'activarHousesEnEsteArchivo');

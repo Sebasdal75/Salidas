@@ -1,0 +1,628 @@
+// =========================================================================
+// ÍNDICE DE SALIDAS: lo que YA se fue
+// =========================================================================
+//
+// QUÉ RESUELVE
+//
+// Una guía que ya se embarcó hace días y se vuelve a escanear hoy. Hasta ahora
+// eso no lo veía nadie: el ⛔ DUPLICADO solo mira las pestañas VIVAS del
+// archivo, y en cuanto un bloque se cierra y se limpia, esa guía desaparece del
+// caché y vuelve a ser «nueva». Un doble embarque no deja rastro.
+//
+// La pestaña HISTORICO ya intentaba cubrirlo, pero a medias: hay que llenarla a
+// mano, engorda el archivo de operación, y solo revisa cuando alguien aprieta
+// el botón —o sea, cuando el camión ya salió—.
+//
+// CÓMO
+//
+// Mismo motor que el índice de houses, que ya está probado: se importan los
+// concentrados de salidas, se indexan `guía → fecha + pedimento`, y se reparten
+// entre un índice CALIENTE (lo reciente, lo que de verdad puede repetirse) y un
+// ARCHIVO FRÍO (lo viejo, que se guarda pero no se consulta en caliente).
+//
+// LO QUE ESTE ARCHIVO NO HACE TODAVÍA
+//
+// El aviso al escanear. Esa parte tiene que ser INSTANTÁNEA y BLOQUEANTE, y su
+// coste depende de cuántas guías acabe teniendo el índice caliente —que es un
+// dato que ahora mismo nadie tiene—. Importar primero y medir después es el
+// orden correcto: diseñar el camino rápido a ojo es cómo se acaba con un
+// escaneo de tres segundos.
+//
+// LA REGLA QUE MANDA AQUÍ: GANA LA PRIMERA SALIDA
+//
+// Al contrario que las houses —donde gana el inbound porque es lo que llegó de
+// verdad—, aquí lo que importa es CUÁNDO SE FUE POR PRIMERA VEZ. Si un
+// concentrado dice que salió el 12/08 y otro que el 03/09, la respuesta útil es
+// el 12/08: es la que convierte el segundo escaneo en sospechoso. Quedarse con
+// la última haría lo contrario, esconder el primer embarque.
+// =========================================================================
+
+const HOJA_INDICE_SALIDAS = "INDICE_SALIDAS";
+const HOJA_INDICE_SALIDAS_FRIO = "INDICE_SALIDAS_FRIO";
+
+// Cuántos días se consideran «recientes». Una guía que salió hace ocho meses y
+// vuelve hoy es casi seguro una devolución legítima; una que salió hace tres
+// semanas y vuelve es lo que hay que mirar. El corte acota además el tamaño de
+// lo que algún día habrá que llevar al camino rápido del escaneo.
+const DIAS_SALIDAS_CALIENTE = 120;
+
+const CARPETA_SALIDAS = "SALIDAS_HISTORICO";
+const PROP_URL_SALIDAS = 'SALIDAS_URLS_ONEDRIVE';
+const PROP_ARCHIVOS_SALIDAS = 'SALIDAS_ARCHIVOS_IMPORTADOS';
+
+const CAB_INDICE_SALIDAS = ["GUIA", "FECHA", "PEDIMENTO", "ORIGEN"];
+
+// -------------------------------------------------------------------------
+// LEER EL CONCENTRADO
+// -------------------------------------------------------------------------
+
+// Dónde está cada cosa en el CSV de salidas.
+//
+// Se busca por NOMBRE, igual que en el inbound y por la misma razón: una
+// posición fija se rompe en silencio el día que alguien toca la consulta, y
+// empezaría a leer fechas de la columna de al lado sin que nada avisara.
+//
+// La GUÍA es lo único imprescindible. Sin fecha, la salida se queda en el
+// índice caliente —que es el lado seguro: verla de más cuesta una consulta, no
+// verla cuesta un doble embarque—.
+function detectarColumnasSalida(headers) {
+    let norm = (headers || []).map(h => sinAcentos(String(h).trim().toUpperCase()));
+    let buscar = (claves, excluir) => {
+        for (let i = 0; i < norm.length; i++) {
+            let h = norm[i];
+            if (excluir && excluir.some(x => h.indexOf(x) !== -1)) continue;
+            if (claves.some(c => h.indexOf(c) !== -1)) return i;
+        }
+        return -1;
+    };
+
+    // «GUIA CORTA» es la house, no la guía: mismo choque que en el inbound.
+    let guia = buscar(["1Z", "TRACKING", "GUIA", "RASTREO"],
+                      ["CORTA", "HOUSE", "HAWB", "CASA", "SHIPMENT"]);
+    // «FECHA DE SALIDA» y «SALIDA» ganan a un «FECHA» suelto: un concentrado
+    // suele traer varias fechas —captura, salida, cierre— y la que vale es la
+    // de salida.
+    let fecha = buscar(["FECHA SALIDA", "FECHA DE SALIDA", "F. SALIDA"]);
+    if (fecha === -1) fecha = buscar(["SALIDA", "EMBARQUE", "DESPACHO"]);
+    if (fecha === -1) fecha = buscar(["FECHA", "DATE"]);
+
+    let pedimento = buscar(["PEDIMENTO", "PEDIM"]);
+    return { guia: guia, fecha: fecha, pedimento: pedimento };
+}
+
+// Cuántas salidas se descartaron por no traer una guía reconocible.
+let globalSalidasDescartadas = 0;
+function salidasDescartadas() { return globalSalidasDescartadas; }
+function reiniciarSalidasDescartadas() { globalSalidasDescartadas = 0; }
+
+// Del CSV crudo a filas limpias.
+//
+// Igual que en el inbound, se barre la fila entera buscando guías enterradas en
+// texto: los concentrados de salida arrastran referencias y descripciones donde
+// la guía viene pegada a otras cosas. Y por el mismo motivo que allí, ese
+// trabajo se paga UNA vez al importar y no en cada consulta.
+function filasDeSalidas(datos, cols, origen) {
+    let salida = [];
+    let descartadas = 0;
+    if (!datos || cols.guia === -1) return salida;
+
+    for (let i = 1; i < datos.length; i++) {
+        let fila = datos[i];
+        if (!fila) continue;
+
+        let fecha = cols.fecha === -1 ? null : aFechaInbound(fila[cols.fecha]);
+        let ped = cols.pedimento === -1 ? ""
+                : String(fila[cols.pedimento] === undefined ? "" : fila[cols.pedimento]).trim();
+        // Un pedimento es de 7 dígitos. Lo que no lo sea no se guarda como tal:
+        // más vale la celda vacía que un número inventado al lado de un aviso
+        // que bloquea.
+        if (!/^\d{7}$/.test(ped)) ped = "";
+
+        let guias = [];
+        let exacta = claveGuiaHouse(fila[cols.guia]);
+        if (exacta !== "" && esGuiaUPSValida(exacta)) guias.push(exacta);
+        guiasDeFila(fila, cols.guia).forEach(g => {
+            if (guias.indexOf(g) === -1) guias.push(g);
+        });
+
+        if (guias.length === 0) { descartadas++; continue; }
+        guias.forEach(g => salida.push({
+            guia: g, fecha: fecha, pedimento: ped, origen: String(origen || "")
+        }));
+    }
+    globalSalidasDescartadas += descartadas;
+    return salida;
+}
+
+function filasDeCsvDeSalidas(texto, cols, origen) {
+    let lineas = String(texto).split("\n");
+    let cabecera = lineas[0] || "";
+    let sep = separadorCsv(cabecera);
+    let salida = [];
+    bloquesDeLineas(texto, LINEAS_POR_BLOQUE, cabecera).forEach(bloque => {
+        let datos = Utilities.parseCsv(bloque, sep);
+        filasDeSalidas(datos, cols, origen).forEach(r => salida.push(r));
+    });
+    return salida;
+}
+
+// -------------------------------------------------------------------------
+// FUSIONAR
+// -------------------------------------------------------------------------
+
+// Gana la PRIMERA salida (ver la cabecera del archivo). Además se cuenta
+// cuántas veces aparece cada guía: una guía que figura dos veces en el propio
+// histórico YA es un doble embarque pasado, y eso hay que poder verlo sin
+// esperar a que alguien la vuelva a escanear.
+//
+// Cada fila del índice es [guía, fecha, pedimento, origen].
+function fusionarEnIndiceSalidas(existentes, nuevas) {
+    let filas = [];
+    let porGuia = new Map();
+    (existentes || []).forEach(f => {
+        let g = claveGuiaHouse(f[0]);
+        if (g === "" || porGuia.has(g)) return;
+        let fila = [g, f[1] === undefined ? "" : f[1],
+                    f[2] === undefined ? "" : f[2],
+                    f[3] === undefined ? "" : f[3]];
+        porGuia.set(g, fila);
+        filas.push(fila);
+    });
+
+    let anadidas = 0, adelantadas = 0;
+    let repetidas = [];
+    (nuevas || []).forEach(n => {
+        let previa = porGuia.get(n.guia);
+        if (previa === undefined) {
+            let fila = [n.guia, n.fecha || "", n.pedimento || "", n.origen || ""];
+            porGuia.set(n.guia, fila);
+            filas.push(fila);
+            anadidas++;
+            return;
+        }
+
+        let antes = aFechaInbound(previa[1]);
+        let ahora = n.fecha;
+
+        // Mismo pedimento y misma fecha: es el mismo renglón visto dos veces
+        // (dos concentrados que se solapan). No es un doble embarque.
+        let mismaFecha = (antes && ahora && antes.getTime() === ahora.getTime()) ||
+                         (!antes && !ahora);
+        if (mismaFecha && String(previa[2]) === String(n.pedimento || "")) return;
+
+        // Dos salidas de verdad para la misma guía. Se reporta SIEMPRE: esto ya
+        // es el problema que el índice existe para encontrar, solo que ocurrido
+        // en el pasado.
+        repetidas.push({
+            guia: n.guia,
+            primera: previa[1], pedPrimera: previa[2],
+            segunda: n.fecha || "", pedSegunda: n.pedimento || ""
+        });
+
+        // Y se conserva la más ANTIGUA.
+        if (antes && ahora && ahora < antes) {
+            previa[1] = n.fecha;
+            previa[2] = n.pedimento || previa[2];
+            previa[3] = n.origen || previa[3];
+            adelantadas++;
+        } else if (!antes && ahora) {
+            previa[1] = n.fecha;
+            previa[2] = n.pedimento || previa[2];
+            previa[3] = n.origen || previa[3];
+        }
+    });
+
+    return { filas: filas, anadidas: anadidas, adelantadas: adelantadas,
+             repetidas: repetidas };
+}
+
+// -------------------------------------------------------------------------
+// EL ÍNDICE EN SHEETS
+// -------------------------------------------------------------------------
+
+function hojaIndiceSalidas(nombre, crear) {
+    let libro = archivoDelIndice();
+    let h = libro.getSheetByName(nombre);
+    if (!h && crear) {
+        h = libro.insertSheet(nombre);
+        h.getRange(1, 1, 1, 4).setValues([CAB_INDICE_SALIDAS]);
+        h.setFrozenRows(1);
+        if (!indiceEstaAparte()) h.hideSheet();
+    }
+    return h;
+}
+
+function leerIndiceSalidas(nombre) {
+    let h = hojaIndiceSalidas(nombre, false);
+    if (!h) return [];
+    let lr = h.getLastRow();
+    if (lr < 2) return [];
+    let ancho = Math.max(1, Math.min(4, h.getLastColumn()));
+    let filas = h.getRange(2, 1, lr - 1, ancho).getValues();
+    if (ancho === 4) return filas;
+    return filas.map(f => {
+        let c = f.slice();
+        while (c.length < 4) c.push("");
+        return c;
+    });
+}
+
+function escribirIndiceSalidas(nombre, filas) {
+    let h = hojaIndiceSalidas(nombre, true);
+    if (h.getMaxColumns() < 4) h.insertColumnsAfter(h.getMaxColumns(), 4 - h.getMaxColumns());
+    h.getRange(1, 1, 1, 4).setValues([CAB_INDICE_SALIDAS]);
+    let lr = h.getLastRow();
+    if (lr > 1) h.getRange(2, 1, lr - 1, 4).clearContent();
+    if (filas.length === 0) return;
+    asegurarFilas(h, filas.length + 1);
+    for (let i = 0; i < filas.length; i += FILAS_POR_ESCRITURA) {
+        let tramo = filas.slice(i, i + FILAS_POR_ESCRITURA);
+        h.getRange(2 + i, 1, tramo.length, 4).setValues(tramo);
+    }
+}
+
+// Reparte el índice entre caliente y frío. La fecha va en la posición 1, no en
+// la 2 como en el índice de houses, así que no se puede reusar el de allí: la
+// alternativa era remapear cada fila para volver a remapearla después, y eso en
+// cientos de miles de filas es una búsqueda dentro de un bucle.
+//
+// Sin fecha se queda en el CALIENTE, igual que las houses y por una razón más
+// fuerte todavía: aquí lo que hay al otro lado es un aviso que BLOQUEA. Mandar
+// al frío una salida cuya fecha no se entendió sería esconder justo el caso que
+// hay que ver.
+function particionSalidasPorAntiguedad(filas, hoy, dias) {
+    let corte = new Date(hoy.getTime() - dias * 24 * 60 * 60 * 1000);
+    let calientes = [], frias = [];
+    (filas || []).forEach(f => {
+        let fecha = aFechaInbound(f[1]);
+        if (fecha === null || fecha >= corte) calientes.push(f);
+        else frias.push(f);
+    });
+    return { calientes: calientes, frias: frias };
+}
+
+// Fusiona, reparte caliente/frío, escribe, y devuelve el resumen.
+function volcarAlIndiceSalidas(nuevas) {
+    let fusion = fusionarEnIndiceSalidas(
+        leerIndiceSalidas(HOJA_INDICE_SALIDAS)
+            .concat(leerIndiceSalidas(HOJA_INDICE_SALIDAS_FRIO)), nuevas);
+    let particion = particionSalidasPorAntiguedad(
+        fusion.filas, new Date(), DIAS_SALIDAS_CALIENTE);
+    let calientes = particion.calientes;
+    let frias = particion.frias;
+
+    escribirIndiceSalidas(HOJA_INDICE_SALIDAS, calientes);
+    escribirIndiceSalidas(HOJA_INDICE_SALIDAS_FRIO, frias);
+
+    let conFecha = (nuevas || []).filter(n => n.fecha).length;
+    let total = (nuevas || []).length;
+    let msg = "Salidas leídas del archivo: " + total + "\n" +
+              "  · con fecha reconocida: " + conFecha + "\n" +
+              "Guías nuevas en el índice: " + fusion.anadidas + "\n" +
+              "Índice caliente (últimos " + DIAS_SALIDAS_CALIENTE + " días): " +
+              calientes.length + "\n" +
+              "Archivo frío: " + frias.length;
+
+    let tiradas = salidasDescartadas();
+    if (tiradas > 0) {
+        msg += "\n\n🚫 " + tiradas + " renglones sin ninguna guía reconocible " +
+               "(totales, subtotales, filas en blanco).";
+    }
+
+    if (total > 0 && conFecha < total / 2) {
+        msg += "\n\n⚠️ Solo " + conFecha + " de " + total + " salidas traen una " +
+               "fecha que se entienda. Las demás se quedan en el índice CALIENTE.\n\n" +
+               "Suele ser que la columna de fecha no está formateada como fecha en " +
+               "Excel. Dale formato de fecha y vuelve a exportar.";
+    }
+
+    if (fusion.repetidas.length) {
+        msg += "\n\n⚠️ " + fusion.repetidas.length + " guías que YA SALIERON DOS " +
+               "VECES según tu propio histórico:\n" +
+               fusion.repetidas.slice(0, 8).map(r =>
+                   "  " + r.guia + ": " + textoFechaSalida(r.primera) +
+                   (r.pedPrimera ? " (ped. " + r.pedPrimera + ")" : "") +
+                   "  y  " + textoFechaSalida(r.segunda) +
+                   (r.pedSegunda ? " (ped. " + r.pedSegunda + ")" : "")
+               ).join("\n");
+        if (fusion.repetidas.length > 8) {
+            msg += "\n  …y " + (fusion.repetidas.length - 8) + " más.";
+        }
+        msg += "\n\nEsto es exactamente lo que el índice existe para evitar, pero " +
+               "ya ocurrido. Vale la pena revisarlas antes de seguir.";
+    }
+    return msg;
+}
+
+// dd/MM/yyyy sin pasar por `Utilities.formatDate`.
+//
+// No es purismo: `formatDate` convierte a la zona horaria del script, y una
+// fecha de salida construida a medianoche local puede retroceder un día al
+// formatearla. Un aviso que BLOQUEA no puede decir una fecha que no es —el
+// operador va a buscar ese embarque al día equivocado—. Aquí la fecha se
+// escribe tal como se guardó.
+function textoFechaSalida(v) {
+    if (v === "" || v === null || v === undefined) return "sin fecha";
+    let d = aFechaInbound(v);
+    if (!d) return String(v);
+    let dd = String(d.getDate());
+    let mm = String(d.getMonth() + 1);
+    if (dd.length < 2) dd = "0" + dd;
+    if (mm.length < 2) mm = "0" + mm;
+    return dd + "/" + mm + "/" + d.getFullYear();
+}
+
+// -------------------------------------------------------------------------
+// CONSULTAR
+// -------------------------------------------------------------------------
+
+// Un Map guía → {fecha, pedimento} del índice caliente.
+function mapaDeSalidas(filas) {
+    let m = new Map();
+    (filas || []).forEach(f => {
+        let g = claveGuiaHouse(f[0]);
+        if (g === "") return;
+        m.set(g, { fecha: f[1], pedimento: String(f[2] || "") });
+    });
+    return m;
+}
+
+// El texto del aviso, dado lo que el índice sabe de esa guía.
+//
+// Se separa del resto para que el día que esto entre en el camino del escaneo
+// —que es a donde va— el mensaje ya esté decidido y probado, y no haya que
+// inventarlo dentro del bucle caliente.
+function avisoDeSalidaPrevia(info) {
+    if (!info) return "";
+    let f = textoFechaSalida(info.fecha);
+    return "⛔ YA SALIÓ el " + f +
+           (info.pedimento ? " (ped. " + info.pedimento + ")" : "");
+}
+
+// -------------------------------------------------------------------------
+// IMPORTAR
+//
+// Dos caminos, los mismos que el índice de houses y por las mismas razones: una
+// carpeta de Drive para cargas grandes de una vez, y vínculos de OneDrive para
+// el día a día. Toda la maquinaria de bajar, medir y partir el CSV se reusa;
+// aquí solo cambia QUÉ columnas se buscan y en qué índice se vuelca.
+// -------------------------------------------------------------------------
+
+function urlsDeSalidas() {
+    return String(PropertiesService.getScriptProperties()
+                  .getProperty(PROP_URL_SALIDAS) || "")
+        .split("\n").map(l => l.trim()).filter(l => l !== "");
+}
+
+function configurarUrlSalidas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let lista = urlsDeSalidas();
+    let r = ui.prompt("🔗 Vínculo del histórico de salidas",
+        "Pega el vínculo para compartir del CSV de salidas. Se AÑADE a los que " +
+        "ya hay (" + lista.length + " guardados).\n\n" +
+        "Tiene que ser de «cualquiera con el vínculo»: la descarga va anónima y " +
+        "con «gente de la organización» Microsoft devuelve la pantalla de " +
+        "inicio de sesión en vez del archivo.", ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return;
+
+    let url = String(r.getResponseText()).trim();
+    if (url === "") return;
+    lista.push(url);
+    PropertiesService.getScriptProperties()
+        .setProperty(PROP_URL_SALIDAS, lista.join("\n"));
+    ui.alert("🔗 Vínculo del histórico de salidas",
+             "Guardado. Ahora hay " + lista.length + ".", ui.ButtonSet.OK);
+}
+
+function quitarUrlsSalidas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+    PropertiesService.getScriptProperties().deleteProperty(PROP_URL_SALIDAS);
+    ui.alert("🔗 Vínculos de salidas", "Borrados todos.", ui.ButtonSet.OK);
+}
+
+// Lee un texto de CSV ya descargado y lo deja listo para el índice. Devuelve
+// {filas, problema}: `problema` explicado en castellano, o "" si todo fue bien.
+function salidasDeTexto(texto, etiqueta) {
+    let primeraLinea = String(texto).split("\n")[0] || "";
+    let sepDiag = diagnosticoDelSeparador(primeraLinea);
+    if (sepDiag.campos < 2) {
+        return { filas: [], problema: etiqueta + ": " + AVISO_SIN_PARTIR + "\n" +
+                 sepDiag.texto + "\nCabecera cruda: " + primeraLinea.trim().slice(0, 90) };
+    }
+
+    let cab = Utilities.parseCsv(primeraLinea, sepDiag.sep)[0] || [];
+    let cols = detectarColumnasSalida(cab);
+    if (cols.guia === -1) {
+        return { filas: [], problema: etiqueta + ": no encuentro la columna de la guía" +
+                 (cabecerasGenericas(cab) ? " (las cabeceras son «Column1, Column2…»: " +
+                  "promueve los encabezados en Power Query)" : "") +
+                 ".\nCabeceras: " + cab.slice(0, 8).join(" | ") };
+    }
+    return { filas: filasDeCsvDeSalidas(texto, cols, etiqueta), problema: "",
+             cols: cols, cabeceras: cab };
+}
+
+function importarSalidasDesdeOneDrive() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let lista = urlsDeSalidas();
+    if (lista.length === 0) {
+        ui.alert("📤 Histórico de salidas",
+                 "No hay ningún vínculo guardado.\n\nUsa «Añadir vínculo del " +
+                 "histórico de salidas» primero.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let nuevas = [], problemas = [], sinFecha = [];
+    reiniciarSalidasDescartadas();
+
+    for (let i = 0; i < lista.length; i++) {
+        let etiqueta = "SALIDAS #" + (i + 1);
+        let r = bajarDeOneDrive(lista[i]);
+
+        if (!r || r.error) {
+            problemas.push(etiqueta + ": no se pudo descargar (" +
+                           ((r && r.error) || "sin respuesta") + ")");
+            continue;
+        }
+        if (r.codigo !== 200) { problemas.push(etiqueta + ": Microsoft respondió " + r.codigo); continue; }
+        if (r.clase !== "csv") {
+            problemas.push(etiqueta + ": lo que bajó no es un CSV, parece " + r.clase);
+            continue;
+        }
+        if (excedeElLimite(r.texto.length)) {
+            problemas.push(etiqueta + ": " + (r.texto.length / 1048576).toFixed(1) +
+                           " MB, demasiado grande");
+            continue;
+        }
+
+        let leido = salidasDeTexto(r.texto, etiqueta);
+        if (leido.problema !== "") { problemas.push(leido.problema); continue; }
+        if (leido.cols.fecha === -1) sinFecha.push(etiqueta);
+        leido.filas.forEach(f => nuevas.push(f));
+    }
+
+    if (nuevas.length === 0) {
+        ui.alert("📤 Histórico de salidas",
+                 "No se pudo leer ninguna salida.\n\n" + problemas.join("\n\n"),
+                 ui.ButtonSet.OK);
+        return;
+    }
+
+    let resumen = "Archivos leídos: " + (lista.length - problemas.length) + " de " +
+                  lista.length + "\n\n" + volcarAlIndiceSalidas(nuevas);
+    if (sinFecha.length) {
+        resumen += "\n\n⚠️ Sin columna de fecha: " + sinFecha.join(", ") +
+                   "\nEsas salidas se quedan TODAS en el índice caliente.";
+    }
+    if (problemas.length) resumen += "\n\n❌ Con problemas:\n" + problemas.join("\n");
+    ui.alert("📤 Histórico de salidas", resumen, ui.ButtonSet.OK);
+}
+
+function importarSalidasDesdeDrive() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let carpetas = DriveApp.getFoldersByName(CARPETA_SALIDAS);
+    if (!carpetas.hasNext()) {
+        ui.alert("📤 Histórico de salidas",
+                 "No encontré una carpeta de Drive llamada «" + CARPETA_SALIDAS +
+                 "».\n\nCréala y sube ahí los CSV del histórico de salidas.",
+                 ui.ButtonSet.OK);
+        return;
+    }
+
+    let yaImportados = (PropertiesService.getScriptProperties()
+                        .getProperty(PROP_ARCHIVOS_SALIDAS) || "").split(",");
+    let archivos = carpetas.next().getFiles();
+    let nuevas = [], leidos = [], saltados = [], problemas = [];
+    reiniciarSalidasDescartadas();
+
+    while (archivos.hasNext()) {
+        let f = archivos.next();
+        // Por ID **y fecha de modificación**: Drive conserva el ID al subir una
+        // versión nueva encima, y un histórico que se actualiza se saltaría en
+        // silencio si la memoria fuera solo por ID.
+        let marca = marcaDeArchivo(f.getId(), f.getLastUpdated());
+        if (yaImportados.indexOf(marca) !== -1) continue;
+
+        let nombre = f.getName();
+        if (!/\.csv$/i.test(nombre)) { saltados.push(nombre); continue; }
+
+        let texto = textoDeArchivo(f);
+        if (excedeElLimite(texto.length)) {
+            problemas.push(nombre + " (" + (texto.length / 1048576).toFixed(1) + " MB)");
+            continue;
+        }
+
+        let leido = salidasDeTexto(texto, nombre);
+        if (leido.problema !== "") { problemas.push(leido.problema); continue; }
+        leido.filas.forEach(x => nuevas.push(x));
+        leidos.push(marca);
+    }
+
+    if (nuevas.length === 0 && leidos.length === 0) {
+        ui.alert("📤 Histórico de salidas",
+                 "No había archivos nuevos que importar." +
+                 (saltados.length ? "\n\nIgnorados (no son CSV): " + saltados.join(", ") : "") +
+                 (problemas.length ? "\n\n❌ " + problemas.join("\n") : ""),
+                 ui.ButtonSet.OK);
+        return;
+    }
+
+    let msg = volcarAlIndiceSalidas(nuevas);
+    PropertiesService.getScriptProperties()
+        .setProperty(PROP_ARCHIVOS_SALIDAS,
+                     yaImportados.concat(leidos).filter(x => x !== "").join(","));
+    if (problemas.length) msg += "\n\n❌ Con problemas:\n" + problemas.join("\n");
+    ui.alert("📤 Histórico de salidas", msg, ui.ButtonSet.OK);
+}
+
+function olvidarSalidasImportadas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+    PropertiesService.getScriptProperties().deleteProperty(PROP_ARCHIVOS_SALIDAS);
+    ui.alert("♻️ Reimportar salidas",
+             "Listo. La próxima importación volverá a leer todos los CSV de la " +
+             "carpeta.\n\nNo se pierde nada: las guías que ya estaban no se duplican.",
+             ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// MEDIR: cuánto pesa el índice caliente
+//
+// Este es el dato del que depende el siguiente paso —el aviso instantáneo al
+// escanear—, y no lo tiene nadie hasta que se importa de verdad. Diseñar el
+// camino rápido a ojo es cómo se acaba con un escaneo de tres segundos.
+// -------------------------------------------------------------------------
+function medirIndiceDeSalidas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let t0 = Date.now();
+    let calientes = leerIndiceSalidas(HOJA_INDICE_SALIDAS);
+    let msLectura = Date.now() - t0;
+    let frias = leerIndiceSalidas(HOJA_INDICE_SALIDAS_FRIO);
+
+    let t1 = Date.now();
+    let mapa = mapaDeSalidas(calientes);
+    let msMapa = Date.now() - t1;
+
+    let L = [];
+    L.push("Índice caliente: " + calientes.length.toLocaleString() + " guías");
+    L.push("Archivo frío:    " + frias.length.toLocaleString() + " guías");
+    L.push("Corte: " + DIAS_SALIDAS_CALIENTE + " días");
+    L.push("");
+    L.push("Leer el caliente:      " + msLectura + " ms");
+    L.push("Armar el Map:          " + msMapa + " ms");
+    L.push("Guías en el Map:       " + mapa.size.toLocaleString());
+    L.push("");
+    L.push("── QUÉ SIGNIFICA ──");
+    // 18 caracteres por guía es el tamaño real de una 1Z; es lo que ocuparía
+    // llevar el caliente empaquetado en el caché, que es la vía para que el
+    // aviso salga en el mismo escaneo.
+    let kb = Math.round(calientes.length * 18 / 1024);
+    L.push("Empaquetado en el caché ocuparía ~" + kb.toLocaleString() + " KB,");
+    L.push("o sea ~" + Math.ceil(calientes.length * 18 / 50000) + " celdas.");
+    L.push("");
+    if (calientes.length === 0) {
+        L.push("Todavía no hay nada importado.");
+    } else if (calientes.length <= 150000) {
+        L.push("✅ Cabe de sobra. El aviso instantáneo al escanear es viable");
+        L.push("   con este volumen.");
+    } else {
+        L.push("⚠️ Es mucho para llevarlo en cada escaneo. Habría que bajar el");
+        L.push("   corte de " + DIAS_SALIDAS_CALIENTE + " días, o cambiar de");
+        L.push("   estrategia. Dímelo antes de seguir.");
+    }
+    ui.alert("📏 Índice de salidas", L.join("\n"), ui.ButtonSet.OK);
+}

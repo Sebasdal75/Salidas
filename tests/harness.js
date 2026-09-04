@@ -25,6 +25,7 @@ const fs = require('fs');
 const path = require('path');
 eval(fs.readFileSync(path.join(__dirname, '..', 'Codigo.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'House.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'Salidas.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -3084,6 +3085,127 @@ ok("null en la celda es fantasma, no un falso confirmado",
 // Sin guía que contrastar no se puede confirmar nada: decir «confirmado»
 // porque dos vacíos coinciden sería la peor respuesta posible.
 ok("guía vacía nunca se confirma sola", !contrastarAparicion("", "").ok);
+
+// =========================================================================
+console.log("\n=== 7. ÍNDICE DE SALIDAS: lo que ya se fue ===");
+// =========================================================================
+
+console.log("\n--- 7a. Encontrar las columnas del concentrado ---");
+let cS = detectarColumnasSalida(["FECHA SALIDA", "GUIA", "PEDIMENTO"]);
+ok("guía", cS.guia === 1);
+ok("fecha de salida", cS.fecha === 0);
+ok("pedimento", cS.pedimento === 2);
+
+// «GUIA CORTA» es la house. Si se la llevara por delante, el índice de salidas
+// se llenaría de houses y CADA bulto de esa house bloquearía al escanearse.
+let cS2 = detectarColumnasSalida(["FECHA", "GUIA CORTA", "GUIA", "PEDIMENTO"]);
+ok("«GUIA CORTA» no se confunde con la guía", cS2.guia === 2);
+
+// Un concentrado trae varias fechas. La que vale es la de salida, no la primera
+// que aparezca: indexar por la fecha de captura mandaría al frío salidas
+// recientes, y al frío no se consulta.
+let cS3 = detectarColumnasSalida(["FECHA CAPTURA", "GUIA", "FECHA SALIDA"]);
+ok("gana la fecha de SALIDA sobre una fecha cualquiera", cS3.fecha === 2);
+ok("«EMBARQUE» también vale de fecha",
+   detectarColumnasSalida(["GUIA", "EMBARQUE"]).fecha === 1);
+ok("sin fecha se dice, no se inventa",
+   detectarColumnasSalida(["GUIA", "PEDIMENTO"]).fecha === -1);
+ok("sin guía no hay nada que hacer",
+   detectarColumnasSalida(["FECHA", "PEDIMENTO"]).guia === -1);
+ok("sin cabeceras no revienta", detectarColumnasSalida([]).guia === -1);
+ok("null tampoco", detectarColumnasSalida(null).guia === -1);
+
+console.log("\n--- 7b. Del CSV a filas de salida ---");
+reiniciarSalidasDescartadas();
+let csvS = [
+    ["FECHA SALIDA", "GUIA", "PEDIMENTO"],
+    ["12/08/2026", "1Z08E27V0411529440", "1234567"],
+    ["13/08/2026", "TOTAL", ""],                       // renglón de totales
+    ["14/08/2026", "1ZR1H0146727522666", "99"]         // pedimento inválido
+];
+let filS = filasDeSalidas(csvS, { guia: 1, fecha: 0, pedimento: 2 }, "hist.csv");
+ok("entran las dos guías válidas", filS.length === 2);
+ok("con su pedimento", filS[0].pedimento === "1234567");
+ok("un pedimento que no es de 7 dígitos se deja vacío", filS[1].pedimento === "");
+ok("el renglón de totales se descarta", salidasDescartadas() === 1);
+ok("la fecha se entiende", filS[0].fecha instanceof Date);
+
+console.log("\n--- 7c. Gana la PRIMERA salida, no la última ---");
+// Es la diferencia con el índice de houses, y no es un detalle: quedarse con la
+// última escondería el primer embarque, que es justo el que convierte al
+// segundo en sospechoso.
+let fusS = fusionarEnIndiceSalidas(
+    [["1Z08E27V0411529440", new Date(2026, 7, 12), "1234567", "a.csv"]],
+    [{ guia: "1Z08E27V0411529440", fecha: new Date(2026, 8, 3),
+       pedimento: "7654321", origen: "b.csv" }]);
+ok("se conserva la fecha más antigua",
+   fusS.filas[0][1].getTime() === new Date(2026, 7, 12).getTime());
+ok("y el pedimento de esa salida", fusS.filas[0][2] === "1234567");
+ok("la doble salida se reporta", fusS.repetidas.length === 1);
+ok("con las dos fechas", fusS.repetidas[0].pedSegunda === "7654321");
+
+// Una salida ANTERIOR a la guardada sí adelanta la fecha.
+let fusS2 = fusionarEnIndiceSalidas(
+    [["1Z08E27V0411529440", new Date(2026, 8, 3), "7654321", "b.csv"]],
+    [{ guia: "1Z08E27V0411529440", fecha: new Date(2026, 7, 12),
+       pedimento: "1234567", origen: "a.csv" }]);
+ok("una salida más antigua adelanta la fecha",
+   fusS2.filas[0][1].getTime() === new Date(2026, 7, 12).getTime());
+ok("y se cuenta como adelantada", fusS2.adelantadas === 1);
+
+// DOS CONCENTRADOS QUE SE SOLAPAN no son un doble embarque: es el mismo
+// renglón visto dos veces. Reportarlo llenaría el resumen de ruido y escondería
+// los de verdad.
+let fusS3 = fusionarEnIndiceSalidas(
+    [["1Z08E27V0411529440", new Date(2026, 7, 12), "1234567", "a.csv"]],
+    [{ guia: "1Z08E27V0411529440", fecha: new Date(2026, 7, 12),
+       pedimento: "1234567", origen: "b.csv" }]);
+ok("el mismo renglón repetido NO es un doble embarque",
+   fusS3.repetidas.length === 0);
+ok("y no añade nada", fusS3.anadidas === 0 && fusS3.filas.length === 1);
+
+let fusS4 = fusionarEnIndiceSalidas([], [
+    { guia: "1Z08E27V0411529440", fecha: new Date(2026, 7, 12), pedimento: "1234567", origen: "a" },
+    { guia: "1ZR1H0146727522666", fecha: new Date(2026, 7, 12), pedimento: "1234567", origen: "a" }
+]);
+ok("un índice vacío se llena", fusS4.anadidas === 2);
+ok("sin choques", fusS4.repetidas.length === 0);
+ok("null no revienta", fusionarEnIndiceSalidas(null, null).filas.length === 0);
+
+console.log("\n--- 7d. Caliente y frío ---");
+let hoyS = new Date(2026, 8, 4);
+let partS = particionSalidasPorAntiguedad([
+    ["1Z1", new Date(2026, 8, 1), "", ""],    // hace 3 días
+    ["1Z2", new Date(2026, 2, 1), "", ""],    // hace medio año
+    ["1Z3", "", "", ""]                        // sin fecha
+], hoyS, 120);
+ok("lo reciente va al caliente", partS.calientes.length === 2);
+ok("lo viejo al frío", partS.frias.length === 1);
+ok("y lo viejo es el que toca", partS.frias[0][0] === "1Z2");
+// SIN FECHA AL CALIENTE, y aquí importa más que en las houses: al otro lado hay
+// un aviso que BLOQUEA, y mandar al frío una salida cuya fecha no se entendió
+// es esconder justo el caso que hay que ver.
+ok("sin fecha se queda en el caliente",
+   partS.calientes.some(f => f[0] === "1Z3"));
+ok("una lista vacía no revienta",
+   particionSalidasPorAntiguedad([], hoyS, 120).calientes.length === 0);
+ok("null tampoco", particionSalidasPorAntiguedad(null, hoyS, 120).frias.length === 0);
+
+console.log("\n--- 7e. El aviso que verá el operador ---");
+let mapS = mapaDeSalidas([
+    ["1Z08E27V0411529440", new Date(2026, 7, 12), "1234567", "a.csv"],
+    ["1ZR1H0146727522666", "", "", "b.csv"]
+]);
+ok("la guía se encuentra", mapS.has("1Z08E27V0411529440"));
+ok("con su pedimento", mapS.get("1Z08E27V0411529440").pedimento === "1234567");
+let avS = avisoDeSalidaPrevia(mapS.get("1Z08E27V0411529440"));
+ok("el aviso lleva la fecha", avS.indexOf("12/08/2026") !== -1);
+ok("y el pedimento", avS.indexOf("1234567") !== -1);
+ok("y bloquea de verdad (⛔, no ⚠️)", avS.indexOf("⛔") === 0);
+ok("sin fecha el aviso sigue saliendo",
+   avisoDeSalidaPrevia(mapS.get("1ZR1H0146727522666")).indexOf("⛔") === 0);
+ok("una guía que no salió nunca no da aviso",
+   avisoDeSalidaPrevia(mapS.get("1ZNOEXISTE")) === "");
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
