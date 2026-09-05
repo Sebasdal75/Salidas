@@ -3526,5 +3526,43 @@ ok("la cola del resumen se conserva",
    colaResumen("Bultos: 12" + SEP_RESUMEN + "⚠️ 1 con alerta") !== "");
 ok("y una fila sin resumen no inventa cola", colaResumen("") === "");
 
+console.log("\n--- 8. La PRIMERA de la pareja también se pinta ---");
+// EL FALLO, visto en un inventario: dos guías iguales en la misma ubicación.
+// La segunda recibe «🔄 Duplicado local» y se repinta; la primera conserva su
+// «✅ Ok» a propósito, así que su texto NO cambia, no entraba en ningún bloque
+// de escritura y su columna A se quedaba verde para siempre. De cada pareja
+// solo se veía roja una: justo la que el operador ya tiene delante, no la que
+// hay que ir a buscar.
+let pareja = new Set([4, 8]);
+ok("las dos filas de la pareja salen rojas en la A",
+   coloresDeColumnaA(
+       [["x"], ["x"], ["x"], ["x"], ["1Z999AA10123456784"], ["x"], ["x"], ["x"],
+        ["1Z999AA10123456784"]],
+       [[""], [""], [""], [""], ["✅ Ok"], [""], [""], [""], ["🔄 Duplicado local"]],
+       9, pareja).filter((c, i) => (i === 4 || i === 8) && c[0] === "#df5f6b").length === 2);
+
+// El duplicado discreto es GRIS en la columna B a propósito —es un doble
+// escaneo y basta con borrar el de abajo—, pero eso nunca quiso decir que la
+// columna A no se pintara.
+ok("el duplicado local sigue siendo discreto en la B",
+   duplicadoLocal({ ped: "IW01", idx: 4 }, "IW01", "Ubic").color === "#acacac");
+ok("y no marca a la primera con texto",
+   duplicadoLocal({ ped: "IW01", idx: 4 }, "IW01", "Ubic").marcarPrimera === false);
+// En OTRA ubicación sí es ⛔ y sí se marca a la primera: ahí hay que decidir a
+// cuál pertenece, no basta con borrar.
+ok("en otra ubicación sí es ⛔",
+   duplicadoLocal({ ped: "IW01", idx: 4 }, "IW07", "Ubic").texto.indexOf("⛔") === 0);
+ok("y nombra la ubicación de la otra",
+   duplicadoLocal({ ped: "IW01", idx: 4 }, "IW07", "Ubic").texto.indexOf("IW01") !== -1);
+ok("con la etiqueta de ubicación, no de pedimento",
+   duplicadoLocal({ ped: "IW01", idx: 4 }, "IW07", "Ubic").texto.indexOf("Ubic") !== -1);
+
+// Sin pareja, el color sale del texto como siempre.
+ok("una guía buena sigue verde",
+   coloresDeColumnaA([["1Z999AA10123456784"]], [["✅ Ok"]], 1, null)[0][0] !== "#df5f6b");
+ok("un ⛔ en el texto ya pintaba rojo por su cuenta",
+   coloresDeColumnaA([["1Z999AA10123456784"]],
+                     [["⛔ DUPLICADO (En: IW07, fila 5)"]], 1, null)[0][0] === "#df5f6b");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

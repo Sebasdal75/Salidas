@@ -3213,7 +3213,21 @@ function coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDup
     return out;
 }
 
-function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, idxHoraOriginal, resultadosStatus, resultadosHoras, datosMasivos, coloresNuevos, fontLinesA, fontColorsA, coloresA, repintarTodo) {
+// `filasColorForzado` (opcional) son filas que hay que repintar AUNQUE su texto
+// no haya cambiado.
+//
+// EL FALLO QUE ESTO ARREGLA: la escritura es diferencial —solo toca las filas
+// cuyo estado u hora cambió—, y eso deja fuera un caso que el resto del código
+// da por hecho. Cuando dos guías iguales caen en la misma ubicación (o el mismo
+// pedimento), la SEGUNDA recibe «🔄 Duplicado local» y se repinta, pero la
+// PRIMERA conserva su «✅ Ok» a propósito: su texto no cambia, así que nunca
+// entraba en ningún bloque y su columna A se quedaba VERDE para siempre.
+//
+// O sea que de cada pareja solo se veía roja una, justo la que el operador ya
+// tiene delante; la otra, la que hay que ir a buscar, seguía pareciendo buena.
+// Y en un inventario un doble escaneo infla el conteo, así que ese es
+// precisamente el caso que hay que ver.
+function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, idxHoraOriginal, resultadosStatus, resultadosHoras, datosMasivos, coloresNuevos, fontLinesA, fontColorsA, coloresA, repintarTodo, filasColorForzado) {
     let n = resultadosStatus.length;
     if (n === 0) return;
 
@@ -3247,7 +3261,12 @@ function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, i
         // que quedaban horas huérfanas en filas ya vacías).
         let cambioHora = (originalHora === "" && nuevaHora !== "") || (originalHora !== "" && nuevaHora === "");
 
-        if (cambioStatus || cambioHora) {
+        // Solo cuenta si esa fila tiene dato: una fila vacía marcada por
+        // arrastre no puede forzar escrituras en cada recálculo.
+        let forzada = filasColorForzado && filasColorForzado.has(i) &&
+                      datosMasivos[i] && String(datosMasivos[i][0]).trim() !== "";
+
+        if (cambioStatus || cambioHora || forzada) {
             if (min === -1) { min = i; max = i; }
             else if (i - max > HUECO_MAX_BLOQUE) { bloques.push({min: min, max: max}); min = i; max = i; }
             else { max = i; }
@@ -3923,7 +3942,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
   conservarAlertasGraves(datosMasivos, resultadosP, coloresP, ultimaFila, repintarTodo, filasEditadas, 14, 15);
 
-  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA, repintarTodo);
+  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA,
+                           repintarTodo, filasParejaDuplicada);
   aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null, repintarTodo);
 
   // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
@@ -4183,7 +4203,8 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada),
+                           repintarTodo, filasParejaDuplicada);
 
   // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
   // Si la guía de una fila ya no está, su house tampoco pinta nada: dejarla
@@ -4361,7 +4382,8 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada), repintarTodo);
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada),
+                           repintarTodo, filasParejaDuplicada);
 
   // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
   // Si la guía de una fila ya no está, su house tampoco pinta nada: dejarla
