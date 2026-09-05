@@ -26,6 +26,7 @@ const path = require('path');
 eval(fs.readFileSync(path.join(__dirname, '..', 'Codigo.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'House.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Salidas.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'UnirInventarios.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -3563,6 +3564,39 @@ ok("una guía buena sigue verde",
 ok("un ⛔ en el texto ya pintaba rojo por su cuenta",
    coloresDeColumnaA([["1Z999AA10123456784"]],
                      [["⛔ DUPLICADO (En: IW07, fila 5)"]], 1, null)[0][0] === "#df5f6b");
+
+console.log("\n--- 9. Unir inventarios: el consolidado NO es una hoja de escaneo ---");
+// EL DESASTRE QUE ESTO EVITA: `esHojaInventario` reconoce por «contiene
+// INVENTARIO», así que una hoja llamada «CONSOLIDADO INVENTARIO» sería para el
+// motor una pestaña de escaneo más. Entraría al caché con su columna _FISICO y
+// CADA guía copiada chocaría contra su original: miles de duplicados falsos,
+// inventados por la propia herramienta, bloqueando además el cierre de bloques.
+ok("una hoja «CONSOLIDADO …» es interna", esHojaInterna("CONSOLIDADO INVENTARIO"));
+ok("y por tanto de sistema", esHojaSistema("CONSOLIDADO INVENTARIO"));
+ok("aunque su nombre lleve INVENTARIO dentro",
+   esHojaInventario("CONSOLIDADO INVENTARIO"));
+ok("en minúsculas también", esHojaInterna("Consolidado inventario"));
+// Solo como PREFIJO: una pestaña de operación que mencione la palabra en medio
+// sigue siendo de escaneo, y perderla sería mucho peor que tener una interna de
+// más.
+ok("«INVENTARIO CONSOLIDADO 3» NO es interna",
+   !esHojaInterna("INVENTARIO CONSOLIDADO 3"));
+ok("y sigue siendo un inventario de verdad",
+   esHojaInventario("INVENTARIO CONSOLIDADO 3"));
+
+// Qué pestañas entran al volcado.
+ok("un inventario normal entra", hojaEntraEnConsolidado("INVENTARIO B"));
+ok("en minúsculas también", hojaEntraEnConsolidado("Inventario b"));
+ok("una Global no entra", !hojaEntraEnConsolidado("GLOBAL1"));
+ok("una M-S tampoco", !hojaEntraEnConsolidado("M-S T1"));
+// Y sobre todo: el propio consolidado no se copia dentro de sí mismo. Se filtra
+// por `esHojaInterna`, no por su nombre exacto, para que siga funcionando si
+// alguien lo renombra o hay más de uno.
+ok("el consolidado NO se copia dentro de sí mismo",
+   !hojaEntraEnConsolidado("CONSOLIDADO INVENTARIO"));
+ok("ni el caché", !hojaEntraEnConsolidado("CACHE_SISTEMA"));
+ok("ni una plantilla MACHO de inventario",
+   !hojaEntraEnConsolidado("MACHO INVENTARIO"));
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

@@ -143,6 +143,12 @@ function esHojaInterna(nombreHoja) {
     // pestañas, ninguna puede colarse como hoja de escaneo. Equivocarse por este
     // lado solo esconde una pestaña interna; por el otro lado llena la operación
     // de duplicados falsos.
+    // Los volcados de «Unir inventarios» son INFORMES, no operación. Su nombre
+    // lleva «INVENTARIO» dentro, así que sin esta línea `esHojaInventario` los
+    // tomaría por una pestaña de escaneo más: entrarían al caché con su columna
+    // _FISICO y CADA guía copiada chocaría contra su original. Miles de
+    // duplicados falsos, todos inventados por la propia herramienta.
+    if (n.indexOf("CONSOLIDADO") === 0) return true;
     // Por prefijo también las de salidas: SALIDAS_RAPIDO guarda la lista
     // comprimida de lo que ya se fue, y si el caché la tomara por una hoja de
     // escaneo cada guía chocaría contra su propia copia. Es el mismo fallo que
@@ -4425,7 +4431,8 @@ function onOpen() {
         .addItem('Medir velocidad de escaneo', 'medirRendimiento')
         .addItem('Prueba: ¿qué cuesta abrir el caché?', 'probarCosteCache')
         .addItem('📏 Espacio del archivo (tope de celdas)', 'revisarEspacioDelArchivo')
-        .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos'))
+        .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos')
+        .addItem('📚 Unir pestañas INVENTARIO', 'unirInventarios'))
 
     .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
         .addItem('Cierre del día (historial + caché)', 'cierreDelDia')
