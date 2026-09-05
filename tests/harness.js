@@ -3598,5 +3598,47 @@ ok("ni el caché", !hojaEntraEnConsolidado("CACHE_SISTEMA"));
 ok("ni una plantilla MACHO de inventario",
    !hojaEntraEnConsolidado("MACHO INVENTARIO"));
 
+console.log("\n--- 9b. El plan de copia del consolidado ---");
+// La aritmética de «cuántas filas salto» es lo que, si se equivoca, NO da
+// error: devuelve un consolidado al que le falta la primera fila de cada
+// inventario, o que repite encabezados en medio. Solo se ve contándolo a mano.
+let pl = planDeConsolidado([
+    { nombre: "INVENTARIO A", filas: 100, columnas: 12 },
+    { nombre: "INVENTARIO B", filas: 50, columnas: 12 },
+    { nombre: "INVENTARIO C", filas: 30, columnas: 14 }
+]);
+ok("entran las tres", pl.plan.length === 3);
+ok("la primera conserva su encabezado", pl.plan[0].desde === 1);
+ok("y aporta todas sus filas", pl.plan[0].filas === 100);
+ok("las demás se saltan el encabezado", pl.plan[1].desde === 2);
+ok("y aportan una fila menos", pl.plan[1].filas === 49);
+ok("el total cuadra", pl.filas === 100 + 49 + 29);
+// El ancho es el de la MÁS ANCHA: dimensionar por la primera dejaría fuera las
+// columnas de la derecha de las demás, sin avisar.
+ok("el ancho es el de la más ancha", pl.ancho === 14);
+
+// Una pestaña vacía no cuenta, y NO puede robarle el encabezado a la siguiente:
+// si la primera de la lista está vacía, la que de verdad abre el consolidado es
+// la siguiente y su encabezado tiene que quedarse.
+let pl2 = planDeConsolidado([
+    { nombre: "INVENTARIO VACIO", filas: 0, columnas: 0 },
+    { nombre: "INVENTARIO A", filas: 100, columnas: 12 }
+]);
+ok("la vacía se descarta", pl2.plan.length === 1);
+ok("y la siguiente conserva su encabezado", pl2.plan[0].desde === 1);
+ok("con todas sus filas", pl2.filas === 100);
+
+// Una hoja que SOLO tiene encabezado no aporta nada y no debe ocupar sitio.
+let pl3 = planDeConsolidado([
+    { nombre: "INVENTARIO A", filas: 100, columnas: 12 },
+    { nombre: "INVENTARIO B", filas: 1, columnas: 12 }
+]);
+ok("una hoja con solo encabezado no aporta filas", pl3.plan.length === 1);
+ok("y no infla el total", pl3.filas === 100);
+
+ok("sin pestañas no revienta", planDeConsolidado([]).filas === 0);
+ok("null tampoco", planDeConsolidado(null).plan.length === 0);
+ok("el ancho mínimo es 1", planDeConsolidado([]).ancho === 1);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
