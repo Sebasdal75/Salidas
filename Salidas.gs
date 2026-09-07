@@ -1266,3 +1266,85 @@ function pedimentoPrevioDe(ss, pedimento) {
         return buscarPedimentoEnBlob(leerBlobDePedimentos(ss), pedimento);
     } catch (err) { return null; }
 }
+
+// -------------------------------------------------------------------------
+// ¿ESTO YA SALIÓ? — la consulta directa
+//
+// POR QUÉ EXISTE: cuando el aviso no aparece hay tres explicaciones posibles y
+// desde fuera se ven exactamente igual —la guía no está en el histórico, está
+// pero fuera de la ventana, o está y salió HOY, que no avisa a propósito—.
+// Sin esto, cada «no sale» costaba un viaje entero de ida y vuelta para acabar
+// descubriendo que el dato simplemente no estaba.
+// -------------------------------------------------------------------------
+function consultarSalidaPrevia() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let celda = ss.getActiveSheet().getActiveCell();
+    let valor = String(celda.getValue()).trim();
+    if (valor === "") {
+        let r = ui.prompt("🔎 ¿Esto ya salió?",
+            "Colócate en la celda de la guía o del pedimento, o escríbelo aquí:",
+            ui.ButtonSet.OK_CANCEL);
+        if (r.getSelectedButton() !== ui.Button.OK) return;
+        valor = String(r.getResponseText()).trim();
+        if (valor === "") return;
+    }
+
+    let dias = diasDeImportacionSalidas();
+    let L = [];
+    let esPedimento = /^\d{7}$/.test(valor);
+    L.push((esPedimento ? "Pedimento: " : "Guía: ") + valor);
+    L.push("Ventana del índice: últimos " + dias + " días");
+    L.push("");
+
+    // Se lee de cero: si estuviera cacheado en RAM, esta consulta contestaría
+    // con lo de antes justo cuando se la usa para comprobar un cambio.
+    olvidarBlobSalidasEnRAM();
+    olvidarBlobPedimentosEnRAM();
+
+    let info = esPedimento
+        ? buscarPedimentoEnBlob(leerBlobDePedimentos(ss), valor)
+        : buscarSalidaEnBlob(leerBlobDeSalidas(ss), claveGuiaHouse(valor));
+
+    L.push("── LA LISTA RÁPIDA ──");
+    if (!info) {
+        L.push("❌ NO está.");
+        L.push("");
+        L.push("── POR QUÉ NO AVISA ──");
+        L.push("Porque no salió, o salió hace más de " + dias + " días y quedó");
+        L.push("fuera de la ventana, o no venía en el archivo que importaste.");
+        L.push("");
+        L.push("Si sabes que sí salió y fue hace poco, revisa que el concentrado");
+        L.push("lo traiga. Si fue hace más de " + dias + " días, amplía la ventana");
+        L.push("con «📆 Ventana» y vuelve a importar.");
+        ui.alert("🔎 ¿Esto ya salió?", L.join("\n"), ui.ButtonSet.OK);
+        return;
+    }
+
+    L.push("✅ SÍ está.");
+    L.push("Salió el: " + textoFechaSalida(info.fecha));
+    if (!esPedimento && info.pedimento) L.push("Pedimento: " + info.pedimento);
+    L.push("");
+
+    let hoy = new Date();
+    let aviso = esPedimento ? avisoDePedimentoPrevio(info, hoy)
+                            : avisoDeSalidaPrevia(info, hoy);
+
+    L.push("── QUÉ SALDRÁ AL ESCANEAR ──");
+    if (aviso !== "") {
+        L.push(aviso);
+        L.push("");
+        L.push("Si no lo ves en la hoja, usa «🔄 Forzar Actualización» en esa");
+        L.push("pestaña: el estado solo se recalcula cuando la fila cambia.");
+    } else {
+        // La única razón por la que algo encontrado no avisa.
+        L.push("Nada, y es a propósito: salió HOY.");
+        L.push("");
+        L.push("El histórico que importas incluye lo de hoy, así que sin esta");
+        L.push("regla cada guía del turno gritaría «ya salió» en cuanto");
+        L.push("importaras. De lo de hoy se encarga el ⛔ DUPLICADO contra las");
+        L.push("pestañas abiertas, que además dice la fila exacta.");
+    }
+    ui.alert("🔎 ¿Esto ya salió?", L.join("\n"), ui.ButtonSet.OK);
+}

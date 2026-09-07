@@ -4503,6 +4503,7 @@ function onOpen() {
                   .addSeparator()
                   .addItem('⚡ Rehacer la lista rápida del escaneo', 'reconstruirSalidasRapido')
                   .addItem('✅ Autorizar esta guía (devolución)', 'autorizarGuiaDeSalida')
+                  .addItem('🔎 ¿Esto ya salió? (guía o pedimento)', 'consultarSalidaPrevia')
                   .addItem('📏 ¿Cuánto pesa el índice de salidas?', 'medirIndiceDeSalidas')
                   .addItem('♻️ Reimportar todos los CSV', 'olvidarSalidasImportadas'));
           }
