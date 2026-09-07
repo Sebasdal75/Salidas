@@ -167,22 +167,25 @@ function filasDeSalidas(datos, cols, origen, corte) {
 // Lo que queda fuera no se pierde —sigue en tu Excel— y ampliar la ventana es
 // volver a importar con otro número.
 // -------------------------------------------------------------------------
-// ¿Avisar también de lo que salió HOY, sin mirar el pedimento?
+// ¿Avisar también de lo que salió HOY?
 //
-// Por defecto NO: el histórico que se importa incluye lo de hoy, así que si se
-// importa a media mañana cada guía del turno se encendería. Con la regla del
-// pedimento eso se evita, pero cuesta entenderla y solo hace falta si de verdad
-// se importa durante el turno.
+// POR DEFECTO SÍ, y esto es lo que se aprendió del uso real: el histórico se
+// importa AL INICIO DEL DÍA con lo que salió AYER. Lo de hoy no está dentro,
+// así que no hay ninguna tormenta que evitar y cualquier regla que calle lo de
+// hoy solo consigue esconder avisos buenos.
 //
-// Si el concentrado se importa al CERRAR el día —o es el del día anterior— no
-// hay tormenta posible y este interruptor lo simplifica todo: avisa siempre.
+// La primera versión callaba lo de hoy siempre, y la segunda solo cuando el
+// pedimento coincidía. Las dos resolvían un problema que este flujo de trabajo
+// no tiene. Se deja el interruptor —no el comportamiento— por si algún día se
+// importa DURANTE el turno: entonces sí, cada guía que el turno lleve escaneada
+// se encendería en cuanto alguien importe, y ahí hace falta apagarlo.
 const PROP_SALIDAS_AVISAR_HOY = 'SALIDAS_AVISAR_HOY';
 
 function avisarDeLoDeHoy() {
     try {
         return PropertiesService.getScriptProperties()
-               .getProperty(PROP_SALIDAS_AVISAR_HOY) === '1';
-    } catch (err) { return false; }
+               .getProperty(PROP_SALIDAS_AVISAR_HOY) !== '0';
+    } catch (err) { return true; }
 }
 
 function alternarAvisoDeHoy() {
@@ -194,22 +197,21 @@ function alternarAvisoDeHoy() {
     let r = ui.alert("🔔 Avisar de lo de HOY",
         "Ahora mismo: " + (ahora
             ? "SÍ avisa de lo que salió hoy, siempre."
-            : "solo avisa de lo de hoy si la guía está bajo OTRO pedimento.") +
+            : "calla lo de hoy salvo que el pedimento no coincida.") +
         "\n\n" +
         (ahora
-            ? "¿Lo vuelvo a dejar en «solo si cambia el pedimento»? Es lo que hay " +
-              "que usar si importas el histórico DURANTE el turno: si no, cada " +
-              "guía que el turno lleve escaneada se encenderá en cuanto importes."
-            : "¿Lo pongo en «avisar siempre»? Solo si importas el histórico al " +
-              "CERRAR el día, o si el archivo es el del día anterior. Si importas " +
-              "durante el turno, esto llenará la hoja de alertas falsas."),
+            ? "¿Lo apago? Solo hace falta si empiezas a importar el histórico " +
+              "DURANTE el turno. Con el archivo del día anterior importado por la " +
+              "mañana, apagarlo solo esconde avisos buenos."
+            : "¿Lo enciendo? Es lo normal cuando el histórico trae lo de AYER: " +
+              "lo de hoy no está dentro, así que no puede haber alertas falsas."),
         ui.ButtonSet.YES_NO);
     if (r !== ui.Button.YES) return;
 
     PropertiesService.getScriptProperties()
         .setProperty(PROP_SALIDAS_AVISAR_HOY, ahora ? '0' : '1');
     ui.alert("🔔 Avisar de lo de HOY",
-             "Guardado: " + (ahora ? "solo si cambia el pedimento."
+             "Guardado: " + (ahora ? "calla lo de hoy salvo que cambie el pedimento."
                                    : "avisa siempre, también de hoy."),
              ui.ButtonSet.OK);
 }
@@ -1312,9 +1314,13 @@ function esMismoDiaSalida(a, b) {
 //
 // Lo de HOY ya está cubierto por el ⛔ DUPLICADO contra las pestañas abiertas,
 // que además dice la fila exacta. Este aviso es solo para OTROS días.
+// Mismo interruptor que las guías, y hace falta que sea el mismo: un pedimento
+// que salió ayer y se vuelve a teclear hoy es exactamente el error que este
+// aviso existe para cazar, y callarlo lo dejaba mudo justo en el caso normal.
 function avisoDePedimentoPrevio(info, hoy) {
     if (!info) return "";
-    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy)) return "";
+    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy) &&
+        !avisarDeLoDeHoy()) return "";
     return "🛑 PEDIMENTO YA USADO el " + textoFechaSalida(info.fecha);
 }
 

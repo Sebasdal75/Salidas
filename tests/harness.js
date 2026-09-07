@@ -16,7 +16,17 @@ global.Session = {
   getEffectiveUser: () => ({ getEmail: () => "" })
 };
 global.Logger = { log: (m) => console.log("  " + m) };
-global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
+// Almacén de verdad, no un stub que siempre devuelve null: hay opciones que
+// cambian el comportamiento —avisar o no de lo de hoy— y sin poder ponerlas
+// solo se podía probar el modo por defecto. Justo el otro es el que se rompe.
+const _props = new Map();
+global.PropertiesService = {
+  getScriptProperties: () => ({
+    getProperty: (k) => (_props.has(k) ? _props.get(k) : null),
+    setProperty: (k, v) => { _props.set(k, String(v)); },
+    deleteProperty: (k) => { _props.delete(k); }
+  })
+};
 global.SpreadsheetApp = { getActiveSpreadsheet: () => null };
 global.LockService = {};
 global.ScriptApp = {};
@@ -3471,21 +3481,22 @@ ok("se guarda el primer día en que se usó",
    buscarPedimentoEnBlob(blobPed2, "1234567").fecha.getTime() ===
    new Date(2026, 0, 15).getTime());
 
-console.log("\n--- 7m. Lo de HOY no avisa, o sería una tormenta ---");
-// LA TRAMPA: el histórico que importas INCLUYE lo de hoy. Sin esta regla, en
-// cuanto importaras a media mañana, cada guía y cada pedimento que el turno
-// llevara escaneado empezaría a gritar «YA SALIÓ hoy» — decenas de alertas
-// falsas de golpe, y a partir de ahí nadie vuelve a mirar ninguna.
+console.log("\n--- 7m. Lo de HOY avisa, salvo que se apague ---");
+// LO QUE SE APRENDIÓ DEL USO REAL: el histórico se importa AL INICIO DEL DÍA
+// con lo que salió AYER. Lo de hoy nunca está dentro, así que no hay ninguna
+// tormenta que evitar — y callar lo de hoy solo escondía avisos buenos. Dos
+// versiones seguidas resolvieron un problema que este flujo no tiene.
 let hoyM = new Date(2026, 8, 4);
-ok("una salida de HOY no avisa",
-   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 4), pedimento: "" }, hoyM) === "");
-ok("aunque lleve pedimento",
-   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 4), pedimento: "1234567" }, hoyM) === "");
-ok("una salida de AYER sí avisa",
-   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 3), pedimento: "" }, hoyM) !== "");
-ok("un pedimento usado HOY no avisa",
-   avisoDePedimentoPrevio({ fecha: new Date(2026, 8, 4) }, hoyM) === "");
-ok("uno usado otro día sí",
+ok("por defecto SÍ avisa de lo de hoy", avisarDeLoDeHoy() === true);
+ok("una salida de HOY avisa",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 4), pedimento: "" }, hoyM) !== "");
+ok("y con el pedimento delante",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 4), pedimento: "1234567" }, hoyM)
+       .indexOf("1234567") !== -1);
+ok("una de AYER también", avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 3), pedimento: "" }, hoyM) !== "");
+ok("un pedimento usado HOY avisa",
+   avisoDePedimentoPrevio({ fecha: new Date(2026, 8, 4) }, hoyM) !== "");
+ok("uno usado otro día también",
    avisoDePedimentoPrevio({ fecha: new Date(2026, 0, 15) }, hoyM) !== "");
 ok("y dice el día",
    avisoDePedimentoPrevio({ fecha: new Date(2026, 0, 15) }, hoyM)
@@ -3496,8 +3507,6 @@ ok("la hora no cuenta, solo el día",
 ok("días distintos no se confunden",
    !esMismoDiaSalida(new Date(2026, 8, 4), new Date(2026, 8, 5)));
 ok("sin fecha no se compara nada", !esMismoDiaSalida(null, hoyM));
-// Sin fecha conocida SÍ avisa: es el lado seguro, porque no poder fecharla no
-// la convierte en buena.
 ok("una salida sin fecha avisa igual",
    avisoDeSalidaPrevia({ fecha: null, pedimento: "" }, hoyM) !== "");
 
@@ -3640,13 +3649,24 @@ ok("sin pestañas no revienta", planDeConsolidado([]).filas === 0);
 ok("null tampoco", planDeConsolidado(null).plan.length === 0);
 ok("el ancho mínimo es 1", planDeConsolidado([]).ancho === 1);
 
-console.log("\n--- 10. Lo de HOY: se distingue por el pedimento ---");
-// LA JUSTIFICACIÓN QUE ESTABA MAL: la primera versión callaba TODO lo de hoy
-// diciendo «de eso ya se encarga el ⛔ DUPLICADO contra las pestañas abiertas».
-// Es FALSO: el ⛔ DUPLICADO solo ve lo que sigue escrito en una pestaña, y en
-// cuanto el bloque de la mañana se cierra y se limpia la guía desaparece del
-// caché. Justo el caso peor —embarcar por la mañana y volver a embarcar por la
-// tarde— no lo veía nadie.
+// Las pruebas del latido dejaron un PropertiesService de mentira; aquí hace
+// falta el que guarda de verdad.
+global.PropertiesService = {
+  getScriptProperties: () => ({
+    getProperty: (k) => (_props.has(k) ? _props.get(k) : null),
+    setProperty: (k, v) => { _props.set(k, String(v)); },
+    deleteProperty: (k) => { _props.delete(k); }
+  })
+};
+
+console.log("\n--- 10. Con el aviso de hoy APAGADO, manda el pedimento ---");
+// El modo para quien importe el histórico DURANTE el turno: ahí lo de hoy SÍ
+// está dentro y avisar sin más encendería cada guía que el turno lleve
+// escaneada. Entonces lo que separa «el embarque que miras» de «se embarcó dos
+// veces hoy» es el pedimento.
+PropertiesService.getScriptProperties().setProperty('SALIDAS_AVISAR_HOY', '0');
+ok("apagado, ya no avisa siempre de lo de hoy", avisarDeLoDeHoy() === false);
+
 let hoyD = new Date(2026, 8, 7);
 let salioHoy = { fecha: new Date(2026, 8, 7), pedimento: "6102253" };
 
@@ -3658,19 +3678,26 @@ ok("y lo dice sin fingir que fue otro día",
    avisoDeSalidaPrevia(salioHoy, hoyD, "6103516").indexOf("HOY") !== -1);
 ok("nombrando el pedimento donde ya salió",
    avisoDeSalidaPrevia(salioHoy, hoyD, "6103516").indexOf("6102253") !== -1);
-
-// Sin nada que comparar se calla: una alerta de más en CADA fila del día es
-// peor que una de menos.
 ok("sin pedimento de bloque se calla",
    avisoDeSalidaPrevia(salioHoy, hoyD, "") === "");
 ok("y si el histórico no trae pedimento, también",
    avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 7), pedimento: "" }, hoyD, "6103516") === "");
+// El aviso de PEDIMENTO sigue al mismo interruptor: si fueran por separado,
+// uno de los dos quedaría mudo sin que nada lo dijera.
+ok("el aviso de pedimento también se calla apagado",
+   avisoDePedimentoPrevio({ fecha: new Date(2026, 8, 7) }, hoyD) === "");
 
-// Otro día sigue avisando siempre, mire donde mire.
+// Otro día avisa siempre, encendido o apagado.
 let salioAntes = { fecha: new Date(2026, 7, 20), pedimento: "6102253" };
 ok("otro día avisa aunque el pedimento coincida",
    avisoDeSalidaPrevia(salioAntes, hoyD, "6102253") !== "");
 ok("y dice la fecha", avisoDeSalidaPrevia(salioAntes, hoyD, "6102253").indexOf("20/08/2026") !== -1);
+ok("y el pedimento de otro día también",
+   avisoDePedimentoPrevio({ fecha: new Date(2026, 7, 20) }, hoyD) !== "");
+
+// Se deja como estaba para no contaminar lo que venga después.
+PropertiesService.getScriptProperties().deleteProperty('SALIDAS_AVISAR_HOY');
+ok("y al quitarlo vuelve a avisar siempre", avisarDeLoDeHoy() === true);
 
 console.log("\n--- 10b. Qué pedimento manda sobre cada fila ---");
 // En la columna A el pedimento ENCABEZA su bloque. En la preforma (columna O)
@@ -3705,15 +3732,6 @@ ok("un marcador corta la herencia",
 ok("una hoja vacía no revienta", pedimentosPorFila([], 0, 0, false).length === 0);
 ok("filas sin datos tampoco",
    pedimentosPorFila([null, null], 2, 0, false)[1] === "");
-
-console.log("\n--- 10c. El interruptor de «avisar de lo de hoy» ---");
-// Sin nada guardado, la regla del pedimento es la que manda: es la que hay que
-// usar si el historico se importa DURANTE el turno.
-ok("por defecto NO avisa siempre de lo de hoy", avisarDeLoDeHoy() === false);
-// Y con el interruptor apagado, el comportamiento es el ya probado arriba.
-ok("apagado, mismo pedimento se calla",
-   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 7), pedimento: "6102253" },
-                       new Date(2026, 8, 7), "6102253") === "");
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
