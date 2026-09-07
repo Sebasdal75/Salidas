@@ -725,31 +725,57 @@ function medirIndiceDeSalidas() {
     let mapa = mapaDeSalidas(calientes);
     let msMapa = Date.now() - t1;
 
+    // Y lo que de verdad consulta el escaneo: no el índice, sino la LISTA
+    // RÁPIDA. Contar solo el índice era engañoso —puede estar perfecto mientras
+    // la lista rápida se quedó en una versión anterior, y entonces el aviso no
+    // sale sin que nada lo diga—. Aquí se ven las dos y se comparan.
+    olvidarBlobSalidasEnRAM();
+    olvidarBlobPedimentosEnRAM();
+    let blobG = leerBlobDeSalidas(ss);
+    let blobP = leerBlobDePedimentos(ss);
+    let enRapidoG = (blobG.match(/\|/g) || []).length;
+    let enRapidoP = (blobP.match(/\|/g) || []).length;
+    let conPedimento = calientes.filter(f => /^\d{7}$/.test(String(f[2]).trim())).length;
+    let pedsUnicos = new Set(calientes.map(f => String(f[2]).trim())
+                                      .filter(p => /^\d{7}$/.test(p))).size;
+
     let L = [];
-    L.push("Guías en el índice: " + calientes.length.toLocaleString());
+    L.push("── EL ÍNDICE (la base de datos) ──");
+    L.push("Guías: " + calientes.length.toLocaleString());
+    L.push("  · con pedimento: " + conPedimento.toLocaleString());
+    L.push("Pedimentos distintos: " + pedsUnicos.toLocaleString());
     L.push("Ventana: " + diasDeImportacionSalidas() + " días");
+    L.push("Leer el índice: " + msLectura + " ms   ·   armar el Map: " + msMapa + " ms");
     L.push("");
-    L.push("Leer el caliente:      " + msLectura + " ms");
-    L.push("Armar el Map:          " + msMapa + " ms");
-    L.push("Guías en el Map:       " + mapa.size.toLocaleString());
+    L.push("── LA LISTA RÁPIDA (lo que consulta el escaneo) ──");
+    L.push("Guías: " + enRapidoG.toLocaleString());
+    L.push("Pedimentos: " + enRapidoP.toLocaleString());
     L.push("");
-    L.push("── QUÉ SIGNIFICA ──");
-    // 18 caracteres por guía es el tamaño real de una 1Z; es lo que ocuparía
-    // llevar el caliente empaquetado en el caché, que es la vía para que el
-    // aviso salga en el mismo escaneo.
-    let kb = Math.round(calientes.length * 18 / 1024);
-    L.push("Empaquetado en el caché ocuparía ~" + kb.toLocaleString() + " KB,");
-    L.push("o sea ~" + Math.ceil(calientes.length * 18 / 50000) + " celdas.");
-    L.push("");
+
+    L.push("── VEREDICTO ──");
     if (calientes.length === 0) {
-        L.push("Todavía no hay nada importado.");
-    } else if (calientes.length <= 150000) {
-        L.push("✅ Cabe de sobra. El aviso instantáneo al escanear es viable");
-        L.push("   con este volumen.");
+        L.push("El índice está VACÍO: importa el histórico primero.");
+    } else if (enRapidoG === 0) {
+        L.push("🛑 La lista rápida está VACÍA, así que NINGÚN aviso puede salir.");
+        L.push("   Corre «⚡ Rehacer la lista rápida del escaneo».");
+    } else if (enRapidoG !== calientes.length) {
+        L.push("⚠️ La lista rápida tiene " + enRapidoG.toLocaleString() + " guías y el");
+        L.push("   índice " + calientes.length.toLocaleString() + ". Se quedó en una");
+        L.push("   importación anterior: corre «⚡ Rehacer la lista rápida».");
+    } else if (pedsUnicos > 0 && enRapidoP === 0) {
+        // ESTE es el caso que costó un viaje: el índice trae pedimentos, las
+        // guías avisan bien, y el aviso de PEDIMENTO no sale nunca porque su
+        // lista se escribe en una columna que aún no existe.
+        L.push("🛑 Las guías avisan, pero los PEDIMENTOS no: su lista está vacía");
+        L.push("   aunque el índice trae " + pedsUnicos.toLocaleString() + " pedimentos.");
+        L.push("   Es una lista rápida escrita antes de que existieran.");
+        L.push("   Corre «⚡ Rehacer la lista rápida del escaneo».");
+    } else if (pedsUnicos === 0) {
+        L.push("✅ Guías al día. Pedimentos: el histórico no trae columna de");
+        L.push("   pedimento, así que ese aviso no puede salir. Añádela al");
+        L.push("   concentrado (llámala PEDIMENTO) y reimporta.");
     } else {
-        L.push("⚠️ Es mucho para llevarlo en cada escaneo. Habría que bajar la");
-        L.push("   ventana de " + diasDeImportacionSalidas() + " días, o cambiar");
-        L.push("   de estrategia. Dímelo antes de seguir.");
+        L.push("✅ Todo al día. Guías y pedimentos avisan al escanear.");
     }
     ui.alert("📏 Índice de salidas", L.join("\n"), ui.ButtonSet.OK);
 }
@@ -1063,14 +1089,26 @@ function reconstruirSalidasRapido() {
     let celdas = guardarBlobDeSalidas(ss, filas);
     olvidarBlobSalidasEnRAM();
     olvidarBlobPedimentosEnRAM();
-    ui.alert("⚡ Lista rápida de salidas",
-             "Guías: " + filas.length.toLocaleString() + "\n" +
-             "Celdas ocupadas: " + celdas + "\n\n" +
-             (filas.length === 0
-                ? "El índice está vacío: importa el histórico primero."
-                : "Ya está activa. Al escanear una guía que salió en los " +
-                  "últimos " + diasDeImportacionSalidas() + " días, saldrá el aviso."),
-             ui.ButtonSet.OK);
+    // Se cuentan los pedimentos que de verdad quedaron en la lista, no los que
+    // «deberían». Decir solo «listo» es lo que dejó al usuario probando un aviso
+    // que no podía salir porque su lista se escribía en una columna que aún no
+    // existía en su copia del código.
+    let pedsUnicos = new Set(filas.map(f => String(f[2]).trim())
+                                  .filter(p => /^\d{7}$/.test(p))).size;
+    let aviso = "Guías: " + filas.length.toLocaleString() + "\n" +
+                "Pedimentos: " + pedsUnicos.toLocaleString() + "\n" +
+                "Celdas ocupadas: " + celdas + "\n\n";
+    if (filas.length === 0) {
+        aviso += "El índice está vacío: importa el histórico primero.";
+    } else if (pedsUnicos === 0) {
+        aviso += "⚠️ Las guías avisarán, los PEDIMENTOS no: el histórico no trae " +
+                 "ninguna columna de pedimento. Añádela al concentrado (llámala " +
+                 "PEDIMENTO) y vuelve a importar.";
+    } else {
+        aviso += "Ya está activa. Al escanear una guía —o teclear un pedimento— " +
+                 "de los últimos " + diasDeImportacionSalidas() + " días, sale el aviso.";
+    }
+    ui.alert("⚡ Lista rápida de salidas", aviso, ui.ButtonSet.OK);
 }
 
 // -------------------------------------------------------------------------
