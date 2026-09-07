@@ -3706,5 +3706,14 @@ ok("una hoja vacía no revienta", pedimentosPorFila([], 0, 0, false).length === 
 ok("filas sin datos tampoco",
    pedimentosPorFila([null, null], 2, 0, false)[1] === "");
 
+console.log("\n--- 10c. El interruptor de «avisar de lo de hoy» ---");
+// Sin nada guardado, la regla del pedimento es la que manda: es la que hay que
+// usar si el historico se importa DURANTE el turno.
+ok("por defecto NO avisa siempre de lo de hoy", avisarDeLoDeHoy() === false);
+// Y con el interruptor apagado, el comportamiento es el ya probado arriba.
+ok("apagado, mismo pedimento se calla",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 7), pedimento: "6102253" },
+                       new Date(2026, 8, 7), "6102253") === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

@@ -167,6 +167,53 @@ function filasDeSalidas(datos, cols, origen, corte) {
 // Lo que queda fuera no se pierde —sigue en tu Excel— y ampliar la ventana es
 // volver a importar con otro número.
 // -------------------------------------------------------------------------
+// ¿Avisar también de lo que salió HOY, sin mirar el pedimento?
+//
+// Por defecto NO: el histórico que se importa incluye lo de hoy, así que si se
+// importa a media mañana cada guía del turno se encendería. Con la regla del
+// pedimento eso se evita, pero cuesta entenderla y solo hace falta si de verdad
+// se importa durante el turno.
+//
+// Si el concentrado se importa al CERRAR el día —o es el del día anterior— no
+// hay tormenta posible y este interruptor lo simplifica todo: avisa siempre.
+const PROP_SALIDAS_AVISAR_HOY = 'SALIDAS_AVISAR_HOY';
+
+function avisarDeLoDeHoy() {
+    try {
+        return PropertiesService.getScriptProperties()
+               .getProperty(PROP_SALIDAS_AVISAR_HOY) === '1';
+    } catch (err) { return false; }
+}
+
+function alternarAvisoDeHoy() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let ahora = avisarDeLoDeHoy();
+    let r = ui.alert("🔔 Avisar de lo de HOY",
+        "Ahora mismo: " + (ahora
+            ? "SÍ avisa de lo que salió hoy, siempre."
+            : "solo avisa de lo de hoy si la guía está bajo OTRO pedimento.") +
+        "\n\n" +
+        (ahora
+            ? "¿Lo vuelvo a dejar en «solo si cambia el pedimento»? Es lo que hay " +
+              "que usar si importas el histórico DURANTE el turno: si no, cada " +
+              "guía que el turno lleve escaneada se encenderá en cuanto importes."
+            : "¿Lo pongo en «avisar siempre»? Solo si importas el histórico al " +
+              "CERRAR el día, o si el archivo es el del día anterior. Si importas " +
+              "durante el turno, esto llenará la hoja de alertas falsas."),
+        ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    PropertiesService.getScriptProperties()
+        .setProperty(PROP_SALIDAS_AVISAR_HOY, ahora ? '0' : '1');
+    ui.alert("🔔 Avisar de lo de HOY",
+             "Guardado: " + (ahora ? "solo si cambia el pedimento."
+                                   : "avisa siempre, también de hoy."),
+             ui.ButtonSet.OK);
+}
+
 const PROP_DIAS_SALIDAS_IMPORT = 'SALIDAS_DIAS_IMPORT';
 const DIAS_SALIDAS_IMPORT_DEFECTO = 60;
 
@@ -523,7 +570,7 @@ function mapaDeSalidas(filas) {
 // alerta de más en cada fila del día es peor que una de menos.
 function avisoDeSalidaPrevia(info, hoy, pedActual) {
     if (!info) return "";
-    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy)) {
+    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy) && !avisarDeLoDeHoy()) {
         let p = String(pedActual === undefined || pedActual === null ? "" : pedActual).trim();
         if (!info.pedimento || p === "" || info.pedimento === p) return "";
         // Mismo día, otro pedimento: se dice así, porque «ya salió el 07/09» a
@@ -1308,8 +1355,28 @@ function consultarSalidaPrevia() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
 
-    let celda = ss.getActiveSheet().getActiveCell();
+    let hojaAct = ss.getActiveSheet();
+    let celda = hojaAct.getActiveCell();
     let valor = String(celda.getValue()).trim();
+
+    // EL PEDIMENTO DE ESA FILA, leído de la hoja de verdad. Sin esto la
+    // consulta contestaba sobre un caso abstracto —«depende de dónde la
+    // pongas»— justo cuando lo que hace falta es saber por qué ESA fila no
+    // avisa. Se mira hacia arriba en la columna A, que es donde el pedimento
+    // encabeza su bloque.
+    let pedDeLaFila = "";
+    if (valor !== "") {
+        try {
+            let f = celda.getRow();
+            let colA = hojaAct.getRange(1, 1, f, 1).getValues();
+            for (let i = f - 1; i >= 0; i--) {
+                let v = String(colA[i][0]).trim().toUpperCase();
+                if (/^\d{7}$/.test(v)) { pedDeLaFila = v; break; }
+                if (i !== f - 1 && esMarcadorEstructural(v)) break;
+            }
+        } catch (err) { pedDeLaFila = ""; }
+    }
+
     if (valor === "") {
         let r = ui.prompt("🔎 ¿Esto ya salió?",
             "Colócate en la celda de la guía o del pedimento, o escríbelo aquí:",
@@ -1330,6 +1397,14 @@ function consultarSalidaPrevia() {
     // con lo de antes justo cuando se la usa para comprobar un cambio.
     olvidarBlobSalidasEnRAM();
     olvidarBlobPedimentosEnRAM();
+
+    if (!esPedimento) {
+        L.push("Pedimento del bloque donde está: " +
+               (pedDeLaFila === "" ? "(ninguno encima de esa fila)" : pedDeLaFila));
+        L.push("Avisar de lo de hoy: " +
+               (avisarDeLoDeHoy() ? "SIEMPRE" : "solo si cambia el pedimento"));
+        L.push("");
+    }
 
     let info = esPedimento
         ? buscarPedimentoEnBlob(leerBlobDePedimentos(ss), valor)
@@ -1360,7 +1435,7 @@ function consultarSalidaPrevia() {
     // mismo que haría el escaneo si la guía estuviera en un bloque sin
     // pedimento, así que la consulta no puede prometer más de lo que dará.
     let aviso = esPedimento ? avisoDePedimentoPrevio(info, hoy)
-                            : avisoDeSalidaPrevia(info, hoy, "");
+                            : avisoDeSalidaPrevia(info, hoy, pedDeLaFila);
 
     L.push("── QUÉ SALDRÁ AL ESCANEAR ──");
     if (aviso !== "") {
@@ -1370,16 +1445,25 @@ function consultarSalidaPrevia() {
         L.push("pestaña: el estado solo se recalcula cuando la fila cambia.");
     } else {
         // La única razón por la que algo encontrado no avisa.
-        L.push("Salió HOY, en el pedimento " + (info.pedimento || "(sin pedimento)") + ".");
+        L.push("Nada. Salió HOY y no hay motivo para dudar de esta fila:");
         L.push("");
-        L.push("Al escanearla el aviso depende de DÓNDE la pongas:");
-        L.push("  · bajo ESE mismo pedimento → no avisa. Es el mismo embarque.");
-        L.push("  · bajo OTRO pedimento     → «⛔ YA SALIÓ HOY en el pedimento");
-        L.push("                               " + (info.pedimento || "…") + "».");
+        if (!info.pedimento) {
+            L.push("  · el histórico no dice en qué pedimento salió, así que no");
+            L.push("    hay con qué comparar.");
+        } else if (pedDeLaFila === "") {
+            L.push("  · esta fila no tiene ningún pedimento encima, así que no");
+            L.push("    hay con qué comparar.");
+        } else {
+            L.push("  · salió en el pedimento " + info.pedimento + " y está bajo");
+            L.push("    ESE MISMO pedimento: es el embarque que estás mirando.");
+            L.push("");
+            L.push("Ponla bajo otro pedimento y sí avisará.");
+        }
         L.push("");
-        L.push("Se distingue por el pedimento porque el histórico que importas");
-        L.push("incluye lo de hoy: avisar sin mirar eso encendería una alerta");
-        L.push("en cada guía que el turno lleve escaneada.");
+        L.push("Si quieres que avise SIEMPRE de lo de hoy, mire donde mire, usa");
+        L.push("«🔔 Avisar de lo de HOY». Solo hazlo si importas el histórico al");
+        L.push("cerrar el día: si importas durante el turno, cada guía escaneada");
+        L.push("se encenderá en cuanto importes.");
     }
     ui.alert("🔎 ¿Esto ya salió?", L.join("\n"), ui.ButtonSet.OK);
 }
