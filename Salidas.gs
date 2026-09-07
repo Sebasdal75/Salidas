@@ -499,9 +499,37 @@ function mapaDeSalidas(filas) {
 // la explicación larga en `avisoDePedimentoPrevio`. En resumen, el histórico
 // que importas incluye lo de hoy, y sin esta regla importar a media mañana
 // encendería una alerta falsa en cada guía que el turno lleve escaneada.
-function avisoDeSalidaPrevia(info, hoy) {
+// LO DE HOY: la regla afinada, y por qué la primera estaba mal.
+//
+// La primera versión callaba TODO lo de hoy, con este argumento: «de lo de hoy
+// ya se encarga el ⛔ DUPLICADO contra las pestañas abiertas». ESO ES FALSO.
+// El ⛔ DUPLICADO solo ve lo que sigue escrito en una pestaña; en cuanto el
+// bloque de esta mañana se cierra y se limpia, la guía desaparece del caché y
+// vuelve a ser «nueva». O sea que justo el caso más peligroso —embarcar por la
+// mañana y volver a embarcar por la tarde— no lo veía NADIE.
+//
+// Pero callar lo de hoy tampoco era un capricho: el histórico que se importa
+// INCLUYE lo de hoy, así que avisar sin más encendería una alerta en cada guía
+// que el turno lleve escaneada en cuanto alguien importe a media mañana.
+//
+// Lo que separa los dos casos es EL PEDIMENTO:
+//
+//   · misma guía, MISMO pedimento  → es el mismo embarque visto dos veces
+//                                    (el que estás mirando). Callar.
+//   · misma guía, OTRO pedimento   → se embarcó dos veces hoy. AVISAR.
+//
+// `pedActual` es el pedimento del bloque donde está la guía ahora. Sin él —o
+// sin pedimento en el histórico— no hay forma de distinguir, y se calla: una
+// alerta de más en cada fila del día es peor que una de menos.
+function avisoDeSalidaPrevia(info, hoy, pedActual) {
     if (!info) return "";
-    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy)) return "";
+    if (hoy && info.fecha && esMismoDiaSalida(info.fecha, hoy)) {
+        let p = String(pedActual === undefined || pedActual === null ? "" : pedActual).trim();
+        if (!info.pedimento || p === "" || info.pedimento === p) return "";
+        // Mismo día, otro pedimento: se dice así, porque «ya salió el 07/09» a
+        // secas suena a error del sistema cuando la fecha es hoy.
+        return "⛔ YA SALIÓ HOY en el pedimento " + info.pedimento;
+    }
     let f = textoFechaSalida(info.fecha);
     return "⛔ YA SALIÓ el " + f +
            (info.pedimento ? " (ped. " + info.pedimento + ")" : "");
@@ -1328,8 +1356,11 @@ function consultarSalidaPrevia() {
     L.push("");
 
     let hoy = new Date();
+    // Sin pedimento de bloque que comparar, una salida de HOY se calla. Es lo
+    // mismo que haría el escaneo si la guía estuviera en un bloque sin
+    // pedimento, así que la consulta no puede prometer más de lo que dará.
     let aviso = esPedimento ? avisoDePedimentoPrevio(info, hoy)
-                            : avisoDeSalidaPrevia(info, hoy);
+                            : avisoDeSalidaPrevia(info, hoy, "");
 
     L.push("── QUÉ SALDRÁ AL ESCANEAR ──");
     if (aviso !== "") {
@@ -1339,12 +1370,16 @@ function consultarSalidaPrevia() {
         L.push("pestaña: el estado solo se recalcula cuando la fila cambia.");
     } else {
         // La única razón por la que algo encontrado no avisa.
-        L.push("Nada, y es a propósito: salió HOY.");
+        L.push("Salió HOY, en el pedimento " + (info.pedimento || "(sin pedimento)") + ".");
         L.push("");
-        L.push("El histórico que importas incluye lo de hoy, así que sin esta");
-        L.push("regla cada guía del turno gritaría «ya salió» en cuanto");
-        L.push("importaras. De lo de hoy se encarga el ⛔ DUPLICADO contra las");
-        L.push("pestañas abiertas, que además dice la fila exacta.");
+        L.push("Al escanearla el aviso depende de DÓNDE la pongas:");
+        L.push("  · bajo ESE mismo pedimento → no avisa. Es el mismo embarque.");
+        L.push("  · bajo OTRO pedimento     → «⛔ YA SALIÓ HOY en el pedimento");
+        L.push("                               " + (info.pedimento || "…") + "».");
+        L.push("");
+        L.push("Se distingue por el pedimento porque el histórico que importas");
+        L.push("incluye lo de hoy: avisar sin mirar eso encendería una alerta");
+        L.push("en cada guía que el turno lleve escaneada.");
     }
     ui.alert("🔎 ¿Esto ya salió?", L.join("\n"), ui.ButtonSet.OK);
 }

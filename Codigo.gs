@@ -2082,7 +2082,7 @@ function contrastarAparicion(guia, valorReal) {
 //
 // Ante cualquier duda devuelve "": quedarse sin aviso es un problema; bloquear
 // la operación por un fallo del módulo es mucho peor.
-function avisoDeYaSalio(source, valor) {
+function avisoDeYaSalio(source, valor, pedBloque) {
     let v = String(valor === undefined || valor === null ? "" : valor).trim();
     if (v === "" || esMarcadorEstructural(v)) return "";
     if (/^\d{7}$/.test(v)) return "";
@@ -2090,11 +2090,43 @@ function avisoDeYaSalio(source, valor) {
         if (typeof salidaPreviaDe !== 'function') return "";
         let previa = salidaPreviaDe(source, v);
         if (!previa) return "";
-        // `new Date()` para que una salida registrada HOY no avise: el
-        // histórico incluye lo de hoy, y sin eso importar a media mañana
-        // encendería una alerta falsa en cada guía del turno.
-        return avisoDeSalidaPrevia(previa, new Date());
+        // El pedimento del bloque es lo que distingue «esta guía ya salió hoy
+        // EN OTRO embarque» de «esta guía es la que estás mirando». Ver
+        // `avisoDeSalidaPrevia`.
+        return avisoDeSalidaPrevia(previa, new Date(), pedBloque);
     } catch (err) { return ""; }
+}
+
+// El pedimento que manda sobre cada fila, en una sola pasada.
+//
+// Buscar hacia arriba fila por fila serían millones de comparaciones dentro del
+// escaneo con una hoja de 3.000 filas. Así es una pasada y ya.
+//
+// `haciaAbajo` invierte el recorrido, y hace falta: EN LA COLUMNA A el
+// pedimento encabeza su bloque y va ARRIBA de sus guías, pero EN LA PREFORMA
+// (columna O) va DEBAJO. Recorrer las dos igual dejaría a la preforma
+// asignando a cada guía el pedimento del bloque anterior — callado, y
+// equivocado en todas las filas.
+function pedimentosPorFila(datosMasivos, ultimaFila, idxCol, haciaAbajo) {
+    let out = new Array(ultimaFila);
+    let c = idxCol === undefined ? 0 : idxCol;
+    let actual = "";
+    if (haciaAbajo) {
+        for (let i = ultimaFila - 1; i >= 0; i--) {
+            let v = String((datosMasivos[i] || [])[c]).trim().toUpperCase();
+            if (/^\d{7}$/.test(v)) actual = v;
+            else if (esMarcadorEstructural(v)) actual = "";
+            out[i] = actual;
+        }
+        return out;
+    }
+    for (let i = 0; i < ultimaFila; i++) {
+        let v = String((datosMasivos[i] || [])[c]).trim().toUpperCase();
+        if (/^\d{7}$/.test(v)) actual = v;
+        else if (esMarcadorEstructural(v)) actual = "";
+        out[i] = actual;
+    }
+    return out;
 }
 
 // «🛑 PEDIMENTO YA USADO el …» para un pedimento de 7 dígitos, o "".
@@ -3365,6 +3397,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   let totalPedimentosPreforma = 0; let totalBultosPreforma = 0;
   let bloquesPreforma = []; let pedimentosVistosPreforma = new Set(); let filasDuplicadasPreforma = new Set();
 
+  // En la preforma el pedimento va DEBAJO de sus guías: se recorre al revés.
+  let pedsPorFilaO = pedimentosPorFila(datosMasivos, ultimaFila, 14, true);
+
   for (let i = 0; i < ultimaFila; i++) {
     let valP = String(datosMasivos[i][14]).trim();
     let estP = String(datosMasivos[i][15]).trim();
@@ -3376,7 +3411,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // para que todo lo que venga después pueda pisarlo si tiene algo más
     // importante que decir —un pedimento repetido, una captura inválida—. Al
     // revés taparía diagnósticos que sí son de esta preforma.
-    let yaP = esErrP ? "" : avisoDeYaSalio(source, valP);
+    let yaP = esErrP ? "" : avisoDeYaSalio(source, valP, pedsPorFilaO[i]);
     resultadosP.push([esErrP ? estP : yaP]);
     resultadosHorasP.push([horaPreservada(datosMasivos, i, 18, valP, horaActual)]);
     coloresP.push([esErrP ? '#ffc107' : (yaP !== "" ? '#ff9800' : '#FFFFFF')]);
@@ -3559,6 +3594,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
       });
   }
 
+  // En la columna A el pedimento ENCABEZA su bloque: se recorre hacia adelante.
+  let pedsPorFilaA = pedimentosPorFila(datosMasivos, ultimaFila, 0, false);
+
   let resultadosB = []; let resultadosHoras = []; let coloresB = [];
   for (let i = 0; i < ultimaFila; i++) {
     let valB = String(datosMasivos[i][0]).trim();
@@ -3577,7 +3615,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else {
-        let ya = avisoDeYaSalio(source, valB);
+        let ya = avisoDeYaSalio(source, valB, pedsPorFilaA[i]);
         if (ya !== "") { fijo = ya; color = '#ff9800'; }
     }
 
@@ -4023,6 +4061,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   const nombreHojaMayus = claveHoja(hoja.getName());
 
   let dupExternos = calcularDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo);
+  let pedsPorFilaA = pedimentosPorFila(datosMasivos, ultimaFila, 0, false);
 
   let resultadosB = []; let resultadosHoras = []; let coloresB = [];
   let fontLinesA = []; let fontColorsA = [];
@@ -4046,7 +4085,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
         // VA DESPUÉS del duplicado a propósito: si la guía además está repetida
         // en otra pestaña de hoy, eso es más urgente y más accionable que
         // decirle que salió hace tres semanas.
-        let ya = avisoDeYaSalio(source, valB);
+        let ya = avisoDeYaSalio(source, valB, pedsPorFilaA[i]);
         if (ya !== "") { fijo = ya; color = '#ff9800'; }
     }
 

@@ -3640,5 +3640,71 @@ ok("sin pestañas no revienta", planDeConsolidado([]).filas === 0);
 ok("null tampoco", planDeConsolidado(null).plan.length === 0);
 ok("el ancho mínimo es 1", planDeConsolidado([]).ancho === 1);
 
+console.log("\n--- 10. Lo de HOY: se distingue por el pedimento ---");
+// LA JUSTIFICACIÓN QUE ESTABA MAL: la primera versión callaba TODO lo de hoy
+// diciendo «de eso ya se encarga el ⛔ DUPLICADO contra las pestañas abiertas».
+// Es FALSO: el ⛔ DUPLICADO solo ve lo que sigue escrito en una pestaña, y en
+// cuanto el bloque de la mañana se cierra y se limpia la guía desaparece del
+// caché. Justo el caso peor —embarcar por la mañana y volver a embarcar por la
+// tarde— no lo veía nadie.
+let hoyD = new Date(2026, 8, 7);
+let salioHoy = { fecha: new Date(2026, 8, 7), pedimento: "6102253" };
+
+ok("misma guía, MISMO pedimento: no avisa (es el embarque que miras)",
+   avisoDeSalidaPrevia(salioHoy, hoyD, "6102253") === "");
+ok("misma guía, OTRO pedimento: SÍ avisa",
+   avisoDeSalidaPrevia(salioHoy, hoyD, "6103516") !== "");
+ok("y lo dice sin fingir que fue otro día",
+   avisoDeSalidaPrevia(salioHoy, hoyD, "6103516").indexOf("HOY") !== -1);
+ok("nombrando el pedimento donde ya salió",
+   avisoDeSalidaPrevia(salioHoy, hoyD, "6103516").indexOf("6102253") !== -1);
+
+// Sin nada que comparar se calla: una alerta de más en CADA fila del día es
+// peor que una de menos.
+ok("sin pedimento de bloque se calla",
+   avisoDeSalidaPrevia(salioHoy, hoyD, "") === "");
+ok("y si el histórico no trae pedimento, también",
+   avisoDeSalidaPrevia({ fecha: new Date(2026, 8, 7), pedimento: "" }, hoyD, "6103516") === "");
+
+// Otro día sigue avisando siempre, mire donde mire.
+let salioAntes = { fecha: new Date(2026, 7, 20), pedimento: "6102253" };
+ok("otro día avisa aunque el pedimento coincida",
+   avisoDeSalidaPrevia(salioAntes, hoyD, "6102253") !== "");
+ok("y dice la fecha", avisoDeSalidaPrevia(salioAntes, hoyD, "6102253").indexOf("20/08/2026") !== -1);
+
+console.log("\n--- 10b. Qué pedimento manda sobre cada fila ---");
+// En la columna A el pedimento ENCABEZA su bloque. En la preforma (columna O)
+// va DEBAJO. Recorrer las dos igual dejaría a la preforma asignando a cada
+// guía el pedimento del bloque anterior: callado, y mal en todas las filas.
+let hojaA = [
+    ["6102253"], ["1ZA"], ["1ZB"],
+    ["6103516"], ["1ZC"]
+];
+let pA = pedimentosPorFila(hojaA, 5, 0, false);
+ok("el pedimento manda sobre las filas de DEBAJO", pA[1] === "6102253" && pA[2] === "6102253");
+ok("y el siguiente releva al anterior", pA[4] === "6103516");
+ok("la fila del propio pedimento se asigna a sí misma", pA[0] === "6102253");
+
+// En la O, al revés.
+let hojaO = [
+    [""], [""], [""], [""], [""]
+];
+hojaO[0][14] = "1ZA"; hojaO[1][14] = "1ZB"; hojaO[2][14] = "6102253";
+hojaO[3][14] = "1ZC"; hojaO[4][14] = "6103516";
+let pO = pedimentosPorFila(hojaO, 5, 14, true);
+ok("en la preforma el pedimento manda sobre las filas de ARRIBA",
+   pO[0] === "6102253" && pO[1] === "6102253");
+ok("y no se cuela el del bloque siguiente", pO[3] === "6103516");
+
+// Un marcador de bloque corta: las guías de después no heredan el pedimento
+// anterior, o se les asignaría uno que no es suyo.
+let hojaCorte = [["6102253"], ["1ZA"], ["FIN"], ["1ZB"]];
+ok("un marcador corta la herencia",
+   pedimentosPorFila(hojaCorte, 4, 0, false)[3] === "");
+
+ok("una hoja vacía no revienta", pedimentosPorFila([], 0, 0, false).length === 0);
+ok("filas sin datos tampoco",
+   pedimentosPorFila([null, null], 2, 0, false)[1] === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
