@@ -1012,8 +1012,19 @@ function probarArchivoDeSalidas() {
 // =========================================================================
 
 const HOJA_SALIDAS_RAPIDO = "SALIDAS_RAPIDO";
-// Por debajo del tope de 50.000 caracteres por celda, con margen.
-const CHARS_POR_CELDA_SALIDA = 45000;
+// Cuánto texto cabe en cada celda de la lista rápida.
+//
+// El tope de Sheets son 50.000 caracteres por celda, y la primera versión iba a
+// 45.000 —al filo— porque cuantas menos celdas, menos que leer. Craso error de
+// prioridades: la APP MÓVIL de Sheets es mucho menos tolerante que la web y
+// abre en SOLO LECTURA los archivos que no puede cargar del todo. Celdas de
+// 45.000 caracteres son justo el tipo de cosa que la ahoga, y quien abre este
+// archivo en el móvil son los escáneres.
+//
+// A 5.000 el total de bytes es el mismo, pero cada celda es de un tamaño
+// normal. Se leen todas en UNA sola llamada igual que antes, así que bajar esto
+// no cuesta nada en el escaneo: solo cambia cuántas filas ocupa.
+const CHARS_POR_CELDA_SALIDA = 5000;
 const FECHA_SALIDA_DESCONOCIDA = "000000";
 
 // La fecha en seis caracteres: aammdd. No hace falta más —el año 19xx no

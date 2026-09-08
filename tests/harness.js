@@ -3439,8 +3439,13 @@ for (let i = 0; i < 5000; i++) {
 }
 let trozos = empaquetarSalidas(muchas);
 ok("se trocea en varias celdas", trozos.length > 1);
-ok("ningún trozo pasa del tope de la celda",
-   trozos.every(t => t[0].length <= 45000));
+// El tope de Sheets son 50.000 por celda, pero la app MÓVIL abre en solo
+// lectura los archivos que no puede cargar, y celdas enormes son de lo que peor
+// lleva. Quien abre este archivo en el móvil son los escáneres.
+ok("ningún trozo pasa del tamaño de celda elegido",
+   trozos.every(t => t[0].length <= 5000));
+ok("y ese tamaño está lejos del tope de Sheets",
+   trozos.every(t => t[0].length < 50000));
 ok("ningún trozo empieza cortando un registro",
    trozos.every(t => t[0].charAt(0) === "|"));
 ok("al unirlos se encuentran todas",
