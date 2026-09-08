@@ -3779,5 +3779,34 @@ ok("un pedimento en la lista tampoco",
 ok("sin lista no revienta", retenidasEnEscaneos(null, dataRet, hdrsRet).length === 0);
 ok("sin caché tampoco", retenidasEnEscaneos([G_RET], null, null).length === 0);
 
+console.log("\n--- 11b. El aviso de RETENIDA en la columna B ---");
+// La validación de datos ya señala una retenida al escanearla, pero eso es un
+// aviso del navegador: no deja rastro, no lo ve quien revisa después y
+// desaparece en cuanto el operador acepta. El ESTADO sí queda.
+let hdrsFem = ["GLOBAL1_FISICO", "__FEMAD", "__HOUSE_GUIA"];
+let dataFem = [
+    hdrsFem,
+    [G_RET, G_RET, ""],
+    [G_LIBRE, "", ""]
+];
+let setFem = retenidasDelCache(dataFem, hdrsFem);
+ok("la lista sale del caché", setFem.has(G_RET));
+ok("y no mete lo que no está", !setFem.has(G_LIBRE));
+ok("sin columna __FEMAD el conjunto sale vacío",
+   retenidasDelCache(dataFem, ["GLOBAL1_FISICO"]).size === 0);
+ok("sin caché tampoco revienta", retenidasDelCache(null, null).size === 0);
+
+// La columna __FEMAD empieza por «__» a propósito: eso la deja FUERA del índice
+// de duplicados —que solo mira las que acaban en _FISICO— y fuera del podado de
+// huérfanas. Si entrara al índice, cada guía retenida saldría duplicada de sí
+// misma en cuanto alguien la escaneara.
+ok("la columna de retenidas NO entra al índice de duplicados",
+   !construirIndiceCache(dataFem, hdrsFem).has(G_RET) ||
+    construirIndiceCache(dataFem, hdrsFem).get(G_RET).length === 1);
+ok("y la guía escaneada sí está, una sola vez",
+   construirIndiceCache(dataFem, hdrsFem).get(G_RET).length === 1);
+ok("el podado no se lleva __FEMAD",
+   columnasHuerfanas(hdrsFem, new Set(["GLOBAL1"])).indexOf(2) === -1);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

@@ -671,6 +671,7 @@ function aplicarValidacionEnTodas() {
 }
 
 function invalidarCacheRAM() {
+    olvidarRetenidasEnRAM();
     globalCacheData = null;
     globalCacheHeaders = null;
     globalCacheMap = null;
@@ -2634,10 +2635,129 @@ function registrarEnHistorialLote(source, eventos) {
 // =========================================================================
 // SINCRONIZACIÓN MACHO
 // =========================================================================
+// =========================================================================
+// LA LISTA DE RETENIDAS, DENTRO DEL CACHÉ
+// =========================================================================
+//
+// La validación de datos ya señala una retenida al escanearla, pero eso es un
+// aviso del navegador: no deja rastro en la hoja, no lo ve quien revisa después
+// y desaparece en cuanto el operador acepta. Para que el ESTADO de la columna B
+// lo diga hay que saber, dentro del recálculo, si esa guía está en la lista.
+//
+// POR QUÉ EN EL CACHÉ Y NO LEYENDO LA COLUMNA M. La lista ya está volcada en la
+// columna M de cada pestaña, pero el recálculo lee A:L —doce columnas— y
+// ampliarlo no basta: la lista puede ser más larga que las filas escaneadas, así
+// que se quedaría cortada sin que nada lo dijera. Leerla aparte costaría una
+// llamada por escaneo.
+//
+// El caché se lee ENTERO en cada escaneo y ya está en memoria. Una columna más
+// ahí no cuesta ninguna llamada, y son unos cientos de guías. Es el mismo camino
+// que ya usa la house.
+//
+// El nombre empieza por «__» a propósito, igual que las de la house: eso la
+// protege del podado de columnas huérfanas (no es de ninguna pestaña) y la deja
+// fuera del índice de duplicados, que solo mira las que acaban en «_FISICO».
+const HEADER_FEMAD = "__FEMAD";
+
+function guardarRetenidasEnCache(source, lista) {
+    let cacheSheet = source.getSheetByName("CACHE_SISTEMA");
+    if (!cacheSheet) return 0;
+
+    let limpias = [];
+    let vistas = new Set();
+    (lista || []).forEach(v => {
+        let g = String(v === undefined || v === null ? "" : v).trim().toUpperCase();
+        // Solo lo que es una guía. La columna M la teclean personas y una nota
+        // suelta no puede acabar marcando filas como retenidas.
+        if (g === "" || vistas.has(g) || !esGuiaUPSValida(g)) return;
+        vistas.add(g);
+        limpias.push([g]);
+    });
+
+    let headers = cacheSheet.getRange(1, 1, 1, cacheSheet.getMaxColumns()).getValues()[0];
+    let col = columnaDeHeader(cacheSheet, headers, HEADER_FEMAD);
+    if (col === -1) return 0;
+
+    // Se REEMPLAZA entera: una guía que sale de la lista tiene que dejar de
+    // estar marcada, y acumular dejaría retenidas fantasma para siempre.
+    let maxFilas = cacheSheet.getMaxRows();
+    if (maxFilas > 1) cacheSheet.getRange(2, col, maxFilas - 1, 1).clearContent();
+    if (limpias.length === 0) return 0;
+    asegurarFilas(cacheSheet, limpias.length + 1);
+    cacheSheet.getRange(2, col, limpias.length, 1).setValues(limpias);
+    return limpias.length;
+}
+
+// El conjunto de retenidas sacado de la foto del caché. Puro, para poder
+// probarlo sin hablar con Sheets.
+function retenidasDelCache(data, headers) {
+    let set = new Set();
+    if (!data || !headers) return set;
+    let c = headers.indexOf(HEADER_FEMAD);
+    if (c === -1) return set;
+    for (let r = 1; r < data.length; r++) {
+        let v = data[r] ? data[r][c] : "";
+        if (v === "" || v === null || v === undefined) continue;
+        set.add(String(v).trim().toUpperCase());
+    }
+    return set;
+}
+
+// Se arma UNA vez por ejecución, no una por fila: el recálculo de una hoja
+// larga preguntaría miles de veces por la misma lista.
+let globalRetenidas = null;
+function olvidarRetenidasEnRAM() { globalRetenidas = null; }
+
+function conjuntoRetenidas(cacheInfo) {
+    if (globalRetenidas === null) {
+        globalRetenidas = retenidasDelCache(cacheInfo ? cacheInfo.data : null,
+                                            cacheInfo ? cacheInfo.headers : null);
+    }
+    return globalRetenidas;
+}
+
+// El texto del estado. Se separa para que diga lo mismo en las cuatro pestañas
+// donde aparece, y para que cambiarlo sea un solo sitio.
+const TXT_RETENIDA = "🛑 RETENIDA (FEMAD)";
+
+// Vuelve a poner la lista en el caché leyendo la MACHO.
+//
+// HACE FALTA porque «Reconstruir caché completo» BORRA la hoja entera, y con
+// ella esta columna. Sin esto, después de una reconstrucción ninguna guía
+// saldría como retenida hasta que alguien tocara la columna M de la MACHO —y
+// nadie ata esas dos cosas—: el aviso desaparecería en silencio justo después
+// de la operación que se hace para arreglar las cosas.
+function refrescarRetenidasEnCache(ss) {
+    let macho = ss.getSheetByName(HOJA_MACHO);
+    if (!macho) return 0;
+    let lr = macho.getLastRow();
+    if (lr < 1) return 0;
+    let lista = macho.getRange(1, 13, lr, 1).getValues().map(f => f[0]);
+    let n = guardarRetenidasEnCache(ss, lista);
+    olvidarRetenidasEnRAM();
+    return n;
+}
+
+function avisoDeRetenida(cacheInfo, valor) {
+    let v = String(valor === undefined || valor === null ? "" : valor).trim().toUpperCase();
+    if (v === "" || esMarcadorEstructural(v)) return "";
+    try {
+        return conjuntoRetenidas(cacheInfo).has(v) ? TXT_RETENIDA : "";
+    } catch (err) { return ""; }
+}
+
 function sincronizarMacho(hojaMacho, source) {
     let ultimaFila = hojaMacho.getLastRow();
     let valoresMacho = [];
     if (ultimaFila > 0) valoresMacho = hojaMacho.getRange(1, 13, ultimaFila, 1).getValues();
+
+    // La misma lista, al caché: es lo que permite que el ESTADO de la columna B
+    // diga «RETENIDA» sin abrir nada durante el escaneo. Va aquí porque este es
+    // el único sitio donde la lista se conoce entera y ya está leída.
+    try {
+        guardarRetenidasEnCache(source, valoresMacho.map(f => f[0]));
+        olvidarRetenidasEnRAM();
+    } catch (err) { /* que falle no puede impedir el volcado de la columna M */ }
 
     let hojas = source.getSheets();
     for (let i = 0; i < hojas.length; i++) {
@@ -3411,10 +3531,15 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // para que todo lo que venga después pueda pisarlo si tiene algo más
     // importante que decir —un pedimento repetido, una captura inválida—. Al
     // revés taparía diagnósticos que sí son de esta preforma.
-    let yaP = esErrP ? "" : avisoDeYaSalio(source, valP, pedsPorFilaO[i]);
-    resultadosP.push([esErrP ? estP : yaP]);
+    // En la preforma también: una retenida PLANIFICADA para salir hay que verla
+    // antes de que llegue al muelle, no cuando ya está escaneada.
+    let retP = esErrP ? "" : avisoDeRetenida(cacheInfo, valP);
+    let yaP = (esErrP || retP !== "") ? "" : avisoDeYaSalio(source, valP, pedsPorFilaO[i]);
+    let arranqueP = esErrP ? estP : (retP !== "" ? retP : yaP);
+    resultadosP.push([arranqueP]);
     resultadosHorasP.push([horaPreservada(datosMasivos, i, 18, valP, horaActual)]);
-    coloresP.push([esErrP ? '#ffc107' : (yaP !== "" ? '#ff9800' : '#FFFFFF')]);
+    coloresP.push([esErrP ? '#ffc107'
+                          : (retP !== "" ? '#dc3545' : (yaP !== "" ? '#ff9800' : '#FFFFFF'))]);
     coloresColumnaO.push([yaP !== "" ? COLOR_A_DUPLICADO : '#FFFFFF']);
   }
 
@@ -3612,6 +3737,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     if (valB === "") {
         // fila vacía: se deja todo en blanco
     } else if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
+    // RETENIDA manda sobre todo lo demás, incluso sobre «Salió en …». Si una
+    // guía retenida acabó embarcándose, eso es exactamente lo que hay que ver,
+    // no taparlo con el estado de la salida.
+    else if (avisoDeRetenida(cacheInfo, valB) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else {
@@ -4079,6 +4208,8 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
     let fijo = '';
     let color = '#FFFFFF';
     if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
+    // RETENIDA manda sobre todo lo demás: ver la nota en la Global.
+    else if (!vacia && avisoDeRetenida(cacheInfo, valB) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else {
@@ -4357,6 +4488,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
     let fijo = '';
     let color = '#FFFFFF';
     if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
+    else if (!vacia && avisoDeRetenida(cacheInfo, valA) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
     else if (dup) { fijo = dup; color = '#ff9800'; }
 
     resultadosB.push([fijo]);
@@ -6014,8 +6146,14 @@ function RECONSTRUIR_CACHE_TOTAL() {
     invalidarCacheRAM();
 
     ss.getSheets().forEach(hoja => actualizarFotografiaMental(hoja, ss));
+    // La lista de retenidas se fue con la hoja borrada: hay que devolverla, o
+    // el aviso «RETENIDA» desaparecería justo después de reconstruir.
+    let retenidas = 0;
+    try { retenidas = refrescarRetenidasEnCache(ss); } catch (err) { retenidas = -1; }
     invalidarCacheRAM();
 
-    ss.toast('✅ Caché reconstruido con éxito.', 'Listo', 5);
+    ss.toast('✅ Caché reconstruido' +
+             (retenidas >= 0 ? ' · retenidas: ' + retenidas : ' · ⚠️ sin la lista de retenidas'),
+             'Listo', 5);
   });
 }
