@@ -4604,6 +4604,8 @@ function onOpen() {
         .addItem('📏 Espacio del archivo (tope de celdas)', 'revisarEspacioDelArchivo')
         .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos')
         .addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
+        .addItem('🔒 ¿Por qué esta pestaña es de solo lectura?', 'porQueSoloLectura')
+        .addItem('🔓 Quitar las protecciones del script', 'quitarProteccionesDelScript')
         .addItem('📚 Unir pestañas INVENTARIO', 'unirInventarios'))
 
     .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
@@ -4701,6 +4703,137 @@ function onOpen() {
 // accidental sin bloquear a nadie.
 // =========================================================================
 const DESC_PROTECCION = "Hoja interna del motor de escaneos — no editar a mano";
+
+// =========================================================================
+// ¿POR QUÉ ESTA PESTAÑA ES DE SOLO LECTURA?
+// =========================================================================
+//
+// Cuando un escáner abre unas pestañas y otras no, la causa NO es el archivo ni
+// la cuenta —eso afectaría a todas—: es algo puesto en esa pestaña concreta.
+// Y desde el móvil no hay forma de verlo: la app de Sheets no enseña ni quién
+// protege ni con qué regla, solo se planta en «solo lectura».
+//
+// Esto lo lee desde dentro y lo dice. Sin adivinar.
+function porQueSoloLectura() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    const hoja = ss.getActiveSheet();
+    let L = [];
+
+    L.push("Pestaña: " + hoja.getName());
+    let yo = "";
+    try { yo = Session.getEffectiveUser().getEmail(); } catch (err) { yo = ""; }
+    L.push("Cuenta que corre esto: " + (yo || "(no disponible)"));
+    L.push("");
+
+    // ── Protecciones de la hoja entera ────────────────────────────────────
+    L.push("── PROTECCIÓN DE LA PESTAÑA ──");
+    let pHoja = [];
+    try { pHoja = hoja.getProtections(SpreadsheetApp.ProtectionType.SHEET); }
+    catch (err) { L.push("   (no se pudo leer: " + err + ")"); }
+
+    if (pHoja.length === 0) {
+        L.push("   Ninguna. La pestaña entera no está protegida.");
+    } else {
+        pHoja.forEach(p => {
+            let desc = p.getDescription() || "(sin descripción)";
+            let soloAviso = false;
+            try { soloAviso = p.isWarningOnly(); } catch (err) { soloAviso = false; }
+            let puedo = false;
+            try { puedo = p.canEdit(); } catch (err) { puedo = false; }
+            L.push("   · " + desc);
+            L.push("     solo aviso: " + (soloAviso ? "SÍ" : "no") +
+                   "   ·   ¿puedo editar?: " + (puedo ? "sí" : "NO"));
+            // AQUÍ ESTÁ EL CASO QUE NADIE ESPERA: una protección «solo aviso»
+            // en el ordenador se salta con un cuadro de confirmación, pero LA
+            // APP MÓVIL NO SABE ENSEÑAR ESE CUADRO y se planta en solo lectura.
+            // Desde el escritorio parece que no hay nada mal.
+            if (soloAviso) {
+                L.push("     ⚠️ «Solo aviso» funciona en el ORDENADOR, pero la app");
+                L.push("        MÓVIL no sabe mostrar el cuadro de confirmación y");
+                L.push("        deja la pestaña en SOLO LECTURA. Es la causa más");
+                L.push("        probable si desde el PC sí puedes escribir.");
+            }
+            if (!soloAviso && !puedo) {
+                L.push("     ⚠️ Protección real y esta cuenta NO está en la lista");
+                L.push("        de editores.");
+            }
+        });
+    }
+    L.push("");
+
+    // ── Rangos protegidos dentro de la hoja ───────────────────────────────
+    L.push("── RANGOS PROTEGIDOS DENTRO ──");
+    let pRangos = [];
+    try { pRangos = hoja.getProtections(SpreadsheetApp.ProtectionType.RANGE); }
+    catch (err) { /* se informa abajo */ }
+    if (pRangos.length === 0) {
+        L.push("   Ninguno.");
+    } else {
+        pRangos.slice(0, 10).forEach(p => {
+            let r = "";
+            try { r = p.getRange().getA1Notation(); } catch (err) { r = "?"; }
+            let puedo = false;
+            try { puedo = p.canEdit(); } catch (err) { puedo = false; }
+            let soloAviso = false;
+            try { soloAviso = p.isWarningOnly(); } catch (err) { soloAviso = false; }
+            L.push("   · " + r + "   " + (p.getDescription() || "") +
+                   "   (solo aviso: " + (soloAviso ? "sí" : "no") +
+                   ", ¿puedo?: " + (puedo ? "sí" : "NO") + ")");
+        });
+        if (pRangos.length > 10) L.push("   …y " + (pRangos.length - 10) + " más.");
+    }
+    L.push("");
+
+    L.push("── QUÉ HACER ──");
+    if (pHoja.length === 0 && pRangos.length === 0) {
+        L.push("Aquí no hay ninguna protección, así que el «solo lectura» del");
+        L.push("móvil viene de fuera de esta pestaña: mira el permiso que tiene");
+        L.push("esa cuenta en «Compartir», o si el escáner está sin conexión.");
+    } else {
+        L.push("Quita la protección desde el ORDENADOR:");
+        L.push("Datos → Proteger hojas y rangos → selecciónala → papelera.");
+        L.push("");
+        L.push("Si la puso este script (dice «Hoja interna del motor»), usa");
+        L.push("«🔓 Quitar las protecciones del script», que las retira todas.");
+    }
+    ui.alert("🔒 ¿Por qué es de solo lectura?", L.join("\n"), ui.ButtonSet.OK);
+}
+
+// Retira las protecciones que puso este script, en TODAS las pestañas.
+//
+// `protegerHojasSistema` las pone «solo aviso» pensando en el escritorio, donde
+// se saltan con un clic. En el móvil no: la app deja la pestaña en solo lectura
+// y el operador no puede escanear. Hacía falta poder deshacerlo sin ir pestaña
+// por pestaña desde el menú de Datos.
+function quitarProteccionesDelScript() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let quitadas = [];
+    ss.getSheets().forEach(hoja => {
+        [SpreadsheetApp.ProtectionType.SHEET, SpreadsheetApp.ProtectionType.RANGE]
+        .forEach(tipo => {
+            let ps = [];
+            try { ps = hoja.getProtections(tipo); } catch (err) { return; }
+            ps.forEach(p => {
+                let d = "";
+                try { d = p.getDescription() || ""; } catch (err) { d = ""; }
+                if (d !== DESC_PROTECCION) return;
+                try { p.remove(); quitadas.push(hoja.getName()); } catch (err) { }
+            });
+        });
+    });
+
+    ui.alert("🔓 Protecciones del script",
+        quitadas.length === 0
+            ? "No había ninguna protección puesta por este script.\n\n" +
+              "Si una pestaña sigue en solo lectura, la protección la puso una " +
+              "persona: Datos → Proteger hojas y rangos, desde el ordenador."
+            : "Quitadas en: " + quitadas.join(", ") + "\n\n" +
+              "Cierra y vuelve a abrir el archivo en el escáner.",
+        ui.ButtonSet.OK);
+}
 
 function protegerHojasSistema() {
   conLock(ss => {
