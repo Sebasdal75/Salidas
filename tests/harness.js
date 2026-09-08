@@ -3957,5 +3957,38 @@ ok("no se apilan resúmenes en cada pasada",
 ok("una fila sin cola se queda igual",
    cabezaEstado("⏳ Sin cargar") === "⏳ Sin cargar");
 
+console.log("\n--- 12f. Una preforma NO es un destino ---");
+// EL FALLO QUE ESTO EVITA, y es el peor de esta tanda: `esHojaMS` ya no cubre
+// a las M-S SALIDAS, así que `mapaSalidasDesdeCache` las tomaba por hojas de
+// unidad. Una guía SOLO PLANIFICADA contaba como salida, y la limpieza de guías
+// movidas habría borrado su fila de la M-S de verdad dándola por embarcada:
+// trabajo perdido por un bulto que sigue en el piso.
+let hdrsDest = ["GLOBAL1_FISICO", "M-S SALIDAS A1_FISICO", "M-S A1_FISICO"];
+let dataDest = [
+    hdrsDest,
+    ["1ZCARGADA", "1ZCARGADA", "1ZCARGADA"],
+    ["", "1ZSOLOPLAN", "1ZSOLOPLAN"]
+];
+let sal = mapaSalidasDesdeCache({ headers: hdrsDest, data: dataDest }, null);
+ok("lo escaneado en la Global sí es salida", sal.get("1ZCARGADA") === "GLOBAL1");
+ok("lo que solo está planificado NO es salida", !sal.has("1ZSOLOPLAN"));
+
+// Preguntando DESDE la propia preforma, la Global sigue siendo su destino: es
+// lo que permite que la limpieza se lleve lo ya cargado.
+let salDesdePre = mapaSalidasDesdeCache({ headers: hdrsDest, data: dataDest }, "M-S SALIDAS A1");
+ok("desde la preforma, la Global sigue contando",
+   salDesdePre.get("1ZCARGADA") === "GLOBAL1");
+
+console.log("\n--- 12g. La limpieza trata la preforma como una M-S ---");
+// «Que se borre con la limpieza como las otras M-S cuando está movido»: para
+// eso el estado de la preforma tiene que contar como estado de salida.
+ok("«Cargada» cuenta como salida", esEstadoSalida("✅ Cargada (GLOBAL1)"));
+ok("y «Sin cargar» NO", !esEstadoSalida("⏳ Sin cargar"));
+// `const` dentro de eval no sale al harness, así que se escribe el texto tal
+// cual: si alguien cambia la marca de salida, este test lo dice.
+ok("el «Salió en» de siempre sigue contando", esEstadoSalida("➡ Salió en GLOBAL1"));
+ok("una alerta no cuenta como salida", !esEstadoSalida("⛔ DUPLICADO (En: X Fila 5)"));
+ok("vacío tampoco", !esEstadoSalida(""));
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

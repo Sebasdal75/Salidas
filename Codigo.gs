@@ -1549,9 +1549,17 @@ const TXT_PENDIENTE = "⏳ Pendiente (reintenta)";
 // texto antiguo ("➡ Movido a ...") para que las hojas ya escritas se migren
 // solas en la siguiente pasada en vez de dejar de reconocerse.
 const TXT_SALIO = "➡ Salió en ";
+// Estado de una guía de la preforma que ya se escaneó en su destino.
+const TXT_CARGADA = "✅ Cargada";
+
 function esEstadoSalida(txt) {
     let t = String(txt).trim();
-    return t.startsWith(TXT_SALIO) || t.toUpperCase().startsWith("➡ MOVIDO A");
+    // «✅ Cargada (…)» es lo mismo dicho desde una M-S SALIDAS: el bulto ya se
+    // escaneó en su destino. Se nombra aquí para que la limpieza de guías
+    // movidas trate una preforma igual que una M-S, que es lo que se espera de
+    // ella: lo ya embarcado se va, lo pendiente se queda.
+    return t.startsWith(TXT_SALIO) || t.toUpperCase().startsWith("➡ MOVIDO A") ||
+           t.startsWith(TXT_CARGADA);
 }
 
 // La última guía de cada bloque lleva colgado el resumen del pedimento detrás
@@ -3042,7 +3050,12 @@ function mapaSalidasDesdeCache(cacheInfo, hojaExcluida) {
         // como destino, escanear un bulto que llega marcaría su fila de la M-S
         // como salida y la limpieza la borraría dándola por embarcada.
         let n = claveHoja(header.replace("_FISICO", ""));
-        if (esHojaMS(n) || esHojaInventario(n) || esHojaSistema(n) ||
+        // Y una M-S SALIDAS TAMPOCO es un destino: es el PLAN. Sin esta
+        // exclusión, una guía que solo estaba PLANIFICADA contaría como salida
+        // y la limpieza borraría su fila de la M-S de verdad dándola por
+        // embarcada — perdiendo trabajo por un bulto que sigue en el piso.
+        // `esHojaMS` ya no las cubre, así que hay que nombrarlas aquí.
+        if (esHojaMS(n) || esHojaSalidasMS(n) || esHojaInventario(n) || esHojaSistema(n) ||
             n.indexOf("REZAGO") !== -1 || esHojaTransito(n)) continue;
         if (excluida && n === excluida) continue;
 
@@ -4524,7 +4537,7 @@ function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSug
       let destino = destinoDeGuia(cacheInfo, v);
       if (destino !== "") {
           cargadasPorFila[i] = true;
-          resultadosB[i][0] = "✅ Cargada (" + destino + ")";
+          resultadosB[i][0] = TXT_CARGADA + " (" + destino + ")";
           coloresB[i][0] = "#07c369";
       } else {
           resultadosB[i][0] = "⏳ Sin cargar";
