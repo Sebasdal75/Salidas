@@ -3733,5 +3733,51 @@ ok("una hoja vacía no revienta", pedimentosPorFila([], 0, 0, false).length === 
 ok("filas sin datos tampoco",
    pedimentosPorFila([null, null], 2, 0, false)[1] === "");
 
+console.log("\n--- 11. Retenidas que están escaneadas ---");
+// La lista FEMAD son guías RETENIDAS: no pueden embarcarse. El volcado de la
+// columna M ya las señala AL ESCANEARLAS, pero una guía que se retuvo DESPUÉS
+// de escanearse se queda dentro de un bloque sin que nada vuelva a mirarla.
+const G_RET = "1Z999AA10123456784";      // válida
+const G_LIBRE = "1Z12345E1512345676";    // válida, no retenida
+let hdrsRet = ["GLOBAL1_FISICO", "GLOBAL1_PREFORMA", "M-S T1_FISICO", "MACHO_FISICO"];
+let dataRet = [
+    hdrsRet,
+    [G_RET, "", "", G_RET],       // escaneada en Global1 · y en la MACHO (origen)
+    ["", G_RET, "", ""],          // y planificada en la preforma de Global1
+    [G_LIBRE, "", G_LIBRE, ""]
+];
+
+let hRet = retenidasEnEscaneos([G_RET], dataRet, hdrsRet);
+ok("encuentra la retenida escaneada", hRet.length === 2);
+ok("dice en qué pestaña", hRet[0].hoja === "GLOBAL1");
+ok("y en qué fila", hRet[0].fila === 1);
+// La preforma cuenta: una retenida PLANIFICADA para salir importa igual, y
+// verla antes de que llegue al muelle es justo la gracia.
+ok("también la encuentra en la preforma",
+   hRet.some(x => x.preforma === true && x.fila === 2));
+ok("y distingue una cosa de la otra",
+   hRet.some(x => x.preforma === false));
+
+// LA MACHO ES EL ORIGEN de la lista: encontrarlas ahí no es un hallazgo, es la
+// lista mirándose al espejo. Sin esta exclusión CADA retenida saldría siempre.
+ok("no cuenta la propia MACHO",
+   !hRet.some(x => x.hoja === "MACHO"));
+
+// Una guía que no está retenida no puede salir, por muy escaneada que esté.
+ok("una guía libre no aparece",
+   !retenidasEnEscaneos([G_RET], dataRet, hdrsRet).some(x => x.guia === G_LIBRE));
+ok("y buscar una que no está escaneada no da nada",
+   retenidasEnEscaneos([G_LIBRE], [hdrsRet, ["", "", "", ""]], hdrsRet).length === 0);
+
+// La columna M la teclean personas: notas, encabezados y huecos no pueden
+// convertirse en búsquedas —«PENDIENTE» casaría con cualquier cosa—.
+ok("una nota en la lista no se busca",
+   retenidasEnEscaneos(["REVISAR CON ADUANA", "", null], dataRet, hdrsRet).length === 0);
+ok("un pedimento en la lista tampoco",
+   retenidasEnEscaneos(["6102253"], dataRet, hdrsRet).length === 0);
+
+ok("sin lista no revienta", retenidasEnEscaneos(null, dataRet, hdrsRet).length === 0);
+ok("sin caché tampoco", retenidasEnEscaneos([G_RET], null, null).length === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

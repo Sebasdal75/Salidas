@@ -4471,6 +4471,7 @@ function onOpen() {
         .addItem('Prueba: ¿qué cuesta abrir el caché?', 'probarCosteCache')
         .addItem('📏 Espacio del archivo (tope de celdas)', 'revisarEspacioDelArchivo')
         .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos')
+        .addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
         .addItem('📚 Unir pestañas INVENTARIO', 'unirInventarios'))
 
     .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
@@ -5826,6 +5827,124 @@ function buscarDuplicadosHistoricos() {
   }
 
   ui.alert("📚 Duplicados contra el histórico", L.join("\n"), ui.ButtonSet.OK);
+}
+
+// =========================================================================
+// RETENIDAS QUE ESTÁN ESCANEADAS
+// =========================================================================
+//
+// La lista FEMAD —la columna M de la MACHO— son guías RETENIDAS por la Guardia
+// Nacional: no pueden embarcarse. El sistema ya vuelca esa lista en todas las
+// pestañas para que la validación de datos las señale al escanearlas, pero eso
+// solo avisa EN EL MOMENTO. Una guía que se retuvo DESPUÉS de escanearse, o una
+// que se escaneó antes de que la lista se actualizara, se queda dentro de un
+// bloque sin que nada vuelva a mirarla.
+//
+// Esto hace la pregunta al revés: de todo lo retenido, ¿qué hay escaneado ahora
+// mismo en alguna parte? Se responde contra el caché, así que cubre todas las
+// pestañas de una vez y sin abrir ninguna.
+//
+// Se mira TAMBIÉN la preforma (columna O), no solo el escaneo físico: una
+// retenida que está planificada para salir importa igual que una ya escaneada,
+// y encontrarla antes de que llegue al muelle es justo la gracia.
+
+// `data` y `headers` son la foto del caché. Devuelve [{guia, hoja, fila, preforma}].
+function retenidasEnEscaneos(retenidas, data, headers) {
+    let hallazgos = [];
+    let buscadas = new Set();
+    (retenidas || []).forEach(v => {
+        let g = String(v === undefined || v === null ? "" : v).trim().toUpperCase();
+        // esGuiaUPSValida ya descarta los marcadores y los pedimentos, así que
+        // las notas que alguien escriba en esa columna no pueden colarse.
+        if (g !== "" && esGuiaUPSValida(g)) buscadas.add(g);
+    });
+    if (buscadas.size === 0 || !data || !headers) return hallazgos;
+
+    for (let c = 0; c < headers.length; c++) {
+        let h = String(headers[c]);
+        let esPre = h.endsWith("_PREFORMA");
+        if (!esPre && !h.endsWith("_FISICO")) continue;
+        let nombre = claveHoja(h.replace("_FISICO", "").replace("_PREFORMA", ""));
+        // La MACHO es el ORIGEN de la lista: encontrarlas ahí no es un hallazgo,
+        // es la lista mirándose al espejo.
+        if (esHojaSistema(nombre)) continue;
+
+        for (let r = 1; r < data.length; r++) {
+            let bruto = data[r][c];
+            if (bruto === "" || bruto === null || bruto === undefined) continue;
+            let g = String(bruto).trim().toUpperCase();
+            if (!buscadas.has(g)) continue;
+            hallazgos.push({ guia: g, hoja: nombre, fila: r, preforma: esPre });
+        }
+    }
+    return hallazgos;
+}
+
+function buscarRetenidasEscaneadas() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let macho = ss.getSheetByName(HOJA_MACHO);
+    if (!macho) {
+        ui.alert("🚨 Retenidas escaneadas",
+                 "No encuentro la pestaña «" + HOJA_MACHO + "», que es de donde " +
+                 "sale la lista de retenidas (su columna M).", ui.ButtonSet.OK);
+        return;
+    }
+
+    let lr = macho.getLastRow();
+    let retenidas = lr > 0 ? macho.getRange(1, 13, lr, 1).getValues().map(f => f[0]) : [];
+
+    invalidarCacheRAM();
+    let cacheInfo = getCacheData(ss);
+    if (!cacheInfo) {
+        ui.alert("🚨 Retenidas escaneadas",
+                 "No hay caché. Usa «♻️ Reconstruir caché completo».", ui.ButtonSet.OK);
+        return;
+    }
+
+    let hallazgos = retenidasEnEscaneos(retenidas, cacheInfo.data, cacheInfo.headers);
+    let cuantasRetenidas = new Set(retenidas
+        .map(v => String(v).trim().toUpperCase())
+        .filter(g => g !== "" && esGuiaUPSValida(g))).size;
+
+    let L = [];
+    L.push("Retenidas en la lista: " + cuantasRetenidas.toLocaleString());
+    L.push("");
+
+    if (hallazgos.length === 0) {
+        L.push("✅ Ninguna retenida está escaneada en ninguna pestaña.");
+        ui.alert("🚨 Retenidas escaneadas", L.join("\n"), ui.ButtonSet.OK);
+        return;
+    }
+
+    // Agrupadas por guía: una misma retenida puede estar en varias pestañas, y
+    // repetir la guía en cada renglón hace ilegible lo que importa.
+    let porGuia = new Map();
+    hallazgos.forEach(x => {
+        if (!porGuia.has(x.guia)) porGuia.set(x.guia, []);
+        porGuia.get(x.guia).push(x);
+    });
+
+    L.push("🚨 " + porGuia.size + " retenidas están escaneadas:");
+    L.push("");
+    let n = 0;
+    porGuia.forEach((sitios, guia) => {
+        if (n >= 30) return;
+        L.push("   " + guia);
+        sitios.forEach(x => {
+            L.push("      · " + x.hoja + "  fila " + x.fila +
+                   (x.preforma ? "   (preforma, col O)" : "   (escaneo, col A)"));
+        });
+        n++;
+    });
+    if (porGuia.size > 30) L.push("   …y " + (porGuia.size - 30) + " más.");
+
+    L.push("");
+    L.push("No se ha marcado ni cambiado nada: qué hacer con una retenida que ya");
+    L.push("está en un bloque lo decides tú, no el sistema.");
+
+    ui.alert("🚨 Retenidas escaneadas", L.join("\n"), ui.ButtonSet.OK);
 }
 
 function reconstruirCacheDeHojaActiva() {
