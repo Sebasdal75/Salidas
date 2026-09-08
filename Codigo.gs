@@ -4605,6 +4605,7 @@ function onOpen() {
         .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos')
         .addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
         .addItem('🔒 ¿Por qué esta pestaña es de solo lectura?', 'porQueSoloLectura')
+        .addItem('🔓 Liberar pestañas de escaneo (quitar candados)', 'liberarPestanasDeEscaneo')
         .addItem('🔓 Quitar las protecciones del script', 'quitarProteccionesDelScript')
         .addItem('📚 Unir pestañas INVENTARIO', 'unirInventarios'))
 
@@ -4798,6 +4799,96 @@ function porQueSoloLectura() {
         L.push("«🔓 Quitar las protecciones del script», que las retira todas.");
     }
     ui.alert("🔒 ¿Por qué es de solo lectura?", L.join("\n"), ui.ButtonSet.OK);
+}
+
+// Todas las protecciones que hay sobre pestañas de ESCANEO, las ponga quien las
+// ponga. Devuelve [{hoja, tipo, desc, soloAviso, puedo, rango}].
+//
+// POR QUÉ HACE FALTA MIRAR MÁS ALLÁ DE LAS DEL SCRIPT: una pestaña de rezago se
+// crea copiando otra, y una copia se lleva las protecciones del original. Basta
+// con que alguien protegiera una pestaña una vez, hace meses, para que cada
+// copia nazca bloqueada — y en el ordenador ni se nota, porque «solo aviso» se
+// salta con un clic. En el escáner no: ahí es solo lectura y no se puede
+// trabajar.
+//
+// Las pestañas INTERNAS quedan fuera: ahí la protección es deliberada y nadie
+// escanea en ellas.
+function proteccionesDeEscaneo(ss) {
+    let out = [];
+    ss.getSheets().forEach(hoja => {
+        let n = claveHoja(hoja.getName());
+        if (esHojaSistema(n)) return;
+        [{ t: SpreadsheetApp.ProtectionType.SHEET, et: "pestaña" },
+         { t: SpreadsheetApp.ProtectionType.RANGE, et: "rango" }].forEach(par => {
+            let ps = [];
+            try { ps = hoja.getProtections(par.t); } catch (err) { return; }
+            ps.forEach(p => {
+                let d = "", rango = "", soloAviso = false, puedo = false;
+                try { d = p.getDescription() || "(sin descripción)"; } catch (err) { }
+                try { soloAviso = p.isWarningOnly(); } catch (err) { }
+                try { puedo = p.canEdit(); } catch (err) { }
+                if (par.et === "rango") {
+                    try { rango = p.getRange().getA1Notation(); } catch (err) { rango = "?"; }
+                }
+                out.push({ hoja: hoja.getName(), tipo: par.et, desc: d, rango: rango,
+                           soloAviso: soloAviso, puedo: puedo, obj: p });
+            });
+        });
+    });
+    return out;
+}
+
+function liberarPestanasDeEscaneo() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let ps = proteccionesDeEscaneo(ss);
+    if (ps.length === 0) {
+        ui.alert("🔓 Liberar pestañas de escaneo",
+            "No hay NINGUNA protección sobre las pestañas de escaneo.\n\n" +
+            "Entonces el «solo lectura» del escáner no viene de aquí. Queda " +
+            "mirar el permiso que tiene esa cuenta en «Compartir» —tiene que " +
+            "ser Editor, no Lector— o si el escáner está sin conexión.",
+            ui.ButtonSet.OK);
+        return;
+    }
+
+    let lista = ps.slice(0, 25).map(x =>
+        "  · " + x.hoja + " (" + x.tipo + (x.rango ? " " + x.rango : "") + ")" +
+        (x.soloAviso ? "  [solo aviso]" : "") +
+        (x.puedo ? "" : "  [NO puedes editar]")).join("\n");
+    if (ps.length > 25) lista += "\n  …y " + (ps.length - 25) + " más.";
+
+    let r = ui.alert("🔓 Liberar pestañas de escaneo",
+        "Voy a QUITAR estas " + ps.length + " protecciones:\n\n" + lista + "\n\n" +
+        "Son pestañas donde se escanea, así que estar protegidas es lo que " +
+        "impide trabajar desde el escáner. Las pestañas internas del motor no " +
+        "se tocan.\n\n" +
+        "Esto NO borra datos, solo el candado. Se puede volver a poner desde " +
+        "Datos → Proteger hojas y rangos.\n\n¿Las quito?", ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    let quitadas = 0, fallos = [];
+    ps.forEach(x => {
+        try { x.obj.remove(); quitadas++; }
+        catch (err) {
+            // Quitar una protección exige ser dueño de ella. Si la puso otra
+            // persona, esto falla y hay que decir QUIÉN, no callarlo.
+            fallos.push(x.hoja + (x.rango ? " " + x.rango : ""));
+        }
+    });
+
+    let msg = "Quitadas: " + quitadas + " de " + ps.length + ".";
+    if (fallos.length) {
+        msg += "\n\n❌ No se pudieron quitar " + fallos.length + ":\n" +
+               fallos.slice(0, 10).join("\n") + "\n\n" +
+               "Para quitar una protección hay que ser su dueño. Esas las puso " +
+               "otra cuenta: tiene que entrar esa persona, o el dueño del " +
+               "archivo, desde el ORDENADOR.";
+    } else {
+        msg += "\n\nCierra y vuelve a abrir el archivo en el escáner.";
+    }
+    ui.alert("🔓 Liberar pestañas de escaneo", msg, ui.ButtonSet.OK);
 }
 
 // Retira las protecciones que puso este script, en TODAS las pestañas.
