@@ -170,8 +170,40 @@ function esHojaSistema(nombreHoja) {
     return esHojaInterna(nombreHoja) || esHojaMacho(nombreHoja);
 }
 
+// =========================================================================
+// M-S SALIDAS: la preforma, repartida por unidad
+// =========================================================================
+//
+// QUÉ ES. Hasta ahora el plan de lo que debe embarcarse vive en la columna O de
+// cada Global. Una «M-S SALIDAS» lleva ese mismo plan a pestañas propias, una
+// por unidad, con la forma de una M-S: el pedimento encabeza su bloque en la
+// columna A y debajo van sus guías.
+//
+// OJO CON LA DIRECCIÓN, que es lo primero que confunde: en la columna O el
+// pedimento va DEBAJO de sus guías y cierra el bloque. En una M-S SALIDAS va
+// ARRIBA, como en TODA columna A de este archivo. No es un capricho: la columna
+// A tiene una sola forma en todo el sistema y romperla aquí obligaría a que cada
+// función supiera de qué pestaña viene la fila.
+//
+// POR QUÉ NO ES UNA M-S NORMAL, y esto es lo que hay que entender:
+//
+//   Una M-S dice DÓNDE SE REGISTRÓ una guía. Una M-S SALIDAS dice QUÉ DEBERÍA
+//   EMBARCARSE. La misma guía está legítimamente en las dos.
+//
+// Si `esHojaMS` las incluyera, dos cosas se romperían a la vez: alimentarían el
+// registro de M-S —diciendo que una guía «se escaneó» cuando solo está
+// planificada— y CADA guía planificada chocaría contra su propio registro en la
+// M-S de verdad, llenando la operación de duplicados falsos. Por eso son una
+// familia aparte, con su propio dominio de duplicados: una guía en DOS
+// preformas sí es un error, y ese sí se marca.
+function esHojaSalidasMS(nombreHoja) {
+    return claveHoja(nombreHoja).startsWith("M-S SALIDAS");
+}
+
 function esHojaMS(nombreHoja) {
     let n = claveHoja(nombreHoja);
+    // Las M-S SALIDAS empiezan por «M-S » y NO son M-S: ver arriba.
+    if (esHojaSalidasMS(n)) return false;
     return n.startsWith("M-S ") || n.startsWith("SIMPLES") || n.startsWith("MULTIPLES");
 }
 
@@ -323,6 +355,10 @@ function esHojaPrincipal(nombreHoja) {
     if (esHojaSistema(n)) return false;
     if (esHojaInventario(n)) return false;
     if (esHojaMS(n)) return false;
+    // Sin esta línea una M-S SALIDAS caería aquí —`esHojaMS` ya la descartó— y
+    // el motor la trataría como una Global: cruzaría su columna A contra su
+    // propia columna O vacía y declararía sobrante todo lo planificado.
+    if (esHojaSalidasMS(n)) return false;
     return true;
 }
 
@@ -1485,6 +1521,11 @@ function procesarEdicion(e) {
         sincronizarDestinosAfectados(e.source, cacheInfo, guiasAfectadas, nombreHoja);
     }
 
+    // Y las preformas, siempre: da igual desde dónde se haya escaneado, lo que
+    // cambia en una M-S SALIDAS es si esa guía ya se cargó. Va fuera del if
+    // porque un inventario también puede mover una guía.
+    sincronizarPreformasAfectadas(e.source, cacheInfo, guiasAfectadas, nombreHoja);
+
   } finally {
     lock.releaseLock();
   }
@@ -1759,6 +1800,7 @@ function recalcularHoja(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, r
     if (tocoPreforma === undefined) tocoPreforma = true;
     let n = perf("nombre de la hoja", 0, () => claveHoja(hoja.getName()));
     if (esHojaInventario(n)) actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas);
+    else if (esHojaSalidasMS(n)) actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas);
     else if (esHojaMS(n)) actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas);
     else if (esHojaPrincipal(n)) actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoPreforma, repintarTodo, filaFinalSugerida, filasEditadas);
 }
@@ -1853,7 +1895,9 @@ function construirIndiceCache(data, headers) {
         // generando duplicados falsos DESPUÉS de darlo por arreglado, contra una
         // copia congelada de sí mismo. Esta línea es la que lo corta de verdad.
         if (esHojaSistema(hoja)) continue;
-        columnas.push({ c: c, hoja: hoja, isMS: esHojaMS(hoja), isInventario: esHojaInventario(hoja) });
+        columnas.push({ c: c, hoja: hoja, isMS: esHojaMS(hoja),
+                        isInventario: esHojaInventario(hoja),
+                        isSalidasMS: esHojaSalidasMS(hoja) });
     }
     if (columnas.length === 0) return mapa;
 
@@ -1881,9 +1925,11 @@ function construirIndiceCache(data, headers) {
             let v = String(bruto).trim().toUpperCase();
             if (v === "" || esMarcadorEstructural(v)) continue;
 
+            let entrada = { hoja: col.hoja, fila: r, isMS: col.isMS,
+                            isInventario: col.isInventario, isSalidasMS: col.isSalidasMS };
             let arr = mapa.get(v);
-            if (arr) arr.push({ hoja: col.hoja, fila: r, isMS: col.isMS, isInventario: col.isInventario });
-            else mapa.set(v, [{ hoja: col.hoja, fila: r, isMS: col.isMS, isInventario: col.isInventario }]);
+            if (arr) arr.push(entrada);
+            else mapa.set(v, [entrada]);
         }
     }
     return mapa;
@@ -2149,6 +2195,7 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
 
     let esInv = esHojaInventario(claveEsta);
     let esMS = esHojaMS(claveEsta);
+    let esSalidas = esHojaSalidasMS(claveEsta);
 
     for (let i = 0; i < ultimaFila; i++) {
         let v = String(datosMasivos[i][0]).trim().toUpperCase();
@@ -2167,10 +2214,19 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
 
             if (esInv) {
                 if (!match.isInventario) continue;   // inventario ignora Global y M-S
+            } else if (esSalidas) {
+                // Una preforma solo choca con otra preforma. Que la misma guía
+                // esté planificada Y registrada en su M-S es el flujo normal;
+                // que esté en DOS preformas sí es un error, y ese es este.
+                if (!match.isSalidasMS || match.hoja === claveEsta) continue;
             } else if (esMS) {
                 if (!match.isMS || match.hoja === claveEsta) continue;
             } else {
-                if (match.isMS || match.isInventario || match.hoja === claveEsta) continue;
+                // Un destino no choca contra el PLAN: la guía tiene que estar en
+                // los dos sitios. Sin excluirlas, cada guía escaneada saldría
+                // duplicada contra su propia preforma.
+                if (match.isMS || match.isInventario || match.isSalidasMS ||
+                    match.hoja === claveEsta) continue;
             }
 
             res.set(i, match);
@@ -2198,6 +2254,7 @@ function calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, claveEst
     if (esHojaInventario(claveEsta)) return res;   // los inventarios no llevan pedimentos
 
     let esMS = esHojaMS(claveEsta);
+    let esSalidas = esHojaSalidasMS(claveEsta);
 
     for (let i = 0; i < ultimaFila; i++) {
         let v = String(datosMasivos[i][0]).trim();
@@ -2211,7 +2268,17 @@ function calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, claveEst
             // La propia hoja ya la vigila pedimentosVistosFisico.
             if (match.hoja === claveEsta) continue;
             if (match.isInventario) continue;
-            if (esMS !== match.isMS) continue;
+            // Las preformas son su propio dominio TAMBIÉN para los pedimentos.
+            // Un pedimento está en su Global Y en su M-S SALIDAS por definición
+            // —ese es el flujo—, así que sin separarlas cada pedimento saldría
+            // «REPETIDO» contra su propia preforma.
+            //
+            // Con `!!` porque una entrada escrita por la versión anterior no
+            // lleva el campo: sin normalizar, `false !== undefined` descartaba
+            // TODOS los choques y el aviso de pedimento repetido desaparecía
+            // entero hasta reconstruir el caché.
+            if (esSalidas !== !!match.isSalidasMS) continue;
+            if (!esSalidas && esMS !== match.isMS) continue;
             res.set(i, match);
             break;
         }
@@ -2845,6 +2912,57 @@ function obtenerGuiasRezagoDesdeCache(cacheInfo) {
     return guias;
 }
 
+// La preforma que vive en las pestañas M-S SALIDAS, sacada del caché.
+//
+// Es el equivalente de `obtenerRegistroMSDesdeCache`, pero para el PLAN en vez
+// de para el registro. Se lee de todas las M-S SALIDAS a la vez y se indexa por
+// PEDIMENTO, que es la única llave que comparten una Global y su preforma: la
+// Global no sabe —ni tiene por qué— en qué unidad se planificó su carga.
+//
+// El pedimento va ARRIBA de sus guías, como en toda columna A. En la columna O
+// va debajo; esa diferencia es de la O, no de aquí.
+//
+// Devuelve:
+//   porPedimento  pedimento -> Set de guías planificadas
+//   inverso       guía -> pedimento que la reclama
+//   dondeSePlanifico  guía -> nombre de la M-S SALIDAS donde está
+function obtenerPreformaDesdeSalidasMS(cacheInfo) {
+    let porPedimento = new Map();
+    let inverso = new Map();
+    let dondeSePlanifico = new Map();
+    let salida = { porPedimento: porPedimento, inverso: inverso,
+                   dondeSePlanifico: dondeSePlanifico };
+    if (!cacheInfo || !cacheInfo.headers || !cacheInfo.data) return salida;
+
+    for (let c = 0; c < cacheInfo.headers.length; c++) {
+        let header = String(cacheInfo.headers[c]);
+        if (!header.endsWith("_FISICO")) continue;
+        let nombreHoja = claveHoja(header.replace("_FISICO", ""));
+        if (!esHojaSalidasMS(nombreHoja)) continue;
+
+        let pedActual = "";
+        for (let r = 1; r < cacheInfo.data.length; r++) {
+            let bruto = cacheInfo.data[r][c];
+            if (bruto === "" || bruto === null || bruto === undefined) continue;
+            let v = String(bruto).trim().toUpperCase();
+            if (/^\d{7}$/.test(v)) {
+                pedActual = v;
+                if (!porPedimento.has(pedActual)) porPedimento.set(pedActual, new Set());
+                continue;
+            }
+            if (esMarcadorEstructural(v)) { pedActual = ""; continue; }
+            // Sin pedimento encima, una guía no puede reclamar nada: entra al
+            // sistema como planificada de NADIE y sería peor que no estar,
+            // porque haría «faltar» a un bloque que no es suyo.
+            if (pedActual === "") continue;
+            porPedimento.get(pedActual).add(v);
+            if (!inverso.has(v)) inverso.set(v, pedActual);
+            if (!dondeSePlanifico.has(v)) dondeSePlanifico.set(v, nombreHoja);
+        }
+    }
+    return salida;
+}
+
 function obtenerRegistroMSDesdeCache(cacheInfo, nombreHojaActual) {
     let guiasOrigen = new Map();
     let registroMS = new Map();
@@ -3037,6 +3155,36 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
     // de que actualizarMS lo vuelva a pedir. Y es coherente por construcción,
     // porque es la misma fila con la que se acaba de escribir la columna B.
     msModificadas.forEach(m => actualizarMS(m.hoja, source, cacheInfo, false, m.lr));
+}
+
+// Propaga un cambio a las M-S SALIDAS que contengan alguna de las guías
+// tocadas.
+//
+// HACE FALTA porque la pregunta que responde una preforma va en la dirección
+// contraria a la de todo lo demás: no cambia cuando se edita ELLA, sino cuando
+// se escanea en OTRA pestaña. Sin esto, cargar un bulto en la Global dejaría su
+// línea en «⏳ Sin cargar» hasta que alguien tocara la preforma a mano — y nadie
+// la toca, porque el plan se escribe una vez.
+//
+// Solo se abren las que de verdad contienen esas guías: acotar por el caché es
+// lo que evita abrir veinte pestañas en cada escaneo.
+function sincronizarPreformasAfectadas(source, cacheInfo, guiasAfectadas, hojaOrigen) {
+    if (!cacheInfo || !cacheInfo.headers) return;
+
+    let claveOrigen = claveHoja(hojaOrigen);
+    let colPorHoja = mapaColumnasFisico(cacheInfo);
+    let hojas = source.getSheets();
+
+    for (let i = 0; i < hojas.length; i++) {
+        let h = hojas[i];
+        let n = claveHoja(h.getName());
+        if (!esHojaSalidasMS(n) || n === claveOrigen) continue;
+
+        if (guiasAfectadas && guiasAfectadas.size > 0) {
+            if (!hojaContieneAlgunaGuia(cacheInfo, colPorHoja.get(n), guiasAfectadas)) continue;
+        }
+        actualizarSalidasMS(h, source, cacheInfo, false);
+    }
 }
 
 // Propaga un cambio al resto de pestañas de INVENTARIO. Solo se abren las que
@@ -3623,10 +3771,35 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // apuntan y se avisan después, en la fila de la O, una por una.
   let guiasEnOtroPedimento = new Map();
 
+  // LA PREFORMA QUE VIENE DE LAS M-S SALIDAS.
+  //
+  // Se funde con la de la columna O en vez de sustituirla: durante la
+  // transición conviven las dos, y una guía planificada en cualquiera de los
+  // dos sitios cuenta igual. Cuando la O deje de usarse, esto seguirá igual y
+  // simplemente no habrá bloques que fundir.
+  //
+  // Va ANTES del volcado de la O a propósito: así lo que esté en la O manda
+  // sobre el mismo pedimento —es lo que el operador tiene delante hoy— y el
+  // cambio no puede alterar el comportamiento actual de ninguna pestaña.
+  let preformaMS = obtenerPreformaDesdeSalidasMS(cacheInfo);
+  preformaMS.porPedimento.forEach((guias, ped) => {
+      if (!mapaPreformas[ped]) mapaPreformas[ped] = new Set();
+      guias.forEach(g => {
+          mapaPreformas[ped].add(g);
+          if (!mapaInversoPreforma.has(g)) mapaInversoPreforma.set(g, ped);
+      });
+  });
+
   bloquesPreforma.forEach(bloque => {
     let pedimento = bloque.pedimento; let setGuias = new Set(bloque.guias);
     if (pedimento !== "" && pedimento !== "SIN_CABECERA") {
-        mapaPreformas[pedimento] = setGuias;
+        // SE SUMA a lo que ya trajeran las M-S SALIDAS, no se reemplaza.
+        // Reemplazar era lo que había antes —cuando la O era la única fuente— y
+        // durante la transición dejaría fuera lo planificado en la M-S SALIDAS
+        // para ese mismo pedimento: esas guías saldrían «⚠️ Sobra (Ajena)» al
+        // escanearlas, que es justo lo contrario de lo que dicen los papeles.
+        if (!mapaPreformas[pedimento]) mapaPreformas[pedimento] = new Set();
+        setGuias.forEach(g => mapaPreformas[pedimento].add(g));
         setGuias.forEach(g => mapaInversoPreforma.set(g, pedimento));
         // Dónde vive cada guía en la O, para poder señalar ahí el renglón
         // cuando se escanee bajo otro pedimento.
@@ -4177,6 +4350,200 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 // =========================================================================
 // CEREBRO PRINCIPAL: M-S
 // =========================================================================
+// ¿En qué pestaña de DESTINO está escaneada esta guía? "" si en ninguna.
+//
+// «Destino» es una Global, un T1, un AGA: lo que no es M-S, ni inventario, ni
+// preforma. Es el HECHO de que el bulto se cargó, y es lo único que puede
+// cerrar una línea de la preforma.
+function destinoDeGuia(cacheInfo, guia) {
+    if (!cacheInfo || !cacheInfo.map) return "";
+    let arr = cacheInfo.map.get(String(guia).trim().toUpperCase());
+    if (!arr) return "";
+    for (let i = 0; i < arr.length; i++) {
+        let m = arr[i];
+        if (m.isMS || m.isInventario || m.isSalidasMS) continue;
+        return m.hoja;
+    }
+    return "";
+}
+
+// =========================================================================
+// CEREBRO DE LAS M-S SALIDAS (la preforma repartida por unidad)
+// =========================================================================
+//
+// Hace por una pestaña de plan lo que la columna P hace por la columna O: dice,
+// línea a línea, si eso que está planificado ya se cargó de verdad.
+//
+// La dirección de la comprobación es la contraria a la de una Global. Una
+// Global pregunta «lo que escaneé, ¿estaba planificado?». Aquí se pregunta «lo
+// que planifiqué, ¿se escaneó?». Son la misma pareja de datos vista desde los
+// dos lados, y hacen falta las dos: la Global caza lo que sobra, esta caza lo
+// que falta.
+function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas) {
+  const ultimaFila = filaFinalSugerida > 0
+      ? filaFinalSugerida
+      : perf("getLastRow (M-S SALIDAS)", 0, () => Math.max(hoja.getLastRow(), 1));
+  if (ultimaFila < 1) return;
+
+  perf("asegurarColumnas", 0, () => asegurarColumnas(hoja, 12));
+  const datosMasivos = perf("leer la hoja A:L", ultimaFila * 12, () =>
+      hoja.getRange(1, 1, ultimaFila, 12).getValues());
+  const horaActual = Utilities.formatDate(new Date(), Session.getScriptTimeZone(), "HH:mm:ss");
+  const nombreHojaMayus = claveHoja(hoja.getName());
+
+  let dupExternos = calcularDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo);
+  let pedsPorFilaA = pedimentosPorFila(datosMasivos, ultimaFila, 0, false);
+
+  let resultadosB = []; let resultadosHoras = []; let coloresB = [];
+
+  // Primera pasada: el estado de cada fila por sí misma.
+  for (let i = 0; i < ultimaFila; i++) {
+    let valA = String(datosMasivos[i][0]).trim();
+    let estB = String(datosMasivos[i][1]).trim();
+    let vacia = valA === "";
+    let esErrEstructura = !vacia && estB.startsWith("🛑 ERROR");
+    let dup = vacia ? null : dupExternos.get(i);
+
+    let fijo = '';
+    let color = '#FFFFFF';
+    if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
+    else if (!vacia && avisoDeRetenida(cacheInfo, valA) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
+    else if (dup) {
+        // Otra preforma reclama la misma guía: hay que decidir en cuál va, y
+        // eso no lo puede decidir el sistema.
+        fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")";
+        color = '#ff9800';
+    } else if (!vacia) {
+        let ya = avisoDeYaSalio(source, valA, pedsPorFilaA[i]);
+        if (ya !== "") { fijo = ya; color = '#ff9800'; }
+    }
+
+    resultadosB.push([fijo]);
+    resultadosHoras.push([horaPreservada(datosMasivos, i, 11, valA, horaActual)]);
+    coloresB.push([color]);
+  }
+
+  // Segunda pasada: bloques por pedimento y el cruce contra lo escaneado.
+  let filaPedActual = -1; let ultimaFilaGuia = -1;
+  let planificadas = new Map();          // guía -> fila, para el duplicado local
+  let pedimentosVistosFisico = new Map();
+  let filasDuplicadasFisico = new Map();
+  let filasParejaDuplicada = new Set();
+  let repeticiones = new Map();
+  let enBloque = 0, cargadas = 0, totalPlan = 0, totalCargadas = 0, totalPedimentos = 0;
+
+  function cerrarBloque() {
+      if (filaPedActual === -1) return;
+      if (resultadosB[filaPedActual][0] !== '') { return; }
+      let faltan = enBloque - cargadas;
+      let txt = "Planificadas: " + enBloque + " | " +
+                (enBloque === 0 ? "⏳ Esperando guías"
+                 : faltan === 0 ? "✅ TODO CARGADO"
+                 : "⚠️ Faltan " + faltan + " por cargar");
+      resultadosB[filaPedActual][0] = txt;
+      coloresB[filaPedActual][0] = enBloque === 0 ? "#178ccc"
+                                  : (faltan === 0 ? "#07c369" : "#ffc107");
+      if (ultimaFilaGuia !== -1 && ultimaFilaGuia > filaPedActual) {
+          resultadosB[ultimaFilaGuia][0] =
+              cabezaEstado(resultadosB[ultimaFilaGuia][0]) + SEP_RESUMEN + txt;
+      }
+  }
+
+  for (let i = 0; i < ultimaFila; i++) {
+      let v = String(datosMasivos[i][0]).trim().toUpperCase();
+      if (v === "") continue;
+      let esErr = resultadosB[i][0] !== '';
+
+      if (/^\d{7}$/.test(v)) {
+          cerrarBloque();
+          if (!esErr) totalPedimentos++;
+          // El mismo pedimento dos veces en esta pestaña: se marcan las dos.
+          if (pedimentosVistosFisico.has(v)) {
+              filasDuplicadasFisico.set(i, pedimentosVistosFisico.get(v) + 1);
+          } else {
+              pedimentosVistosFisico.set(v, i);
+          }
+          filaPedActual = i; ultimaFilaGuia = -1;
+          enBloque = 0; cargadas = 0;
+          continue;
+      }
+      if (esMarcadorEstructural(v)) { cerrarBloque(); filaPedActual = -1; continue; }
+      if (esErr) continue;
+
+      if (!esGuiaUPSValida(v)) {
+          resultadosB[i][0] = textoCapturaInvalida(v); coloresB[i][0] = "#df5f6b";
+          continue;
+      }
+
+      // Repetida dentro de esta misma preforma.
+      let previa = planificadas.get(v);
+      if (previa !== undefined) {
+          let ped = filaPedActual === -1 ? "SIN_CABECERA"
+                  : String(datosMasivos[filaPedActual][0]).trim().toUpperCase();
+          let dupLocal = duplicadoLocal({ ped: pedsPorFilaA[previa] || "SIN_CABECERA", idx: previa }, ped);
+          resultadosB[i][0] = dupLocal.texto;
+          coloresB[i][0] = dupLocal.color;
+          filasParejaDuplicada.add(i); filasParejaDuplicada.add(previa);
+          if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa, i + 1);
+          continue;
+      }
+      planificadas.set(v, i);
+
+      if (filaPedActual === -1) {
+          // Una guía planificada sin pedimento encima no la reclama nadie: no
+          // entra al mapa de preformas y ninguna Global la va a reconocer.
+          resultadosB[i][0] = "⚠️ Falta el pedimento arriba";
+          coloresB[i][0] = "#ffc107";
+          continue;
+      }
+
+      enBloque++; totalPlan++;
+      let destino = destinoDeGuia(cacheInfo, v);
+      if (destino !== "") {
+          cargadas++; totalCargadas++;
+          resultadosB[i][0] = "✅ Cargada (" + destino + ")";
+          coloresB[i][0] = "#07c369";
+      } else {
+          resultadosB[i][0] = "⏳ Sin cargar";
+          coloresB[i][0] = "#71b3e6";
+      }
+      ultimaFilaGuia = i;
+  }
+  cerrarBloque();
+
+  repeticiones.forEach((info, idx) => {
+      resultadosB[idx][0] = textoPrimeraDuplicada(info) + colaResumen(resultadosB[idx][0]);
+      coloresB[idx][0] = "#ff9800";
+  });
+
+  marcarPedimentosRepetidosDentro(resultadosB, coloresB, filasDuplicadasFisico, filasParejaDuplicada);
+  marcarPedimentosRepetidosFuera(resultadosB, coloresB,
+      calcularPedimentosDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo),
+      filasParejaDuplicada);
+  marcarPedimentosYaUsados(resultadosB, coloresB, datosMasivos, ultimaFila, source);
+
+  conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
+
+  aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
+                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada),
+                           repintarTodo, filasParejaDuplicada);
+
+  try {
+      if (typeof limpiarHousesEnRecalculo === 'function') {
+          limpiarHousesEnRecalculo(hoja, nombreHojaMayus, datosMasivos);
+      }
+  } catch (err) { /* la house jamás puede tumbar un recálculo */ }
+
+  // Totales en D1:D3, igual que en las demás. La C es de la house.
+  let d1d3 = [ ["Planificadas: " + totalPlan],
+               ["Cargadas: " + totalCargadas],
+               ["Pedimentos: " + totalPedimentos] ];
+  let dAct = i => (ultimaFila > i && datosMasivos[i]) ? String(datosMasivos[i][3]) : "";
+  if (dAct(0) !== d1d3[0][0] || dAct(1) !== d1d3[1][0] || dAct(2) !== d1d3[2][0]) {
+      hoja.getRange("D1:D3").setValues(d1d3);
+  }
+}
+
 function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, filasEditadas) {
   const ultimaFila = filaFinalSugerida > 0
       ? filaFinalSugerida

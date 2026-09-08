@@ -425,7 +425,9 @@ function indiceIngenuo(data, headers) {
       let v = String(data[r][c]).trim().toUpperCase();
       if (v === "" || esMarcadorEstructural(v)) continue;
       let arr = m.get(v) || [];
-      arr.push({ hoja: hoja, fila: r, isMS: esHojaMS(hoja), isInventario: esHojaInventario(hoja) });
+      arr.push({ hoja: hoja, fila: r, isMS: esHojaMS(hoja),
+                 isInventario: esHojaInventario(hoja),
+                 isSalidasMS: esHojaSalidasMS(hoja) });
       m.set(v, arr);
     }
   }
@@ -3812,6 +3814,117 @@ ok("y la guía escaneada sí está, una sola vez",
    construirIndiceCache(dataFem, hdrsFem).get(G_RET).length === 1);
 ok("el podado no se lleva __FEMAD",
    columnasHuerfanas(hdrsFem, new Set(["GLOBAL1"])).indexOf(2) === -1);
+
+console.log("\n=== 12. M-S SALIDAS: la preforma repartida por unidad ===");
+
+console.log("\n--- 12a. Es una familia aparte, no una M-S ---");
+ok("«M-S SALIDAS A1» es de la nueva familia", esHojaSalidasMS("M-S SALIDAS A1"));
+ok("en minúsculas también", esHojaSalidasMS("m-s salidas t1"));
+// LO CRÍTICO: empieza por «M-S » y NO puede contar como M-S. Si contara,
+// alimentaría el registro de M-S diciendo que una guía «se escaneó» cuando solo
+// está planificada, y CADA guía planificada chocaría contra su propio registro
+// en la M-S de verdad.
+ok("NO es una M-S", !esHojaMS("M-S SALIDAS A1"));
+ok("una M-S de verdad sigue siéndolo", esHojaMS("M-S A1"));
+ok("y «M-S GLOBALES» también", esHojaMS("M-S GLOBALES"));
+// Y tampoco puede caer en las Globales: ahí cruzaría su columna A contra su
+// propia columna O vacía y declararía sobrante todo lo planificado.
+ok("NO es una hoja principal", !esHojaPrincipal("M-S SALIDAS A1"));
+ok("una Global sigue siéndolo", esHojaPrincipal("GLOBAL1"));
+ok("no es inventario", !esHojaInventario("M-S SALIDAS A1"));
+
+console.log("\n--- 12b. Su propio dominio de duplicados ---");
+const GP = "1Z999AA10123456784";
+let cacheSal = { map: new Map([[GP, [
+    { hoja: "M-S SALIDAS A1", fila: 10, isMS: false, isInventario: false, isSalidasMS: true },
+    { hoja: "M-S SALIDAS T1", fila: 22, isMS: false, isInventario: false, isSalidasMS: true },
+    { hoja: "GLOBAL1",        fila: 55, isMS: false, isInventario: false, isSalidasMS: false },
+    { hoja: "M-S A1",         fila: 77, isMS: true,  isInventario: false, isSalidasMS: false }
+]]]), headers: [], data: [] };
+let filasSal = [[GP]];
+
+// Una preforma choca con OTRA preforma: la misma guía planificada dos veces sí
+// es un error, hay que decidir en cuál va.
+let dSal = calcularDuplicadosExternos(filasSal, 1, "M-S SALIDAS A1", cacheSal);
+ok("preforma contra preforma SÍ se marca", dSal.has(0));
+ok("y señala la otra preforma", dSal.get(0).hoja === "M-S SALIDAS T1");
+
+// EL FLUJO NORMAL: la guía está planificada Y escaneada Y registrada. Ninguna
+// de esas tres combinaciones puede salir como duplicado.
+let dGlob = calcularDuplicadosExternos(filasSal, 1, "GLOBAL1", cacheSal);
+ok("un destino NO choca contra la preforma", !dGlob.has(0));
+let dMS = calcularDuplicadosExternos(filasSal, 1, "M-S A1", cacheSal);
+ok("una M-S tampoco choca contra la preforma", !dMS.has(0));
+
+// Y los PEDIMENTOS igual: el mismo pedimento está en su Global y en su
+// preforma por definición.
+const PS = "6102253";
+let cachePedSal = { map: new Map([[PS, [
+    { hoja: "M-S SALIDAS A1", fila: 5,  isMS: false, isInventario: false, isSalidasMS: true },
+    { hoja: "GLOBAL1",        fila: 40, isMS: false, isInventario: false, isSalidasMS: false }
+]]]), headers: [], data: [] };
+ok("un pedimento en la Global NO choca con su preforma",
+   !calcularPedimentosDuplicadosExternos([[PS]], 1, "GLOBAL1", cachePedSal).has(0));
+ok("ni la preforma con la Global",
+   !calcularPedimentosDuplicadosExternos([[PS]], 1, "M-S SALIDAS A1", cachePedSal).has(0));
+
+console.log("\n--- 12c. La preforma que sale de esas pestañas ---");
+// El pedimento va ARRIBA de sus guías, como en TODA columna A. En la columna O
+// va debajo; esa diferencia es de la O, no de aquí.
+let hdrsPre = ["M-S SALIDAS A1_FISICO", "GLOBAL1_FISICO"];
+let dataPre = [
+    hdrsPre,
+    ["6102253", ""],
+    ["1Z999AA10123456784", ""],
+    ["1Z12345E1512345676", ""],
+    ["6103516", ""],
+    ["1Z999AA10123456784", ""]      // otra vez, ya bajo OTRO pedimento
+];
+let pre = obtenerPreformaDesdeSalidasMS({ headers: hdrsPre, data: dataPre });
+ok("agrupa por pedimento", pre.porPedimento.size === 2);
+ok("con sus guías debajo", pre.porPedimento.get("6102253").size === 2);
+ok("el segundo bloque es suyo", pre.porPedimento.get("6103516").size === 1);
+ok("el inverso apunta al PRIMER pedimento que la reclamó",
+   pre.inverso.get("1Z999AA10123456784") === "6102253");
+ok("y dice en qué pestaña se planificó",
+   pre.dondeSePlanifico.get("1Z12345E1512345676") === "M-S SALIDAS A1");
+
+// Una guía sin pedimento encima no la reclama nadie: entrar como planificada de
+// NADIE sería peor que no estar, porque haría «faltar» a un bloque ajeno.
+let dataHuerf = [hdrsPre, ["1Z999AA10123456784", ""], ["6102253", ""]];
+let preH = obtenerPreformaDesdeSalidasMS({ headers: hdrsPre, data: dataHuerf });
+ok("una guía sin pedimento encima no entra", preH.inverso.size === 0);
+ok("y su pedimento queda vacío, no con la de arriba",
+   preH.porPedimento.get("6102253").size === 0);
+
+// Un marcador cierra el bloque: lo de después no hereda el pedimento anterior.
+let dataMarca = [hdrsPre, ["6102253", ""], ["FIN", ""], ["1Z999AA10123456784", ""]];
+ok("un marcador corta el bloque",
+   obtenerPreformaDesdeSalidasMS({ headers: hdrsPre, data: dataMarca }).inverso.size === 0);
+
+// Solo se leen las M-S SALIDAS: la columna de la Global de al lado no.
+let dataSolo = [["GLOBAL1_FISICO"], ["6102253"], ["1Z999AA10123456784"]];
+ok("una Global no aporta preforma",
+   obtenerPreformaDesdeSalidasMS({ headers: ["GLOBAL1_FISICO"], data: dataSolo }).porPedimento.size === 0);
+ok("sin caché no revienta", obtenerPreformaDesdeSalidasMS(null).porPedimento.size === 0);
+
+console.log("\n--- 12d. Qué guía está ya cargada ---");
+let cacheDest = { map: new Map([
+    ["1ZCARGADA", [{ hoja: "M-S SALIDAS A1", fila: 3, isSalidasMS: true },
+                   { hoja: "GLOBAL1", fila: 9, isMS: false, isInventario: false, isSalidasMS: false }]],
+    ["1ZSOLOPLAN", [{ hoja: "M-S SALIDAS A1", fila: 4, isSalidasMS: true }]],
+    ["1ZSOLOMS", [{ hoja: "M-S A1", fila: 5, isMS: true, isInventario: false, isSalidasMS: false }]]
+]) };
+ok("una guía escaneada en un destino se ve cargada",
+   destinoDeGuia(cacheDest, "1ZCARGADA") === "GLOBAL1");
+ok("estar solo en la preforma NO es estar cargada",
+   destinoDeGuia(cacheDest, "1ZSOLOPLAN") === "");
+// Estar registrada en una M-S tampoco: registrar no es cargar. Confundirlo
+// daría por cerrada una preforma cuyos bultos siguen en el piso.
+ok("estar en una M-S tampoco es estar cargada",
+   destinoDeGuia(cacheDest, "1ZSOLOMS") === "");
+ok("una guía desconocida no está cargada", destinoDeGuia(cacheDest, "1ZNADA") === "");
+ok("sin caché no revienta", destinoDeGuia(null, "1ZCARGADA") === "");
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
