@@ -3869,44 +3869,59 @@ ok("ni la preforma con la Global",
    !calcularPedimentosDuplicadosExternos([[PS]], 1, "M-S SALIDAS A1", cachePedSal).has(0));
 
 console.log("\n--- 12c. La preforma que sale de esas pestañas ---");
-// El pedimento va ARRIBA de sus guías, como en TODA columna A. En la columna O
-// va debajo; esa diferencia es de la O, no de aquí.
+// PRIMERO LAS GUÍAS Y DEBAJO SU PEDIMENTO, igual que en la columna O. Es el
+// único sitio de la columna A donde el pedimento CIERRA el bloque en vez de
+// encabezarlo, y leerlo al revés le daría a cada guía el pedimento del bloque
+// anterior: callado, y mal en todas las filas.
 let hdrsPre = ["M-S SALIDAS A1_FISICO", "GLOBAL1_FISICO"];
 let dataPre = [
     hdrsPre,
-    ["6102253", ""],
     ["1Z999AA10123456784", ""],
     ["1Z12345E1512345676", ""],
-    ["6103516", ""],
-    ["1Z999AA10123456784", ""]      // otra vez, ya bajo OTRO pedimento
+    ["6102253", ""],                 // cierra el bloque de las dos de arriba
+    ["1Z12345E1512345689", ""],
+    ["6103516", ""]                  // cierra el suyo
 ];
 let pre = obtenerPreformaDesdeSalidasMS({ headers: hdrsPre, data: dataPre });
 ok("agrupa por pedimento", pre.porPedimento.size === 2);
-ok("con sus guías debajo", pre.porPedimento.get("6102253").size === 2);
+ok("el pedimento se lleva las guías de ARRIBA",
+   pre.porPedimento.get("6102253").size === 2);
+ok("y no las del bloque siguiente",
+   !pre.porPedimento.get("6102253").has("1Z12345E1512345689"));
 ok("el segundo bloque es suyo", pre.porPedimento.get("6103516").size === 1);
-ok("el inverso apunta al PRIMER pedimento que la reclamó",
+ok("el inverso apunta al pedimento que la cerró",
    pre.inverso.get("1Z999AA10123456784") === "6102253");
 ok("y dice en qué pestaña se planificó",
    pre.dondeSePlanifico.get("1Z12345E1512345676") === "M-S SALIDAS A1");
 
-// Una guía sin pedimento encima no la reclama nadie: entrar como planificada de
+// Una guía sin pedimento DEBAJO no la reclama nadie. Entrar como planificada de
 // NADIE sería peor que no estar, porque haría «faltar» a un bloque ajeno.
-let dataHuerf = [hdrsPre, ["1Z999AA10123456784", ""], ["6102253", ""]];
+let dataHuerf = [hdrsPre, ["6102253", ""], ["1Z999AA10123456784", ""]];
 let preH = obtenerPreformaDesdeSalidasMS({ headers: hdrsPre, data: dataHuerf });
-ok("una guía sin pedimento encima no entra", preH.inverso.size === 0);
-ok("y su pedimento queda vacío, no con la de arriba",
-   preH.porPedimento.get("6102253").size === 0);
+ok("una guía DEBAJO de su pedimento no entra", preH.inverso.size === 0);
+ok("y ese pedimento queda vacío", preH.porPedimento.get("6102253").size === 0);
 
-// Un marcador cierra el bloque: lo de después no hereda el pedimento anterior.
-let dataMarca = [hdrsPre, ["6102253", ""], ["FIN", ""], ["1Z999AA10123456784", ""]];
-ok("un marcador corta el bloque",
-   obtenerPreformaDesdeSalidasMS({ headers: hdrsPre, data: dataMarca }).inverso.size === 0);
+// Un marcador cierra el bloque sin pedimento: lo acumulado se tira en vez de
+// arrastrarse al pedimento siguiente.
+let dataMarca = [hdrsPre, ["1Z999AA10123456784", ""], ["FIN", ""], ["6102253", ""]];
+let preM = obtenerPreformaDesdeSalidasMS({ headers: hdrsPre, data: dataMarca });
+ok("un marcador tira lo acumulado", preM.inverso.size === 0);
+ok("y el pedimento de después no lo hereda",
+   preM.porPedimento.get("6102253").size === 0);
 
 // Solo se leen las M-S SALIDAS: la columna de la Global de al lado no.
-let dataSolo = [["GLOBAL1_FISICO"], ["6102253"], ["1Z999AA10123456784"]];
+let dataSolo = [["GLOBAL1_FISICO"], ["1Z999AA10123456784"], ["6102253"]];
 ok("una Global no aporta preforma",
    obtenerPreformaDesdeSalidasMS({ headers: ["GLOBAL1_FISICO"], data: dataSolo }).porPedimento.size === 0);
 ok("sin caché no revienta", obtenerPreformaDesdeSalidasMS(null).porPedimento.size === 0);
+
+// Y la dirección, comprobada donde de verdad se decide: el pedimento manda
+// sobre las filas de ARRIBA.
+let colA = [["1ZA"], ["1ZB"], ["6102253"], ["1ZC"], ["6103516"]];
+let pf = pedimentosPorFila(colA, 5, 0, true);
+ok("las guías de arriba reciben el pedimento de abajo",
+   pf[0] === "6102253" && pf[1] === "6102253");
+ok("y no el del bloque siguiente", pf[3] === "6103516");
 
 console.log("\n--- 12d. Qué guía está ya cargada ---");
 let cacheDest = { map: new Map([

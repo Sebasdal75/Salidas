@@ -176,14 +176,17 @@ function esHojaSistema(nombreHoja) {
 //
 // QUÉ ES. Hasta ahora el plan de lo que debe embarcarse vive en la columna O de
 // cada Global. Una «M-S SALIDAS» lleva ese mismo plan a pestañas propias, una
-// por unidad, con la forma de una M-S: el pedimento encabeza su bloque en la
-// columna A y debajo van sus guías.
+// por unidad: primero las guías y DEBAJO su pedimento, que cierra el bloque.
 //
-// OJO CON LA DIRECCIÓN, que es lo primero que confunde: en la columna O el
-// pedimento va DEBAJO de sus guías y cierra el bloque. En una M-S SALIDAS va
-// ARRIBA, como en TODA columna A de este archivo. No es un capricho: la columna
-// A tiene una sola forma en todo el sistema y romperla aquí obligaría a que cada
-// función supiera de qué pestaña viene la fila.
+// OJO CON LA DIRECCIÓN, que es lo primero que confunde. En el resto de columnas
+// A de este archivo el pedimento ENCABEZA su bloque. Aquí no: aquí se conserva
+// la forma de la columna O, porque es el mismo trabajo mudado de sitio y quien
+// lo captura lleva años haciéndolo así. Cambiarle la mano al operador para que
+// el código quede uniforme sería optimizar lo que no duele.
+//
+// Consecuencia: todo lo que pregunte «qué pedimento manda sobre esta fila» en
+// una M-S SALIDAS tiene que recorrer la hoja HACIA ARRIBA. Es el único sitio de
+// la columna A donde se hace así.
 //
 // POR QUÉ NO ES UNA M-S NORMAL, y esto es lo que hay que entender:
 //
@@ -2940,25 +2943,33 @@ function obtenerPreformaDesdeSalidasMS(cacheInfo) {
         let nombreHoja = claveHoja(header.replace("_FISICO", ""));
         if (!esHojaSalidasMS(nombreHoja)) continue;
 
-        let pedActual = "";
+        // Las guías se ACUMULAN hasta encontrar el pedimento que las cierra
+        // DEBAJO. Es la forma de la columna O trasladada aquí.
+        let pendientes = [];
         for (let r = 1; r < cacheInfo.data.length; r++) {
             let bruto = cacheInfo.data[r][c];
             if (bruto === "" || bruto === null || bruto === undefined) continue;
             let v = String(bruto).trim().toUpperCase();
+
             if (/^\d{7}$/.test(v)) {
-                pedActual = v;
-                if (!porPedimento.has(pedActual)) porPedimento.set(pedActual, new Set());
+                if (!porPedimento.has(v)) porPedimento.set(v, new Set());
+                let destino = porPedimento.get(v);
+                pendientes.forEach(g => {
+                    destino.add(g);
+                    if (!inverso.has(g)) inverso.set(g, v);
+                    if (!dondeSePlanifico.has(g)) dondeSePlanifico.set(g, nombreHoja);
+                });
+                pendientes = [];
                 continue;
             }
-            if (esMarcadorEstructural(v)) { pedActual = ""; continue; }
-            // Sin pedimento encima, una guía no puede reclamar nada: entra al
-            // sistema como planificada de NADIE y sería peor que no estar,
-            // porque haría «faltar» a un bloque que no es suyo.
-            if (pedActual === "") continue;
-            porPedimento.get(pedActual).add(v);
-            if (!inverso.has(v)) inverso.set(v, pedActual);
-            if (!dondeSePlanifico.has(v)) dondeSePlanifico.set(v, nombreHoja);
+            // Un marcador cierra el bloque SIN pedimento: lo acumulado se tira.
+            // Arrastrarlo al bloque siguiente haría «faltar» bultos a un
+            // pedimento que no es el suyo, que es peor que no verlos.
+            if (esMarcadorEstructural(v)) { pendientes = []; continue; }
+            pendientes.push(v);
         }
+        // Lo que quede sin pedimento debajo al acabar la hoja tampoco entra:
+        // nadie lo reclama todavía.
     }
     return salida;
 }
@@ -4392,9 +4403,16 @@ function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSug
   const nombreHojaMayus = claveHoja(hoja.getName());
 
   let dupExternos = calcularDuplicadosExternos(datosMasivos, ultimaFila, nombreHojaMayus, cacheInfo);
-  let pedsPorFilaA = pedimentosPorFila(datosMasivos, ultimaFila, 0, false);
+  // HACIA ARRIBA: aquí el pedimento va DEBAJO de sus guías, al revés que en
+  // cualquier otra columna A. Recorrerlo como en las demás le daría a cada guía
+  // el pedimento del bloque ANTERIOR: callado, y mal en todas las filas.
+  let pedsPorFilaA = pedimentosPorFila(datosMasivos, ultimaFila, 0, true);
 
   let resultadosB = []; let resultadosHoras = []; let coloresB = [];
+  // Qué filas resultaron ya cargadas. Se guarda aparte porque el bloque no se
+  // cierra hasta llegar al pedimento, que está DEBAJO: para entonces hay que
+  // poder contar hacia atrás sin volver a preguntar al caché.
+  let cargadasPorFila = [];
 
   // Primera pasada: el estado de cada fila por sí misma.
   for (let i = 0; i < ultimaFila; i++) {
@@ -4423,30 +4441,26 @@ function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSug
     coloresB.push([color]);
   }
 
-  // Segunda pasada: bloques por pedimento y el cruce contra lo escaneado.
-  let filaPedActual = -1; let ultimaFilaGuia = -1;
+  // Segunda pasada: bloques y cruce contra lo escaneado.
+  //
+  // Las guías se acumulan y el PEDIMENTO CIERRA el bloque, igual que en la
+  // columna O. Por eso el resumen se escribe en la fila del pedimento: es la
+  // última del bloque, la que queda delante al terminar de capturar.
   let planificadas = new Map();          // guía -> fila, para el duplicado local
   let pedimentosVistosFisico = new Map();
   let filasDuplicadasFisico = new Map();
   let filasParejaDuplicada = new Set();
   let repeticiones = new Map();
-  let enBloque = 0, cargadas = 0, totalPlan = 0, totalCargadas = 0, totalPedimentos = 0;
+  let pendientes = [];                   // filas de guías aún sin pedimento
+  let totalPlan = 0, totalCargadas = 0, totalPedimentos = 0;
 
-  function cerrarBloque() {
-      if (filaPedActual === -1) return;
-      if (resultadosB[filaPedActual][0] !== '') { return; }
-      let faltan = enBloque - cargadas;
-      let txt = "Planificadas: " + enBloque + " | " +
-                (enBloque === 0 ? "⏳ Esperando guías"
-                 : faltan === 0 ? "✅ TODO CARGADO"
-                 : "⚠️ Faltan " + faltan + " por cargar");
-      resultadosB[filaPedActual][0] = txt;
-      coloresB[filaPedActual][0] = enBloque === 0 ? "#178ccc"
-                                  : (faltan === 0 ? "#07c369" : "#ffc107");
-      if (ultimaFilaGuia !== -1 && ultimaFilaGuia > filaPedActual) {
-          resultadosB[ultimaFilaGuia][0] =
-              cabezaEstado(resultadosB[ultimaFilaGuia][0]) + SEP_RESUMEN + txt;
-      }
+  // Las guías que se quedaron sin pedimento debajo. No las reclama nadie, así
+  // que ninguna Global las va a reconocer: hay que decirlo en cada una.
+  function huerfanas(filas) {
+      filas.forEach(f => {
+          resultadosB[f][0] = "⚠️ Falta el pedimento abajo";
+          coloresB[f][0] = "#ffc107";
+      });
   }
 
   for (let i = 0; i < ultimaFila; i++) {
@@ -4455,19 +4469,30 @@ function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSug
       let esErr = resultadosB[i][0] !== '';
 
       if (/^\d{7}$/.test(v)) {
-          cerrarBloque();
           if (!esErr) totalPedimentos++;
-          // El mismo pedimento dos veces en esta pestaña: se marcan las dos.
           if (pedimentosVistosFisico.has(v)) {
               filasDuplicadasFisico.set(i, pedimentosVistosFisico.get(v) + 1);
           } else {
               pedimentosVistosFisico.set(v, i);
           }
-          filaPedActual = i; ultimaFilaGuia = -1;
-          enBloque = 0; cargadas = 0;
+
+          let enBloque = pendientes.length;
+          let cargadas = pendientes.filter(f => cargadasPorFila[f]).length;
+          totalPlan += enBloque; totalCargadas += cargadas;
+          if (!esErr) {
+              let faltan = enBloque - cargadas;
+              resultadosB[i][0] = "Planificadas: " + enBloque + " | " +
+                  (enBloque === 0 ? "⏳ Sin guías encima"
+                   : faltan === 0 ? "✅ TODO CARGADO"
+                   : "⚠️ Faltan " + faltan + " por cargar");
+              coloresB[i][0] = enBloque === 0 ? "#178ccc"
+                              : (faltan === 0 ? "#07c369" : "#ffc107");
+          }
+          pendientes = [];
           continue;
       }
-      if (esMarcadorEstructural(v)) { cerrarBloque(); filaPedActual = -1; continue; }
+
+      if (esMarcadorEstructural(v)) { huerfanas(pendientes); pendientes = []; continue; }
       if (esErr) continue;
 
       if (!esGuiaUPSValida(v)) {
@@ -4475,12 +4500,11 @@ function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSug
           continue;
       }
 
-      // Repetida dentro de esta misma preforma.
       let previa = planificadas.get(v);
       if (previa !== undefined) {
-          let ped = filaPedActual === -1 ? "SIN_CABECERA"
-                  : String(datosMasivos[filaPedActual][0]).trim().toUpperCase();
-          let dupLocal = duplicadoLocal({ ped: pedsPorFilaA[previa] || "SIN_CABECERA", idx: previa }, ped);
+          let dupLocal = duplicadoLocal(
+              { ped: pedsPorFilaA[previa] || "SIN_CABECERA", idx: previa },
+              pedsPorFilaA[i] || "SIN_CABECERA");
           resultadosB[i][0] = dupLocal.texto;
           coloresB[i][0] = dupLocal.color;
           filasParejaDuplicada.add(i); filasParejaDuplicada.add(previa);
@@ -4489,27 +4513,19 @@ function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSug
       }
       planificadas.set(v, i);
 
-      if (filaPedActual === -1) {
-          // Una guía planificada sin pedimento encima no la reclama nadie: no
-          // entra al mapa de preformas y ninguna Global la va a reconocer.
-          resultadosB[i][0] = "⚠️ Falta el pedimento arriba";
-          coloresB[i][0] = "#ffc107";
-          continue;
-      }
-
-      enBloque++; totalPlan++;
       let destino = destinoDeGuia(cacheInfo, v);
       if (destino !== "") {
-          cargadas++; totalCargadas++;
+          cargadasPorFila[i] = true;
           resultadosB[i][0] = "✅ Cargada (" + destino + ")";
           coloresB[i][0] = "#07c369";
       } else {
           resultadosB[i][0] = "⏳ Sin cargar";
           coloresB[i][0] = "#71b3e6";
       }
-      ultimaFilaGuia = i;
+      pendientes.push(i);
   }
-  cerrarBloque();
+  // Al acabar la hoja puede quedar un bloque sin su pedimento debajo.
+  huerfanas(pendientes);
 
   repeticiones.forEach((info, idx) => {
       resultadosB[idx][0] = textoPrimeraDuplicada(info) + colaResumen(resultadosB[idx][0]);
