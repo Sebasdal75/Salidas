@@ -3941,5 +3941,21 @@ ok("estar en una M-S tampoco es estar cargada",
 ok("una guía desconocida no está cargada", destinoDeGuia(cacheDest, "1ZNADA") === "");
 ok("sin caché no revienta", destinoDeGuia(null, "1ZCARGADA") === "");
 
+console.log("\n--- 12e. Las guías sin pedimento se dicen UNA vez ---");
+// Marcar las veinte guías de un bloque sin cerrar es un aviso por renglón para
+// un único problema —falta un número—, y esa es justo la forma de que nadie los
+// lea. El aviso va en la última del grupo, colgado del resumen, y cada guía
+// conserva su estado: estar sin pedimento no impide que ya se cargara.
+ok("el resumen se cuelga con el separador de siempre",
+   ("✅ Cargada (GLOBAL1)" + SEP_RESUMEN + "⚠️ 3 sin pedimento debajo")
+       .indexOf(SEP_RESUMEN) > 0);
+// `cabezaEstado` quita la cola anterior antes de colgar la nueva: sin eso la
+// celda crecería un resumen en cada recálculo.
+ok("no se apilan resúmenes en cada pasada",
+   cabezaEstado("✅ Cargada (GLOBAL1)" + SEP_RESUMEN + "⚠️ 3 sin pedimento debajo")
+       === "✅ Cargada (GLOBAL1)");
+ok("una fila sin cola se queda igual",
+   cabezaEstado("⏳ Sin cargar") === "⏳ Sin cargar");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

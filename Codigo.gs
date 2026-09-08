@@ -4455,12 +4455,20 @@ function actualizarSalidasMS(hoja, source, cacheInfo, repintarTodo, filaFinalSug
   let totalPlan = 0, totalCargadas = 0, totalPedimentos = 0;
 
   // Las guías que se quedaron sin pedimento debajo. No las reclama nadie, así
-  // que ninguna Global las va a reconocer: hay que decirlo en cada una.
+  // que ninguna Global las va a reconocer.
+  //
+  // SE DICE UNA VEZ, en la última del grupo, y no en cada fila. Marcar las
+  // veinte guías de un bloque sin cerrar es un aviso por cada renglón para un
+  // único problema —falta un número—, y esa es justo la forma de que nadie los
+  // lea: en cuanto una columna se llena de avisos iguales, dejan de mirarse
+  // todos, incluidos los que sí importan. Cada guía conserva su propio estado,
+  // que sigue siendo verdad: estar sin pedimento no impide que ya se cargara.
   function huerfanas(filas) {
-      filas.forEach(f => {
-          resultadosB[f][0] = "⚠️ Falta el pedimento abajo";
-          coloresB[f][0] = "#ffc107";
-      });
+      if (filas.length === 0) return;
+      let ultima = filas[filas.length - 1];
+      resultadosB[ultima][0] = cabezaEstado(resultadosB[ultima][0]) + SEP_RESUMEN +
+          "⚠️ " + filas.length + (filas.length === 1 ? " sin pedimento" : " sin pedimento debajo");
+      coloresB[ultima][0] = "#ffc107";
   }
 
   for (let i = 0; i < ultimaFila; i++) {
