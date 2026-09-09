@@ -6008,6 +6008,27 @@ function agruparPorPedimento() {
   });
 }
 
+// ¿Le queda alguna guía a este pedimento después de la limpieza?
+//
+// HAY QUE MIRAR HACIA EL LADO CORRECTO, y es lo único que decide si un
+// pedimento vacío se queda colgado. En una M-S normal las guías van DEBAJO de
+// su pedimento; en una M-S SALIDAS van ENCIMA. Buscando siempre hacia abajo, en
+// una M-S SALIDAS se encontraban las guías del bloque SIGUIENTE, el pedimento
+// se daba por lleno y se quedaba ahí con todas sus guías ya borradas.
+//
+// El recorrido para en cuanto ve otro pedimento: ahí empieza otro bloque y lo
+// que haya más allá no es suyo.
+function pedimentoConserva(valores, i, hasta, paraEliminar, invertida) {
+    let paso = invertida ? -1 : 1;
+    let tope = Math.min(hasta, valores.length);
+    for (let j = i + paso; j >= 0 && j < tope; j += paso) {
+        let v = String((valores[j] || [])[0]).trim().toUpperCase();
+        if (/^\d{7}$/.test(v)) return false;
+        if (v !== "" && !(paraEliminar && paraEliminar.has(j))) return true;
+    }
+    return false;
+}
+
 function limpiarGuiasMovidasSeleccion() {
   conLock(ss => {
     const hoja = ss.getActiveSheet();
@@ -6078,17 +6099,19 @@ function limpiarGuiasMovidasSeleccion() {
         filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, motivo));
     }
 
+    // ¿Le queda alguna guía a este pedimento después de la limpieza?
+    //
+    // HAY QUE MIRAR HACIA EL LADO CORRECTO. En una M-S normal las guías van
+    // DEBAJO de su pedimento; en una M-S SALIDAS van ENCIMA. Buscando siempre
+    // hacia abajo, en una M-S SALIDAS se encontraban las guías del bloque
+    // SIGUIENTE, el pedimento se daba por lleno y se quedaba ahí colgado con
+    // todas sus guías ya borradas. Ese es el «dejó un pedimento arriba».
+    let invertida = esHojaSalidasMS(nombreHoja);
     for (let i = 0; i < numFilasSeleccion && i < valores.length; i++) {
         let valA = String(valores[i][0]).trim().toUpperCase();
         if (!/^\d{7}$/.test(valA) || paraEliminar.has(i)) continue;
 
-        let tieneGuias = false;
-        for (let j = i + 1; j < numFilasSeleccion && j < valores.length; j++) {
-            let nextA = String(valores[j][0]).trim().toUpperCase();
-            if (/^\d{7}$/.test(nextA)) break;
-            if (nextA !== "" && !paraEliminar.has(j)) { tieneGuias = true; break; }
-        }
-        if (!tieneGuias) {
+        if (!pedimentoConserva(valores, i, numFilasSeleccion, paraEliminar, invertida)) {
             paraEliminar.add(i);
             filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", valA, "Vacío", "LIMPIEZA DE PEDIMENTO VACÍO"));
         }

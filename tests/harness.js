@@ -3864,5 +3864,46 @@ let regS = obtenerRegistroMSDesdeCache({ headers: hdrsInv, data: dataSuelta }, "
 ok("un marcador tira lo acumulado",
    regS.registroMS.get("6102253").size === 0);
 
+console.log("\n--- 12c. El pedimento vacío se quita del lado que toca ---");
+// EL FALLO REAL, visto en produccción: la limpieza borró las guías que ya
+// salieron y dejó su pedimento colgado. Buscaba las guías HACIA ABAJO, y en una
+// M-S SALIDAS están ARRIBA: encontraba las del bloque SIGUIENTE, daba el
+// pedimento por lleno y no lo quitaba.
+let filasLimp = [
+    ["1ZA"], ["1ZB"], ["6102253"],      // bloque invertido: guías 0-1, pedimento 2
+    ["1ZC"], ["6103516"]                // otro bloque: guía 3, pedimento 4
+];
+let borradas = new Set([0, 1]);         // las dos primeras ya salieron
+
+// INVERTIDA: el pedimento de la fila 2 se queda sin guías -> se quita.
+ok("un pedimento invertido sin guías encima se quita",
+   !pedimentoConserva(filasLimp, 2, 5, borradas, true));
+// Y NO se lleva por delante al de abajo, que sí conserva la suya.
+ok("el otro pedimento conserva la suya",
+   pedimentoConserva(filasLimp, 4, 5, borradas, true));
+// EL FALLO: mirando hacia abajo, el de la fila 2 encontraba «1ZC» —que es del
+// bloque siguiente— y se daba por lleno.
+ok("mirando al revés se daba por lleno (el fallo)",
+   pedimentoConserva(filasLimp, 2, 5, borradas, false));
+
+// En una M-S normal la dirección de siempre sigue funcionando.
+let filasNorm = [["6102253"], ["1ZA"], ["1ZB"], ["6103516"], ["1ZC"]];
+ok("normal: con guías debajo se conserva",
+   pedimentoConserva(filasNorm, 0, 5, new Set(), false));
+ok("normal: si se borraron todas, se quita",
+   !pedimentoConserva(filasNorm, 0, 5, new Set([1, 2]), false));
+ok("normal: no cuenta las del bloque siguiente",
+   !pedimentoConserva(filasNorm, 0, 5, new Set([1, 2]), false));
+
+// Bordes: el primero de la hoja en modo invertido no tiene nada encima.
+ok("invertida: un pedimento en la primera fila no conserva nada",
+   !pedimentoConserva([["6102253"], ["1ZA"]], 0, 2, new Set(), true));
+ok("normal: uno en la última fila tampoco",
+   !pedimentoConserva([["1ZA"], ["6102253"]], 1, 2, new Set(), false));
+ok("filas vacías no cuentan como guía",
+   !pedimentoConserva([["6102253"], [""], [""]], 0, 3, new Set(), false));
+ok("sin conjunto de borradas no revienta",
+   pedimentoConserva(filasNorm, 0, 5, null, false));
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
