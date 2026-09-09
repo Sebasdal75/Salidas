@@ -3905,5 +3905,23 @@ ok("filas vacías no cuentan como guía",
 ok("sin conjunto de borradas no revienta",
    pedimentoConserva(filasNorm, 0, 5, null, false));
 
+console.log("\n--- 12d. El resumen sigue al escaneo mientras el bloque está abierto ---");
+// Un bloque invertido sin su pedimento todavía no tiene fila donde escribir el
+// resumen, así que antes no decía NADA y parecía que la hoja no reaccionaba.
+// Ahora el conteo se cuelga de la última guía capturada y baja con el escaneo.
+// El texto se arma igual que el del bloque cerrado, con el mismo separador.
+let msgAbierto = "Bultos: 3 (M-S SALIDAS) | ⚠️ Falta el pedimento abajo";
+ok("el resumen abierto lleva el conteo", msgAbierto.indexOf("Bultos: 3") === 0);
+ok("y dice qué falta para cerrarlo",
+   msgAbierto.indexOf("Falta el pedimento abajo") !== -1);
+ok("se cuelga con el separador de siempre",
+   ("✅ Guía" + SEP_RESUMEN + msgAbierto).indexOf(SEP_RESUMEN) > 0);
+// Y no se apila: cabezaEstado quita la cola de la pasada anterior antes de
+// pegar la nueva. Sin eso la celda crecería un resumen en cada recálculo.
+ok("no se acumulan resúmenes en la misma celda",
+   cabezaEstado("✅ Guía" + SEP_RESUMEN + msgAbierto) === "✅ Guía");
+ok("una guía ya movida conserva su cabeza",
+   cabezaEstado("➡ Salió en GLOBAL1" + SEP_RESUMEN + msgAbierto) === "➡ Salió en GLOBAL1");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

@@ -4415,6 +4415,32 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
                   .replace(/ ⚠️ Sin escaneo de .*/g, "");
               resultadosB[filaUltimaGuia][0] = textoLimpio + SEP_RESUMEN + msg;
           }
+      } else if (invertida && bloque.pedimento === "SIN_CABECERA" &&
+                 bloque.filasGuias.length > 0) {
+          // BLOQUE TODAVÍA ABIERTO: se están capturando guías y su pedimento aún
+          // no está escrito debajo.
+          //
+          // El conteo se cuelga de la ÚLTIMA guía capturada, así que BAJA con el
+          // escaneo: el operador ve cuántas lleva sin esperar a cerrar el
+          // bloque, que es justo cuando le sirve saberlo. Antes este bloque no
+          // decía nada —no tiene fila de pedimento donde escribir el resumen— y
+          // parecía que la hoja no estaba haciendo nada.
+          //
+          // Y dice lo que falta para cerrarlo. Sin esa parte, un bloque olvidado
+          // al final de la hoja se ve igual que uno en curso, y sus guías no las
+          // reclama ningún pedimento: no cuentan para nadie.
+          let msg = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ")" +
+                    " | ⚠️ Falta el pedimento abajo";
+          let nota = notaConAlerta(bloque.conAlerta);
+          if (nota !== "") msg += " | " + nota;
+
+          let filaUltimaGuia = bloque.filasGuias[bloque.filasGuias.length - 1];
+          // Misma limpieza que arriba: cabezaEstado quita la cola de la pasada
+          // anterior, o se irían acumulando resúmenes en la misma celda.
+          let textoLimpio = cabezaEstado(resultadosB[filaUltimaGuia][0])
+              .replace(/ \(Escaneado en .*?\)/g, "")
+              .replace(/ ⚠️ Sin escaneo de .*/g, "");
+          resultadosB[filaUltimaGuia][0] = textoLimpio + SEP_RESUMEN + msg;
       }
   });
 
