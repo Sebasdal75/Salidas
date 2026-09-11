@@ -4020,15 +4020,14 @@ ok("y se informa de ella por su nombre",
 ok("con la fila donde estaba", sinPed.sinPedimento[0].fila === 2);
 ok("y la columna", sinPed.sinPedimento[0].columna === 1);
 
-// LO MAL ESCRITO TAMBIÉN SE TRAE. Dejarlo fuera y mencionarlo solo en el
-// diálogo era dejarlo perdido: el diálogo se cierra, nadie arregla el cuadre, y
-// el bulto no aparece en ninguna parte. Traído, el motor lo pinta «❌ Guía
-// Inválida» en rojo y se corrige escribiendo encima.
+// LO MAL ESCRITO NO BAJA A LA HOJA, solo al aviso de la pantalla. La columna A
+// es de captura: una guía mal escrita ahí entra al índice de duplicados, cuenta
+// como bulto y pide house. Un renglón malo en la hoja cuesta más que uno en un
+// aviso que se lee y se cierra.
 let malas = bloquesDelCuadre([["GLOBAL H"], ["6102253"], ["1Z999AA10123456785"]]);
 ok("una guía mal escrita se avisa", malas.invalidas.length === 1);
 ok("y se dice cuál era", malas.invalidas[0].valor === "1Z999AA10123456785");
-ok("pero se trae igual, en su bloque",
-   malas.bloques.length === 1 && malas.bloques[0].guias[0] === "1Z999AA10123456785");
+ok("y NO se trae a la hoja", malas.bloques.length === 0);
 // La celda se nombra como la ve el usuario: «A3», no «fila 3, columna 1».
 ok("la celda se nombra con su letra",
    textoDeDescartes(malas.invalidas).indexOf("A3") !== -1);
@@ -4076,39 +4075,10 @@ ok("los pedimentos de la hoja se leen de la columna A",
 ok("una guía no se confunde con un pedimento",
    !pedimentosYaEnLaHoja([[GA]]).has(GA));
 
-// LAS SUELTAS: las que en el cuadre no cuelgan de ningún pedimento. Van al
-// final bajo su cabecera, y NO pegadas al último bloque: colgarlas de un
-// pedimento que no es el suyo las contaría como bultos de él.
-const G_SUELTA = "12345678901";
-let planS = filasParaPegar(bloquesP, new Set(), [G_SUELTA], new Set());
-ok("la suelta se pega", planS.sueltas.length === 1);
-ok("con su cabecera delante",
-   planS.filas[planS.filas.length - 2][0].indexOf("SIN PEDIMENTO") !== -1);
-ok("y ella al final", planS.filas[planS.filas.length - 1][0] === G_SUELTA);
-// La cabecera tiene que ser un MARCADOR para el motor, no una captura mal
-// escrita: si no, saldría ella misma en rojo como guía inválida.
-ok("la cabecera es marcador estructural",
-   esMarcadorEstructural(planS.filas[planS.filas.length - 2][0]));
-ok("y por tanto abre bloque",
-   esCabeceraBloque(planS.filas[planS.filas.length - 2][0]));
-ok("el hueco en blanco sigue siendo uno",
-   planS.filas.filter(f => f[0] === "").length === 1);
-
-// Sin pedimento no hay salto por pedimento, así que la suelta se compara contra
-// TODO lo que ya hay escrito. Si no, apretar dos veces la pegaría otra vez.
-let planS2 = filasParaPegar(bloquesP, new Set(), [G_SUELTA], new Set([G_SUELTA]));
-ok("una suelta que ya estaba no se repite", planS2.sueltas.length === 0);
-ok("y no se cuela su cabecera sola",
-   !planS2.filas.some(f => String(f[0]).indexOf("SIN PEDIMENTO") !== -1));
-let planS3 = filasParaPegar([], new Set(), [G_SUELTA], new Set([G_SUELTA]));
-ok("si no queda nada, no se escribe nada", planS3.filas.length === 0);
-// Una suelta sola, sin bloques, todavía necesita su renglón en blanco delante.
-let planS4 = filasParaPegar([], new Set(), [G_SUELTA], new Set());
-ok("una suelta sola lleva su hueco", planS4.filas[0][0] === "");
-ok("y son tres renglones", planS4.filas.length === 3);
-
-ok("valoresYaEnLaHoja recoge guías y pedimentos",
-   valoresYaEnLaHoja([["6102253"], [GA], [""]]).size === 2);
+// Las que no cuelgan de ningún pedimento tampoco bajan: mismo motivo, y encima
+// no hay dónde ponerlas sin colgarlas de un pedimento que no es el suyo.
+let planSinSueltas = filasParaPegar([], new Set());
+ok("sin bloques no se escribe nada", planSinSueltas.filas.length === 0);
 
 console.log("\n--- 13d. El vínculo al archivo del cuadre ---");
 // El ID va en una propiedad, no en el código: este repositorio es git y un
