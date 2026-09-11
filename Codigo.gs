@@ -689,6 +689,7 @@ function aplicarValidacionEnTodas() {
 
 function invalidarCacheRAM() {
     olvidarRetenidasEnRAM();
+    olvidarCostalesEnRAM();
     globalCacheData = null;
     globalCacheHeaders = null;
     globalCacheMap = null;
@@ -1522,8 +1523,21 @@ const TXT_PENDIENTE = "⏳ Pendiente (reintenta)";
 // texto antiguo ("➡ Movido a ...") para que las hojas ya escritas se migren
 // solas en la siguiente pasada en vez de dejar de reconocerse.
 const TXT_SALIO = "➡ Salió en ";
+// El estado sin la marca «📦 COSTAL · » de delante.
+//
+// HACE FALTA porque media docena de sitios deciden leyendo el PRINCIPIO de la
+// celda: si empieza por 🛑 es crítico, si empieza por «➡ MOVIDO A» ya salió.
+// Un prefijo delante los engaña a todos a la vez, y de las peores maneras: una
+// fila de costales ya embarcada dejaría de contar como movida y la limpieza no
+// la borraría nunca. Se quita aquí, en un solo sitio, y lo demás sigue igual.
+function sinMarcaCostal(txt) {
+    let t = String(txt === undefined || txt === null ? "" : txt).trim();
+    if (t.indexOf(TXT_COSTAL) !== 0) return t;
+    return t.substring(TXT_COSTAL.length).replace(/^\s*·\s*/, "").trim();
+}
+
 function esEstadoSalida(txt) {
-    let t = String(txt).trim();
+    let t = sinMarcaCostal(txt);
     return t.startsWith(TXT_SALIO) || t.toUpperCase().startsWith("➡ MOVIDO A");
 }
 
@@ -2763,6 +2777,155 @@ function avisoDeRetenida(cacheInfo, valor) {
     } catch (err) { return ""; }
 }
 
+// =========================================================================
+// GUÍAS QUE VIENEN DE COSTALES
+// =========================================================================
+//
+// POR QUÉ HACE FALTA MARCARLAS. Lo que trae el botón «📦 Traer los costales»
+// se pega en la columna A de una unidad, y a partir de ahí el motor no puede
+// distinguirlo de un escaneo: la fila es idéntica. Pero NO es un escaneo —
+// nadie pasó esa guía por el lector en este archivo—, y confundir las dos cosas
+// al revisar la unidad es un error caro: se da por contado un bulto que a lo
+// mejor nunca subió.
+//
+// Misma mecánica que las retenidas: una columna más del caché, que ya se lee
+// entero en cada escaneo. Cuesta cero llamadas.
+const HEADER_COSTAL = "__COSTAL";
+const TXT_COSTAL = "📦 COSTAL";
+const COLOR_COSTAL = '#b3e5fc';
+
+// Accesores para el banco de pruebas: las constantes con `const` no salen del
+// eval con el que carga este archivo, las funciones sí.
+function accesoTxtCostal() { return TXT_COSTAL; }
+function accesoHeaderCostal() { return HEADER_COSTAL; }
+
+// Cuántas guías de costales se recuerdan. A diferencia de las retenidas, esta
+// lista se ACUMULA —cada unidad del día añade las suyas—, así que necesita
+// tope. Se quedan las últimas: lo de hace dos semanas ya no está en ninguna
+// pestaña viva y marcarlo no le sirve a nadie.
+const MAX_COSTALES_CACHE = 8000;
+
+// Añade guías a la lista, SIN borrar las que ya estaban.
+//
+// Acumular y no reemplazar es la diferencia con las retenidas, y es a propósito:
+// en un día se aprieta el botón una vez por unidad, y reemplazar dejaría
+// marcadas solo las de la última.
+function guardarCostalesEnCache(source, lista) {
+    let cacheSheet = source.getSheetByName("CACHE_SISTEMA");
+    if (!cacheSheet) return 0;
+
+    let headers = cacheSheet.getRange(1, 1, 1, cacheSheet.getMaxColumns()).getValues()[0];
+    let col = columnaDeHeader(cacheSheet, headers, HEADER_COSTAL);
+    if (col === -1) return 0;
+
+    let maxFilas = cacheSheet.getMaxRows();
+    let previas = [];
+    if (maxFilas > 1) {
+        cacheSheet.getRange(2, col, maxFilas - 1, 1).getValues().forEach(f => {
+            let v = String(f[0]).trim().toUpperCase();
+            if (v !== "") previas.push(v);
+        });
+    }
+
+    let vistas = new Set(previas);
+    let nuevas = 0;
+    (lista || []).forEach(v => {
+        let g = String(v === undefined || v === null ? "" : v).trim().toUpperCase();
+        if (g === "" || vistas.has(g) || !esGuiaUPSValida(g)) return;
+        vistas.add(g);
+        previas.push(g);
+        nuevas++;
+    });
+
+    if (previas.length > MAX_COSTALES_CACHE) {
+        previas = previas.slice(previas.length - MAX_COSTALES_CACHE);
+    }
+
+    if (maxFilas > 1) cacheSheet.getRange(2, col, maxFilas - 1, 1).clearContent();
+    if (previas.length > 0) {
+        asegurarFilas(cacheSheet, previas.length + 1);
+        cacheSheet.getRange(2, col, previas.length, 1)
+                  .setValues(previas.map(g => [g]));
+    }
+    return nuevas;
+}
+
+// Puro, para poder probarlo sin hablar con Sheets.
+function costalesDelCache(data, headers) {
+    let set = new Set();
+    if (!data || !headers) return set;
+    let c = headers.indexOf(HEADER_COSTAL);
+    if (c === -1) return set;
+    for (let r = 1; r < data.length; r++) {
+        let v = data[r] ? data[r][c] : "";
+        if (v === "" || v === null || v === undefined) continue;
+        set.add(String(v).trim().toUpperCase());
+    }
+    return set;
+}
+
+let globalCostales = null;
+function olvidarCostalesEnRAM() { globalCostales = null; }
+
+function conjuntoCostales(cacheInfo) {
+    if (globalCostales === null) {
+        globalCostales = costalesDelCache(cacheInfo ? cacheInfo.data : null,
+                                          cacheInfo ? cacheInfo.headers : null);
+    }
+    return globalCostales;
+}
+
+function avisoDeCostal(cacheInfo, valor) {
+    let v = String(valor === undefined || valor === null ? "" : valor).trim().toUpperCase();
+    if (v === "" || esMarcadorEstructural(v)) return "";
+    try {
+        return conjuntoCostales(cacheInfo).has(v) ? TXT_COSTAL : "";
+    } catch (err) { return ""; }
+}
+
+// El estado final de una fila de costales.
+//
+// El marcador va DELANTE, no en lugar de lo que hubiera. Sustituirlo taparía un
+// duplicado o una retenida, que es justo lo que no se puede perder: una guía de
+// costales que además está repetida en otra pestaña es MÁS grave que una
+// repetida a secas, no menos. Así siempre dice de dónde salió y además avisa.
+function estadoConCostal(fijo, color, esCostal) {
+    if (!esCostal) return { fijo: fijo, color: color };
+    let t = String(fijo === undefined || fijo === null ? "" : fijo);
+    if (t.indexOf(TXT_COSTAL) === 0) return { fijo: t, color: color };
+    return {
+        fijo: (t.trim() === "") ? TXT_COSTAL : TXT_COSTAL + " · " + t,
+        color: (color === '#FFFFFF' || color === undefined || color === "")
+                   ? COLOR_COSTAL : color
+    };
+}
+
+// La pasada final que pone la marca, JUSTO ANTES de escribir.
+//
+// Va aquí y no donde se calcula el estado por una razón concreta: entre los dos
+// puntos hay medio motor leyendo `resultadosB` —«¿esta fila tiene error?»,
+// «¿dónde acaba la cabeza y empieza el resumen?», «¿qué nivel de alerta es?»—.
+// Un prefijo puesto antes haría que una fila perfectamente buena contara como
+// error, y con ella su pedimento dejaría de sumar bultos. Puesta al final, la
+// marca es solo texto y no le cambia el sentido a nada.
+function marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, colGuia) {
+    let c = colGuia || 0;
+    let set = null;
+    try { set = conjuntoCostales(cacheInfo); } catch (err) { return 0; }
+    if (!set || set.size === 0) return 0;
+
+    let n = 0;
+    for (let i = 0; i < ultimaFila; i++) {
+        let v = String((datosMasivos[i] || [])[c] || "").trim().toUpperCase();
+        if (v === "" || !set.has(v)) continue;
+        let r = estadoConCostal(resultadosB[i][0], coloresB[i][0], true);
+        resultadosB[i][0] = r.fijo;
+        coloresB[i][0] = r.color;
+        n++;
+    }
+    return n;
+}
+
 function sincronizarMacho(hojaMacho, source) {
     let ultimaFila = hojaMacho.getLastRow();
     let valoresMacho = [];
@@ -3210,7 +3373,10 @@ const NIVEL_AVISO   = 1;   // ⚠️ sobra, sin registrar en M-S · 🔄 duplica
 const NIVEL_INFO    = 0;   // ✅ ok · ➡ salió en · ⏳ esperando · vacío
 
 function nivelAlerta(texto) {
-    let t = String(texto).trim();
+    // Sin la marca de costales delante: si no, una retenida marcada como costal
+    // bajaría de crítica a informativa y `conservarAlertasGraves` dejaría que un
+    // pase parcial la borrara.
+    let t = sinMarcaCostal(texto);
     if (t === "") return NIVEL_INFO;
     if (t.startsWith("🛑")) return NIVEL_CRITICO;
     if (t.startsWith("⛔")) return NIVEL_ALTO;
@@ -4153,6 +4319,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
   conservarAlertasGraves(datosMasivos, resultadosP, coloresP, ultimaFila, repintarTodo, filasEditadas, 14, 15);
 
+  marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
+
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA,
                            repintarTodo, filasParejaDuplicada);
   aplicarCambiosOptimizado(hoja, 16, 19, 15, 18, resultadosP, resultadosHorasP, datosMasivos, coloresP, null, null, null, repintarTodo);
@@ -4465,9 +4633,13 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   // lo que ya había, se conserva lo que había. Ver conservarAlertasGraves.
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
 
+  // Los colores de la columna A se calculan ANTES de marcar: `colorColumnaA`
+  // mira el estado y la marca no le cambia el color a la guía.
+  let coloresAMS = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada);
+  marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
+
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada),
-                           repintarTodo, filasParejaDuplicada);
+                           coloresAMS, repintarTodo, filasParejaDuplicada);
 
   // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
   // Si la guía de una fila ya no está, su house tampoco pinta nada: dejarla
@@ -4645,9 +4817,11 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
   // lo que ya había, se conserva lo que había. Ver conservarAlertasGraves.
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
 
+  let coloresAInv = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada);
+  marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
+
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
-                           coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada),
-                           repintarTodo, filasParejaDuplicada);
+                           coloresAInv, repintarTodo, filasParejaDuplicada);
 
   // La house se borra AQUÍ, con el estado y la hora, no cinco minutos después.
   // Si la guía de una fila ya no está, su house tampoco pinta nada: dejarla

@@ -3937,18 +3937,33 @@ ok("y al revés también", pestanaDeLaUnidad("Global1", "Global 1"));
 ok("el complemento también cuenta",
    pestanaDeLaUnidad("Global 1 complemento", "Global1"));
 ok("sin distinguir mayúsculas", pestanaDeLaUnidad("GLOBAL 1 COMPLEMENTO", "global1"));
-// LAS FECHAS SE IGNORAN: el usuario renombra a mano, así que la comparación es
-// EXACTA. Por prefijo, «Global 1» casaría con «Global 10» y con cada día
-// guardado, y habría que elegir entre ellos.
-ok("una pestaña con fecha NO cuenta",
-   !pestanaDeLaUnidad("Global 1 10-09-2026", "Global1"));
+// EN SALIDAS LA PESTAÑA LLEVA COSAS DETRÁS: «Global 1 LG30474 …». En el cuadre
+// no. Así que manda el nombre CORTO: el del cuadre tiene que ser el PRINCIPIO
+// del de Salidas, y lo que venga después —placa, fecha, notas— sobra solo.
+ok("la placa detrás no estorba",
+   pestanaDeLaUnidad("Global 1", "Global 1 LG30474"));
+ok("ni media frase detrás",
+   pestanaDeLaUnidad("Global 1", "Global 1 LG30474 salida tarde"));
+ok("y el complemento también, con placa detrás",
+   pestanaDeLaUnidad("Global 1 complemento", "Global 1 LG30474"));
+
+// EL CASO QUE OBLIGA A COMPARAR POR TROZOS Y NO POR TEXTO: la cadena «GLOBAL1»
+// SÍ es principio de «GLOBAL10LG30474», así que comparando texto pelado la
+// unidad 1 se llevaría los costales de la 10. Como trozos, [GLOBAL,1] y
+// [GLOBAL,10] no se parecen en nada.
+ok("«Global 1» NO se lleva lo de «Global 10»",
+   !pestanaDeLaUnidad("Global 1", "Global 10 LG30474"));
 ok("«Global 10» NO es «Global 1»", !pestanaDeLaUnidad("Global 10", "Global1"));
 ok("otra unidad tampoco", !pestanaDeLaUnidad("Global 3", "Global1"));
 ok("sin nombre de unidad no casa nada", !pestanaDeLaUnidad("Global 1", ""));
+// Al revés no vale: lo que sobra va en Salidas, no en el cuadre.
+ok("una pestaña del cuadre con fecha NO cuenta",
+   !pestanaDeLaUnidad("Global 1 10-09-2026", "Global1"));
 
 // El orden importa: primero la principal y después su complemento.
 let aCopiar = pestanasACopiar(
-    ["macho", "Global 3", "Global 1 complemento", "Global 1", "Global 10"], "Global1");
+    ["macho", "Global 3", "Global 1 complemento", "Global 1", "Global 10"],
+    "Global 1 LG30474");
 ok("trae las dos", aCopiar.length === 2);
 ok("y la principal va primero", aCopiar[0] === "Global 1");
 ok("el complemento después", aCopiar[1] === "Global 1 complemento");
@@ -3968,6 +3983,11 @@ let rejilla = [
     [GB,         "✅ Ok",     "",        "",          ""]
 ];
 let leido = bloquesDelCuadre(rejilla);
+// LA FILA 1 SON TÍTULOS y se salta por número de fila, no dejando que el
+// dígito verificador los rechace: rechazarlos los metería en la lista de «no
+// se cargó esto», y el informe acusaría de basura a los encabezados.
+ok("los títulos de la fila 1 no se leen siquiera", leido.invalidas.length === 0);
+ok("y por tanto no se cuentan como descartados", leido.descartadas === 0);
 ok("un bloque por columna con datos", leido.bloques.length === 2);
 ok("el primero es de la columna A", leido.bloques[0].pedimento === "6102253");
 ok("con sus dos guías", leido.bloques[0].guias.length === 2);
@@ -3978,18 +3998,33 @@ ok("con la suya", leido.bloques[1].guias.length === 1);
 ok("los títulos no se cuelan",
    !leido.bloques[0].guias.some(g => g.indexOf("GLOBAL") !== -1));
 
-// Una guía sin pedimento encima no la reclama nadie: se descarta y se cuenta.
+// Una guía sin pedimento encima no la reclama nadie: se descarta y se DICE
+// cuál, con su celda. Un contador a secas obliga a buscarla a mano.
 let sinPed = bloquesDelCuadre([["GLOBAL H"], [GA], ["6102253"], [GB]]);
 ok("la guía anterior al pedimento no entra",
    sinPed.bloques.length === 1 && sinPed.bloques[0].guias.length === 1);
-ok("y se cuenta como descartada", sinPed.descartadas >= 1);
-// Lo que no pasa el dígito verificador tampoco entra.
-// Sin el título arriba, lo único descartable es la guía: así el conteo es
-// exacto y no se confunde con los títulos, que también se descartan.
-ok("una guía inválida se descarta",
-   bloquesDelCuadre([["6102253"], ["1Z999AA10123456785"]]).descartadas === 1);
-ok("y no abre bloque por ella sola",
-   bloquesDelCuadre([["6102253"], ["1Z999AA10123456785"]]).bloques.length === 0);
+ok("y se informa de ella por su nombre",
+   sinPed.sinPedimento.length === 1 && sinPed.sinPedimento[0].valor === GA);
+ok("con la fila donde estaba", sinPed.sinPedimento[0].fila === 2);
+ok("y la columna", sinPed.sinPedimento[0].columna === 1);
+
+// Lo que no pasa el dígito verificador tampoco entra, y también se nombra.
+let malas = bloquesDelCuadre([["GLOBAL H"], ["6102253"], ["1Z999AA10123456785"]]);
+ok("una guía inválida se descarta", malas.invalidas.length === 1);
+ok("y se dice cuál era", malas.invalidas[0].valor === "1Z999AA10123456785");
+ok("y no abre bloque por ella sola", malas.bloques.length === 0);
+// La celda se nombra como la ve el usuario: «A3», no «fila 3, columna 1».
+ok("la celda se nombra con su letra",
+   textoDeDescartes(malas.invalidas).indexOf("A3") !== -1);
+ok("y con el valor que traía",
+   textoDeDescartes(malas.invalidas).indexOf("1Z999AA10123456785") !== -1);
+ok("la tercera columna de guías es la C", letraDeColumna(3) === "C");
+ok("y la novena es la I", letraDeColumna(9) === "I");
+// Doscientas líneas raras no caben en un diálogo y nadie las lee.
+let muchosDescartes = [];
+for (let i = 0; i < 40; i++) muchosDescartes.push({ valor: "X", fila: i + 2, columna: 1 });
+ok("la lista se corta", textoDeDescartes(muchosDescartes, 5).split("\n").length === 6);
+ok("y dice cuántas faltan", textoDeDescartes(muchosDescartes, 5).indexOf("35 más") !== -1);
 ok("una rejilla vacía no revienta", bloquesDelCuadre([]).bloques.length === 0);
 ok("null tampoco", bloquesDelCuadre(null).bloques.length === 0);
 
@@ -4039,6 +4074,59 @@ ok("acepta el ID pelado",
 ok("media URL no vale", idDesdeUrl("docs.google.com/spreadsheets") === "");
 ok("vacío no vale", idDesdeUrl("") === "");
 ok("null no revienta", idDesdeUrl(null) === "");
+
+console.log("\n--- 13e. La marca «📦 COSTAL» en la columna B ---");
+// Lo pegado desde el cuadre NO es un escaneo: nadie pasó esa guía por el lector
+// en este archivo. La fila, en cambio, es idéntica a la de un escaneo, y dar por
+// contado un bulto que a lo mejor nunca subió es el error caro.
+const TXT_C = accesoTxtCostal();
+ok("una fila sin estado se queda solo con la marca",
+   estadoConCostal("", '#FFFFFF', true).fijo === TXT_C);
+ok("y con su color propio",
+   estadoConCostal("", '#FFFFFF', true).color !== '#FFFFFF');
+ok("si no es de costales no se toca nada",
+   estadoConCostal("⛔ DUPLICADO (En: M-S T1 Fila 9)", '#ff9800', false).fijo
+   === "⛔ DUPLICADO (En: M-S T1 Fila 9)");
+
+// LA MARCA VA DELANTE, NO EN LUGAR DE. Sustituir taparía el duplicado o la
+// retenida, que es justo lo que no se puede perder: una guía de costales
+// repetida en otra pestaña es MÁS grave que una repetida a secas.
+let conDup = estadoConCostal("⛔ DUPLICADO (En: M-S T1 Fila 9)", '#ff9800', true);
+ok("el duplicado sigue ahí", conDup.fijo.indexOf("DUPLICADO") !== -1);
+ok("con la marca delante", conDup.fijo.indexOf(TXT_C) === 0);
+ok("y el color de la alerta, no el de costales", conDup.color === '#ff9800');
+// Apretar el botón dos veces no puede dejar «📦 COSTAL · 📦 COSTAL · …».
+ok("no se marca dos veces",
+   estadoConCostal(conDup.fijo, conDup.color, true).fijo === conDup.fijo);
+
+// LO QUE DE VERDAD ROMPÍA: media docena de sitios deciden leyendo el PRINCIPIO
+// de la celda. Con la marca delante, una fila ya embarcada dejaba de contar como
+// movida y LA LIMPIEZA NO LA BORRABA NUNCA.
+ok("una fila movida sigue siendo movida con la marca",
+   esEstadoSalida(TXT_C + " · ➡ MOVIDO A GLOBAL 1"));
+ok("y sin la marca también, como siempre",
+   esEstadoSalida("➡ MOVIDO A GLOBAL 1"));
+// Y el nivel de alerta: si bajara a informativo, un pase parcial borraría la
+// retenida de una guía de costales.
+ok("una retenida marcada sigue siendo crítica",
+   nivelAlerta(TXT_C + " · 🛑 RETENIDA (FEMAD)") === nivelAlerta("🛑 RETENIDA (FEMAD)"));
+ok("y un duplicado marcado sigue siendo alto",
+   nivelAlerta(TXT_C + " · ⛔ DUPLICADO (En: X Fila 2)")
+   === nivelAlerta("⛔ DUPLICADO (En: X Fila 2)"));
+ok("quitar la marca de algo que no la tiene no cambia nada",
+   sinMarcaCostal("⛔ DUPLICADO") === "⛔ DUPLICADO");
+ok("y de vacío tampoco", sinMarcaCostal("") === "");
+
+// El conjunto sale del caché, igual que las retenidas: una columna más en la
+// foto que ya se lee entera en cada escaneo, así que cuesta cero llamadas.
+const H_COSTAL = accesoHeaderCostal();
+let cabecerasC = ["GLOBAL 1_FISICO", H_COSTAL, "__FEMAD"];
+let datosC = [cabecerasC, ["", GA, ""], ["", GB, ""], ["", "", ""]];
+let setC = costalesDelCache(datosC, cabecerasC);
+ok("saca las guías de su columna", setC.size === 2 && setC.has(GA));
+ok("sin columna de costales, conjunto vacío",
+   costalesDelCache([["GLOBAL 1_FISICO"]], ["GLOBAL 1_FISICO"]).size === 0);
+ok("sin caché tampoco revienta", costalesDelCache(null, null).size === 0);
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

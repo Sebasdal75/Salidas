@@ -59,31 +59,70 @@ function claveSinEspacios(nombre) {
     return claveHoja(nombre).replace(/\s+/g, "");
 }
 
+// El nombre partido en trozos comparables.
+//
+// Se parte por espacios Y por el salto de letra a número, porque las dos formas
+// conviven: la pestaña real de Salidas se llama «Global 1 LG30474 …» y la del
+// cuadre «Global1» o «Global 1». Sin partir por ese salto, «GLOBAL1» sería un
+// solo trozo y no casaría con [GLOBAL, 1].
+//
+// Partir en trozos —y no comparar cadenas— es lo que salva el caso de verdad
+// peligroso: «GLOBAL1» es prefijo de la cadena «GLOBAL10», así que comparando
+// texto pelado la unidad 1 se llevaría los costales de la 10. Como trozos,
+// [GLOBAL,1] y [GLOBAL,10] no se parecen en nada.
+function trozosDeNombre(nombre) {
+    return claveHoja(nombre)
+        .replace(/[^A-Z0-9]+/gi, " ")
+        .replace(/([A-Z])(\d)/gi, "$1 $2")
+        .replace(/(\d)([A-Z])/gi, "$1 $2")
+        .split(/\s+/)
+        .filter(t => t !== "");
+}
+
+// ¿Los trozos de `corta` son el principio de los de `larga`?
+function empiezaPorLosTrozos(larga, corta) {
+    if (corta.length === 0 || corta.length > larga.length) return false;
+    for (let i = 0; i < corta.length; i++) {
+        if (larga[i] !== corta[i]) return false;
+    }
+    return true;
+}
+
 // ¿Esta pestaña del cuadre le toca a esta unidad?
 //
-// Las FECHAS SE IGNORAN por decisión del usuario: él renombra a mano las
-// pestañas del cuadre para que todo lo que salga ese día se llame como la
-// unidad. Así que la comparación es exacta (sin espacios), no por prefijo.
+// La pestaña de Salidas lleva cosas detrás del nombre de la unidad —«Global 1
+// LG30474 …»— y la del cuadre no. Así que manda el nombre CORTO: el del cuadre
+// tiene que ser el principio del de Salidas, trozo a trozo.
 //
-// Buscar por prefijo sería peor de lo que parece: «Global 1» casaría también con
-// «Global 10», y con varios días guardados habría que elegir entre ellos. La
-// regla manual del usuario elimina las dos ambigüedades de golpe.
+// Las FECHAS SE IGNORAN por decisión del usuario: él renombra a mano las
+// pestañas del cuadre para que lo que salga ese día se llame como la unidad.
+// Y en Salidas la fecha o la placa van DETRÁS, así que sobran solas.
 function pestanaDeLaUnidad(nombreCuadre, nombreUnidad) {
-    let c = claveSinEspacios(nombreCuadre);
-    let u = claveSinEspacios(nombreUnidad);
-    if (u === "") return false;
-    return c === u || c === u + SUFIJO_COMPLEMENTO;
+    return tipoDePestanaDelCuadre(nombreCuadre, nombreUnidad) !== "";
+}
+
+// "" si no es de esta unidad, "principal" o "complemento" si lo es.
+function tipoDePestanaDelCuadre(nombreCuadre, nombreUnidad) {
+    let u = trozosDeNombre(nombreUnidad);
+    let c = trozosDeNombre(nombreCuadre);
+    if (u.length === 0 || c.length === 0) return "";
+
+    let esComplemento = c[c.length - 1] === SUFIJO_COMPLEMENTO;
+    if (esComplemento) c = c.slice(0, c.length - 1);
+    if (c.length === 0) return "";
+
+    return empiezaPorLosTrozos(u, c) ? (esComplemento ? "complemento" : "principal") : "";
 }
 
 // Las pestañas del cuadre que hay que traer, en orden: primero la de la unidad
-// y después su complemento.
+// y después su complemento. Nada más: si el cuadre tiene veinte pestañas, solo
+// salen estas dos.
 function pestanasACopiar(nombresDelCuadre, nombreUnidad) {
-    let u = claveSinEspacios(nombreUnidad);
     let principal = [], complemento = [];
     (nombresDelCuadre || []).forEach(n => {
-        let c = claveSinEspacios(n);
-        if (c === u) principal.push(n);
-        else if (c === u + SUFIJO_COMPLEMENTO) complemento.push(n);
+        let t = tipoDePestanaDelCuadre(n, nombreUnidad);
+        if (t === "principal") principal.push(n);
+        else if (t === "complemento") complemento.push(n);
     });
     return principal.concat(complemento);
 }
@@ -102,17 +141,27 @@ function pestanasACopiar(nombresDelCuadre, nombreUnidad) {
 // Solo entran guías que pasan el dígito verificador. Lo que no lo pase se
 // cuenta aparte y se dice: traer basura a la columna A la metería en el índice
 // de duplicados y la contaría como bulto.
+// La fila 1 del cuadre son TÍTULOS («GLOBAL H», «EXCENTO H»…), no escaneos. Los
+// escaneos empiezan en la 2. Se salta por número de fila y no dejando que
+// `esGuiaUPSValida` los rechace, porque rechazarlos los contaría como valores
+// descartados y el informe del final acusaría de basura a los encabezados.
+const FILA_INICIO_CUADRE = 2;
+
 function bloquesDelCuadre(datos) {
     let bloques = [];
-    let descartadas = 0;
-    if (!datos || datos.length === 0) return { bloques: bloques, descartadas: 0 };
+    let invalidas = [];      // no pasan el dígito verificador
+    let sinPedimento = [];   // guías buenas que no cuelgan de ningún pedimento
+    if (!datos || datos.length === 0) {
+        return { bloques: bloques, invalidas: invalidas, sinPedimento: sinPedimento,
+                 descartadas: 0 };
+    }
 
     COLS_GUIA_CUADRE.forEach(col => {
         let c = col - 1;
         if (c >= (datos[0] || []).length) return;
         let actual = null;
 
-        for (let r = 0; r < datos.length; r++) {
+        for (let r = FILA_INICIO_CUADRE - 1; r < datos.length; r++) {
             let bruto = (datos[r] || [])[c];
             if (bruto === "" || bruto === null || bruto === undefined) continue;
             let v = String(bruto).trim().toUpperCase();
@@ -123,19 +172,50 @@ function bloquesDelCuadre(datos) {
                 actual = { pedimento: v, guias: [] };
                 continue;
             }
-            // La fila 1 son títulos («GLOBAL H») y hay marcadores sueltos: nada
-            // de eso es una guía y `esGuiaUPSValida` ya los rechaza.
+            // Marcadores sueltos del script del cuadre: ni guía ni basura.
             if (esMarcadorEstructural(v)) continue;
-            if (!esGuiaUPSValida(v)) { descartadas++; continue; }
+            if (!esGuiaUPSValida(v)) {
+                // Se guarda CUÁL era y DÓNDE estaba. Un contador a secas obliga
+                // a buscar a mano en cinco columnas de mil filas.
+                invalidas.push({ valor: v, fila: r + 1, columna: col });
+                continue;
+            }
             // Sin pedimento encima no la reclama nadie. Traerla dejaría una guía
             // suelta al principio del volcado, fuera de todo bloque.
-            if (!actual) { descartadas++; continue; }
+            if (!actual) { sinPedimento.push({ valor: v, fila: r + 1, columna: col }); continue; }
             if (actual.guias.indexOf(v) === -1) actual.guias.push(v);
         }
         if (actual && actual.guias.length > 0) bloques.push(actual);
     });
 
-    return { bloques: bloques, descartadas: descartadas };
+    return { bloques: bloques, invalidas: invalidas, sinPedimento: sinPedimento,
+             descartadas: invalidas.length + sinPedimento.length };
+}
+
+// La letra de una columna del cuadre, para poder decir «C7» en vez de «fila 7
+// de la tercera columna de guías».
+function letraDeColumna(col) {
+    let n = Number(col) || 0;
+    let s = "";
+    while (n > 0) {
+        let r = (n - 1) % 26;
+        s = String.fromCharCode(65 + r) + s;
+        n = Math.floor((n - 1) / 26);
+    }
+    return s;
+}
+
+// El informe de lo que NO se cargó, con nombre y celda.
+//
+// Se corta a `tope` entradas: un cuadre con doscientas líneas raras haría un
+// diálogo que no cabe en la pantalla y que además nadie lee.
+function textoDeDescartes(lista, tope) {
+    let max = tope || 12;
+    let l = lista || [];
+    let out = l.slice(0, max).map(d =>
+        "   · " + letraDeColumna(d.columna) + d.fila + ":  " + d.valor);
+    if (l.length > max) out.push("   …y " + (l.length - max) + " más.");
+    return out.join("\n");
 }
 
 // -------------------------------------------------------------------------
@@ -295,7 +375,7 @@ function traerCostalesDeEstaUnidad() {
     }
 
     // Leer las pestañas del cuadre, también fuera del lock.
-    let bloques = [], descartadas = 0, leidas = [];
+    let bloques = [], invalidas = [], sinPedimento = [], leidas = [];
     try {
         aCopiar.forEach(n => {
             let h = cuadre.getSheetByName(n);
@@ -306,7 +386,12 @@ function traerCostalesDeEstaUnidad() {
             let datos = h.getRange(1, 1, lr, ancho).getValues();
             let r = bloquesDelCuadre(datos);
             r.bloques.forEach(b => bloques.push(b));
-            descartadas += r.descartadas;
+            // La pestaña se nombra en cada descarte: con la principal y su
+            // complemento leídas juntas, «C7» a secas sería ambiguo.
+            r.invalidas.forEach(d => invalidas.push({ valor: d.valor, fila: d.fila,
+                columna: d.columna, hoja: n }));
+            r.sinPedimento.forEach(d => sinPedimento.push({ valor: d.valor, fila: d.fila,
+                columna: d.columna, hoja: n }));
             leidas.push(n);
         });
     } catch (err) {
@@ -314,11 +399,20 @@ function traerCostalesDeEstaUnidad() {
         return;
     }
 
+    let descartadas = invalidas.length + sinPedimento.length;
+
     if (bloques.length === 0) {
-        ui.alert("📦 Costales",
-            "Leí " + leidas.join(", ") + " y no encontré ningún bloque con guías " +
-            "válidas." + (descartadas > 0 ? "\n\nSe descartaron " + descartadas +
-            " valores que no eran guías." : ""), ui.ButtonSet.OK);
+        let m = "Leí " + leidas.join(", ") + " y no encontré ningún bloque con " +
+                "guías válidas.";
+        if (invalidas.length) {
+            m += "\n\n🚫 No pasaron el dígito verificador (" + invalidas.length + "):\n" +
+                 textoDeDescartes(invalidas);
+        }
+        if (sinPedimento.length) {
+            m += "\n\n❓ Sin pedimento encima (" + sinPedimento.length + "):\n" +
+                 textoDeDescartes(sinPedimento);
+        }
+        ui.alert("📦 Costales", m, ui.ButtonSet.OK);
         return;
     }
 
@@ -347,7 +441,23 @@ function traerCostalesDeEstaUnidad() {
         let colA = lr > 0 ? hoja.getRange(1, 1, lr, 1).getValues() : [];
         let plan = filasParaPegar(bloques, pedimentosYaEnLaHoja(colA));
 
+        // Marcar TODAS las guías leídas del cuadre, no solo las que se pegan
+        // ahora, y ANTES de decidir si hay algo que pegar.
+        //
+        // Incluir las saltadas es lo que arregla el caso de después de
+        // «Reconstruir caché completo», que borra la hoja del caché y con ella
+        // esta columna: al volver a apretar el botón no se pega nada —ya está
+        // todo— pero las marcas vuelven a su sitio. Si solo se marcara lo
+        // pegado, esas filas se quedarían para siempre pareciendo escaneos.
+        let todasLasGuias = [];
+        bloques.forEach(b => b.guias.forEach(g => todasLasGuias.push(g)));
+        guardarCostalesEnCache(ss, todasLasGuias);
+
         if (plan.filas.length === 0) {
+            // Aun sin pegar nada hay que recalcular: las marcas que se acaban de
+            // reponer no salen en la columna B hasta que alguien repinte.
+            invalidarCacheRAM();
+            recalcularHoja(hoja, ss, getCacheData(ss), null, false, false);
             resultado = { nada: true, saltados: plan.saltados };
             return;
         }
@@ -377,10 +487,24 @@ function traerCostalesDeEstaUnidad() {
     if (!resultado) { ui.alert("📦 Costales", "No se pudo tomar el archivo. Inténtalo otra vez.", ui.ButtonSet.OK); return; }
     if (resultado.error) { ui.alert("📦 Costales", resultado.error, ui.ButtonSet.OK); return; }
 
+    // El informe de lo que se quedó fuera va en las DOS salidas, la de «no pegué
+    // nada» y la de «listo». Es justo cuando no se pega nada cuando más falta
+    // hace saber qué guías no entraron.
+    let noCargado = "";
+    if (invalidas.length) {
+        noCargado += "\n🚫 NO SE CARGARON, no pasan el dígito verificador (" +
+                     invalidas.length + "):\n" + textoDeDescartes(invalidas) + "\n";
+    }
+    if (sinPedimento.length) {
+        noCargado += "\n❓ NO SE CARGARON, no tienen pedimento encima (" +
+                     sinPedimento.length + "):\n" + textoDeDescartes(sinPedimento) + "\n";
+    }
+
     if (resultado.nada) {
         ui.alert("📦 Costales",
             "No se pegó nada: esos " + resultado.saltados.length + " pedimentos ya " +
-            "estaban en esta pestaña.\n\n" + resultado.saltados.join(", "),
+            "estaban en esta pestaña.\n\n" + resultado.saltados.join(", ") + "\n" +
+            noCargado,
             ui.ButtonSet.OK);
         return;
     }
@@ -393,10 +517,10 @@ function traerCostalesDeEstaUnidad() {
         msg += "\n⏭️ Saltados por estar ya en la hoja (" + resultado.saltados.length +
                "):\n" + resultado.saltados.join(", ") + "\n";
     }
-    if (descartadas > 0) {
-        msg += "\n🚫 " + descartadas + " valores del cuadre no eran guías válidas " +
-               "y no se trajeron.\n";
-    }
+    msg += noCargado;
+    msg += "\nEstas filas salen marcadas como «" + TXT_COSTAL + "» en la columna B, " +
+           "para que no se confundan con un escaneo de esta unidad. Si además " +
+           "están repetidas o retenidas, el aviso sale detrás de la marca.\n";
     // Que nadie piense que falló: la house de estas guías NO sale al instante.
     msg += "\nLas HOUSE no aparecen de inmediato: al escanear salen del caché en " +
            "el momento, pero estas las escribió el script. Las pone el relleno " +
