@@ -138,22 +138,33 @@ function pestanasACopiar(nombresDelCuadre, nombreUnidad) {
 // soportarlo no cuesta nada y evita que el día que alguien meta dos, sus guías
 // se le cuelguen al pedimento equivocado en silencio.
 //
-// Solo entran guías que pasan el dígito verificador. Lo que no lo pase se
-// cuenta aparte y se dice: traer basura a la columna A la metería en el índice
-// de duplicados y la contaría como bulto.
+// LO QUE ESTÁ MAL ESCRITO TAMBIÉN SE TRAE. Antes se quedaba fuera y solo se
+// mencionaba en el diálogo del final, que es un papel que se cierra y se
+// olvida: la guía mala seguía en el cuadre, nadie la arreglaba, y el bulto no
+// aparecía en ninguna parte. Trayéndola, el motor la pinta «❌ Guía Inválida»
+// en rojo en su sitio, y se corrige escribiendo encima como cualquier escaneo.
+//
 // La fila 1 del cuadre son TÍTULOS («GLOBAL H», «EXCENTO H»…), no escaneos. Los
 // escaneos empiezan en la 2. Se salta por número de fila y no dejando que
 // `esGuiaUPSValida` los rechace, porque rechazarlos los contaría como valores
 // descartados y el informe del final acusaría de basura a los encabezados.
 const FILA_INICIO_CUADRE = 2;
 
+// La cabecera del grupo de las que no cuelgan de ningún pedimento.
+//
+// Lleva «SIN PEDIMENTO» dentro a propósito: `esMarcadorEstructural` reconoce
+// eso, así que el motor la trata como cabecera de bloque y no como una captura
+// mal escrita. Sin ella, esas guías se colgarían del último pedimento del
+// volcado, que no es el suyo.
+const MARCA_SIN_PEDIMENTO = "SIN PEDIMENTO (COSTALES)";
+
 function bloquesDelCuadre(datos) {
     let bloques = [];
-    let invalidas = [];      // no pasan el dígito verificador
-    let sinPedimento = [];   // guías buenas que no cuelgan de ningún pedimento
+    let invalidas = [];      // no son ninguno de los tres formatos válidos
+    let sinPedimento = [];   // no cuelgan de ningún pedimento
     if (!datos || datos.length === 0) {
         return { bloques: bloques, invalidas: invalidas, sinPedimento: sinPedimento,
-                 descartadas: 0 };
+                 sueltas: [], descartadas: 0 };
     }
 
     COLS_GUIA_CUADRE.forEach(col => {
@@ -174,22 +185,31 @@ function bloquesDelCuadre(datos) {
             }
             // Marcadores sueltos del script del cuadre: ni guía ni basura.
             if (esMarcadorEstructural(v)) continue;
-            if (!esGuiaUPSValida(v)) {
-                // Se guarda CUÁL era y DÓNDE estaba. Un contador a secas obliga
-                // a buscar a mano en cinco columnas de mil filas.
-                invalidas.push({ valor: v, fila: r + 1, columna: col });
+
+            // Se guarda CUÁL era y DÓNDE estaba, además de traerla. Un contador
+            // a secas obliga a buscarla a mano en cinco columnas de mil filas.
+            if (!esGuiaUPSValida(v)) invalidas.push({ valor: v, fila: r + 1, columna: col });
+
+            if (!actual) {
+                sinPedimento.push({ valor: v, fila: r + 1, columna: col });
                 continue;
             }
-            // Sin pedimento encima no la reclama nadie. Traerla dejaría una guía
-            // suelta al principio del volcado, fuera de todo bloque.
-            if (!actual) { sinPedimento.push({ valor: v, fila: r + 1, columna: col }); continue; }
             if (actual.guias.indexOf(v) === -1) actual.guias.push(v);
         }
         if (actual && actual.guias.length > 0) bloques.push(actual);
     });
 
+    // Las sueltas, sin repetir y en el orden en que aparecieron.
+    let vistas = new Set();
+    let sueltas = [];
+    sinPedimento.forEach(d => {
+        if (vistas.has(d.valor)) return;
+        vistas.add(d.valor);
+        sueltas.push(d.valor);
+    });
+
     return { bloques: bloques, invalidas: invalidas, sinPedimento: sinPedimento,
-             descartadas: invalidas.length + sinPedimento.length };
+             sueltas: sueltas, descartadas: invalidas.length + sinPedimento.length };
 }
 
 // La letra de una columna del cuadre, para poder decir «C7» en vez de «fila 7
@@ -236,18 +256,36 @@ function pedimentosYaEnLaHoja(colA) {
     return set;
 }
 
+// Todo lo que ya hay escrito en la columna A, sea lo que sea.
+//
+// Hace falta aparte de los pedimentos por las guías SUELTAS: como no cuelgan de
+// ninguno, el salto por pedimento no las cubre y apretar el botón dos veces las
+// pegaría otra vez. Se comparan una a una contra lo que ya hay.
+function valoresYaEnLaHoja(colA) {
+    let set = new Set();
+    (colA || []).forEach(f => {
+        let v = String((f || [])[0]).trim().toUpperCase();
+        if (v !== "") set.add(v);
+    });
+    return set;
+}
+
 // Arma lo que se va a escribir: un renglón en blanco y después los bloques,
 // pegados uno tras otro.
 //
 // UN SOLO renglón en blanco, antes del primero. Entre bloques NO, porque el
 // pedimento ya abre bloque por sí mismo y un hueco de más solo alarga la hoja.
 //
-// Devuelve {filas, pegados, saltados}: `saltados` son los pedimentos que ya
-// estaban, y hay que decirlos en vez de callarlos —si alguien esperaba ver un
-// bloque y no aparece, tiene que saber por qué—.
-function filasParaPegar(bloques, yaEstan) {
+// Las que no cuelgan de ningún pedimento van AL FINAL, bajo su cabecera. Van
+// aparte y no pegadas al último bloque porque colgarlas de un pedimento que no
+// es el suyo es peor que dejarlas sueltas: se contarían como bultos de él.
+//
+// Devuelve {filas, pegados, saltados, sueltas}: `saltados` son los pedimentos
+// que ya estaban, y hay que decirlos en vez de callarlos —si alguien esperaba
+// ver un bloque y no aparece, tiene que saber por qué—.
+function filasParaPegar(bloques, yaEstan, sueltas, valoresYaEstan) {
     let filas = [];
-    let pegados = [], saltados = [];
+    let pegados = [], saltados = [], sueltasPegadas = [];
 
     (bloques || []).forEach(b => {
         if (yaEstan && yaEstan.has(b.pedimento)) { saltados.push(b.pedimento); return; }
@@ -257,7 +295,19 @@ function filasParaPegar(bloques, yaEstan) {
         pegados.push(b.pedimento);
     });
 
-    return { filas: filas, pegados: pegados, saltados: saltados };
+    (sueltas || []).forEach(g => {
+        if (valoresYaEstan && valoresYaEstan.has(g)) return;
+        sueltasPegadas.push(g);
+    });
+
+    if (sueltasPegadas.length > 0) {
+        if (filas.length === 0) filas.push([""]);
+        filas.push([MARCA_SIN_PEDIMENTO]);
+        sueltasPegadas.forEach(g => filas.push([g]));
+    }
+
+    return { filas: filas, pegados: pegados, saltados: saltados,
+             sueltas: sueltasPegadas };
 }
 
 // -------------------------------------------------------------------------
@@ -375,7 +425,7 @@ function traerCostalesDeEstaUnidad() {
     }
 
     // Leer las pestañas del cuadre, también fuera del lock.
-    let bloques = [], invalidas = [], sinPedimento = [], leidas = [];
+    let bloques = [], invalidas = [], sinPedimento = [], sueltas = [], leidas = [];
     try {
         aCopiar.forEach(n => {
             let h = cuadre.getSheetByName(n);
@@ -386,7 +436,8 @@ function traerCostalesDeEstaUnidad() {
             let datos = h.getRange(1, 1, lr, ancho).getValues();
             let r = bloquesDelCuadre(datos);
             r.bloques.forEach(b => bloques.push(b));
-            // La pestaña se nombra en cada descarte: con la principal y su
+            r.sueltas.forEach(g => { if (sueltas.indexOf(g) === -1) sueltas.push(g); });
+            // La pestaña se nombra en cada aviso: con la principal y su
             // complemento leídas juntas, «C7» a secas sería ambiguo.
             r.invalidas.forEach(d => invalidas.push({ valor: d.valor, fila: d.fila,
                 columna: d.columna, hoja: n }));
@@ -399,32 +450,29 @@ function traerCostalesDeEstaUnidad() {
         return;
     }
 
-    let descartadas = invalidas.length + sinPedimento.length;
-
-    if (bloques.length === 0) {
-        let m = "Leí " + leidas.join(", ") + " y no encontré ningún bloque con " +
-                "guías válidas.";
-        if (invalidas.length) {
-            m += "\n\n🚫 No pasaron el dígito verificador (" + invalidas.length + "):\n" +
-                 textoDeDescartes(invalidas);
-        }
-        if (sinPedimento.length) {
-            m += "\n\n❓ Sin pedimento encima (" + sinPedimento.length + "):\n" +
-                 textoDeDescartes(sinPedimento);
-        }
-        ui.alert("📦 Costales", m, ui.ButtonSet.OK);
+    if (bloques.length === 0 && sueltas.length === 0) {
+        ui.alert("📦 Costales",
+            "Leí " + leidas.join(", ") + " y esas columnas están vacías.",
+            ui.ButtonSet.OK);
         return;
     }
 
-    let totalGuias = bloques.reduce((n, b) => n + b.guias.length, 0);
-    let r = ui.alert("📦 Costales",
-        "De " + leidas.join(" + ") + " voy a traer:\n\n" +
+    let totalGuias = bloques.reduce((n, b) => n + b.guias.length, 0) + sueltas.length;
+    let aviso = "De " + leidas.join(" + ") + " voy a traer:\n\n" +
         "   · " + bloques.length + " pedimentos\n" +
-        "   · " + totalGuias + " guías\n\n" +
-        "Se pegan al FINAL de «" + nombreUnidad + "», detrás de un renglón en " +
-        "blanco. El archivo de costales NO se toca.\n\n" +
-        "Los pedimentos que ya estén en esta pestaña se saltan.\n\n¿Sigo?",
-        ui.ButtonSet.YES_NO);
+        "   · " + totalGuias + " renglones de guía\n";
+    if (invalidas.length) {
+        aviso += "   · de esos, " + invalidas.length + " están MAL ESCRITOS y se " +
+                 "traen igual, marcados en rojo para corregirlos aquí\n";
+    }
+    if (sueltas.length) {
+        aviso += "   · y " + sueltas.length + " sin pedimento, que van al final " +
+                 "bajo «" + MARCA_SIN_PEDIMENTO + "»\n";
+    }
+    aviso += "\nSe pegan al FINAL de «" + nombreUnidad + "», detrás de un renglón " +
+             "en blanco. El archivo de costales NO se toca.\n\n" +
+             "Los pedimentos que ya estén en esta pestaña se saltan.\n\n¿Sigo?";
+    let r = ui.alert("📦 Costales", aviso, ui.ButtonSet.YES_NO);
     if (r !== ui.Button.YES) return;
 
     // A PARTIR DE AQUÍ SÍ, CON EL LOCK. Se escribe en la columna A, que es
@@ -439,7 +487,8 @@ function traerCostalesDeEstaUnidad() {
         // punto puede haber entrado un escaneo más.
         let lr = Math.max(hoja.getLastRow(), 0);
         let colA = lr > 0 ? hoja.getRange(1, 1, lr, 1).getValues() : [];
-        let plan = filasParaPegar(bloques, pedimentosYaEnLaHoja(colA));
+        let plan = filasParaPegar(bloques, pedimentosYaEnLaHoja(colA),
+                                  sueltas, valoresYaEnLaHoja(colA));
 
         // Marcar TODAS las guías leídas del cuadre, no solo las que se pegan
         // ahora, y ANTES de decidir si hay algo que pegar.
@@ -451,6 +500,7 @@ function traerCostalesDeEstaUnidad() {
         // pegado, esas filas se quedarían para siempre pareciendo escaneos.
         let todasLasGuias = [];
         bloques.forEach(b => b.guias.forEach(g => todasLasGuias.push(g)));
+        sueltas.forEach(g => todasLasGuias.push(g));
         guardarCostalesEnCache(ss, todasLasGuias);
 
         if (plan.filas.length === 0) {
@@ -481,30 +531,34 @@ function traerCostalesDeEstaUnidad() {
         }
 
         resultado = { pegados: plan.pegados, saltados: plan.saltados,
-                      filas: plan.filas.length, desde: desde };
+                      sueltas: plan.sueltas, filas: plan.filas.length, desde: desde };
     });
 
     if (!resultado) { ui.alert("📦 Costales", "No se pudo tomar el archivo. Inténtalo otra vez.", ui.ButtonSet.OK); return; }
     if (resultado.error) { ui.alert("📦 Costales", resultado.error, ui.ButtonSet.OK); return; }
 
-    // El informe de lo que se quedó fuera va en las DOS salidas, la de «no pegué
-    // nada» y la de «listo». Es justo cuando no se pega nada cuando más falta
-    // hace saber qué guías no entraron.
-    let noCargado = "";
+    // El aviso de lo que viene mal escrito va en las DOS salidas, la de «no pegué
+    // nada» y la de «listo». Dice DÓNDE estaba en el cuadre —«C7»— porque
+    // arreglarlo del todo pide tocar también el cuadre, no solo esta hoja.
+    let ojo = "";
     if (invalidas.length) {
-        noCargado += "\n🚫 NO SE CARGARON, no pasan el dígito verificador (" +
-                     invalidas.length + "):\n" + textoDeDescartes(invalidas) + "\n";
+        ojo += "\n🚫 MAL ESCRITAS en el cuadre (" + invalidas.length + "). Están " +
+               "pegadas aquí y marcadas en rojo; en el cuadre siguen mal:\n" +
+               textoDeDescartes(invalidas) + "\n";
     }
     if (sinPedimento.length) {
-        noCargado += "\n❓ NO SE CARGARON, no tienen pedimento encima (" +
-                     sinPedimento.length + "):\n" + textoDeDescartes(sinPedimento) + "\n";
+        ojo += "\n❓ SIN PEDIMENTO en el cuadre (" + sinPedimento.length + "). Van " +
+               "al final, bajo «" + MARCA_SIN_PEDIMENTO + "»:\n" +
+               textoDeDescartes(sinPedimento) + "\n";
     }
+    ojo += "\nRecuerda los tres formatos: 7 dígitos el pedimento, 11 dígitos la " +
+           "guía corta, 18 caracteres la 1Z. Cualquier otra cosa sale en rojo.\n";
 
     if (resultado.nada) {
         ui.alert("📦 Costales",
             "No se pegó nada: esos " + resultado.saltados.length + " pedimentos ya " +
             "estaban en esta pestaña.\n\n" + resultado.saltados.join(", ") + "\n" +
-            noCargado,
+            ojo,
             ui.ButtonSet.OK);
         return;
     }
@@ -513,11 +567,14 @@ function traerCostalesDeEstaUnidad() {
         "   · " + resultado.pegados.length + " pedimentos pegados desde la fila " +
         resultado.desde + "\n" +
         "   · " + (resultado.filas - 1) + " renglones en total\n";
+    if (resultado.sueltas.length) {
+        msg += "   · " + resultado.sueltas.length + " sin pedimento, al final\n";
+    }
     if (resultado.saltados.length) {
         msg += "\n⏭️ Saltados por estar ya en la hoja (" + resultado.saltados.length +
                "):\n" + resultado.saltados.join(", ") + "\n";
     }
-    msg += noCargado;
+    msg += ojo;
     msg += "\nEstas filas salen marcadas como «" + TXT_COSTAL + "» en la columna B, " +
            "para que no se confundan con un escaneo de esta unidad. Si además " +
            "están repetidas o retenidas, el aviso sale detrás de la marca.\n";

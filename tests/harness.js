@@ -246,7 +246,7 @@ ok("solo se mueven 12 columnas (M y N intactas)", salida[0].length === 12);
 console.log("\n=== 5d. Colores de la columna A (sustituyen al formato condicional) ===");
 ok("pedimento -> azul", colorColumnaA("6100166", "Bultos: 30 | ✅ COMPLETO") === "#178ccc");
 ok("guía válida -> verde", colorColumnaA("1Z999AA10123456784", "✅ Ok") === "#00ff00");
-ok("guía corta -> verde", colorColumnaA("1234567890", "✅ Guía") === "#00ff00");
+ok("guía corta -> verde", colorColumnaA("12345678901", "✅ Guía") === "#00ff00");
 ok("duplicada entre hojas -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (En: M-S T1 Fila 4)") === "#df5f6b");
 ok("duplicada en el mismo pedimento -> rojo en A aunque B vaya en gris", colorColumnaA("1Z999AA10123456784", "🔄 Duplicado local") === "#df5f6b");
 ok("duplicada en otro pedimento -> rojo", colorColumnaA("1Z999AA10123456784", "⛔ DUPLICADO (ya en Ped: 6100166, fila 12)") === "#df5f6b");
@@ -856,9 +856,21 @@ ok("imputa el resto no medido", lineas[3].indexOf("100 ms") !== -1 && lineas[3].
 ok("sin celdas no imprime celdas", lineas[1].indexOf("celdas") === -1);
 ok("sin datos no revienta", perfLineas(null, 0).length === 1);
 
-console.log("\n=== 6. Guías cortas / no-1Z (>7 caracteres) ===");
-["1234567890", "12345678", "AB1234567", "9988776655", "XY-4477881"].forEach(g =>
-  ok("acepta guía corta " + g, esGuiaUPSValida(g) === true));
+console.log("\n=== 6. Guías cortas: ONCE DÍGITOS EXACTOS ===");
+// EN ESTA OPERACIÓN SOLO EXISTEN TRES FORMATOS, y no hay más:
+//   · 7 dígitos ............ pedimento
+//   · 18 caracteres desde 1Z  guía UPS larga, con dígito verificador
+//   · 11 dígitos ........... guía corta
+// Todo lo demás está mal escrito.
+//
+// Antes valía cualquier cosa de más de siete caracteres, que dejaba pasar un
+// número tecleado a medias o una nota suelta. Y no fallaba: entraba al índice
+// como guía buena, se contaba como bulto y pedía house.
+["12345678901", "99887766554", "00000000001"].forEach(g =>
+  ok("acepta guía corta de 11 dígitos " + g, esGuiaUPSValida(g) === true));
+["1234567890", "123456789012", "12345678", "AB123456789", "1234567890A",
+ "XY-4477881"].forEach(g =>
+  ok("rechaza " + g, esGuiaUPSValida(g) === false));
 ok("7 dígitos sigue siendo pedimento, no guía", esGuiaUPSValida("1234567") === false);
 ok("6 dígitos no es guía válida", esGuiaUPSValida("123456") === false);
 
@@ -868,7 +880,7 @@ console.log("\n=== 7. Marcadores estructurales no son guías ===");
 ok("'SIN PEDIMENTO' abre bloque", esCabeceraBloque("SIN PEDIMENTO") === true);
 ok("un pedimento abre bloque", esCabeceraBloque("6100166") === true);
 ok("una guía NO abre bloque", esCabeceraBloque("1Z999AA10123456784") === false);
-ok("una guía corta NO abre bloque", esCabeceraBloque("1234567890") === false);
+ok("una guía corta NO abre bloque", esCabeceraBloque("12345678901") === false);
 
 // El marcador no debe entrar al índice de duplicados entre pestañas.
 const cacheMarcador = {
@@ -2231,7 +2243,7 @@ ok("un pedimento de 7 dígitos tampoco", esGuiaParaHouse("6100544") === "");
 ok("vacío tampoco", esGuiaParaHouse("") === "");
 ok("null tampoco", esGuiaParaHouse(null) === "");
 ok("una 1Z sí, y normalizada", esGuiaParaHouse(" 1z-999-aa1-0123-456-784 ") === G1);
-ok("una guía corta de verdad sí", esGuiaParaHouse("AB1234567") === "AB1234567");
+ok("una guía corta de verdad sí", esGuiaParaHouse("12345678901") === "12345678901");
 
 console.log("\n--- 6g4. Si se borra la guía, se borra su house ---");
 // Una house sin guía es un dato falso ESPERANDO. Y el caso grave no es el
@@ -2563,7 +2575,7 @@ ok("con el digito cambiado NO", !esGuiaUPSValida("1Z999AA10123456785"));
 ok("con una letra de mas tampoco", !esGuiaUPSValida(G1 + "X"));
 ok("cortada tampoco", !esGuiaUPSValida(G1.substring(0, 17)));
 ok("un pedimento de 7 digitos no es guia", !esGuiaUPSValida("6100544"));
-ok("una guia corta de verdad si", esGuiaUPSValida("AB1234567"));
+ok("una guia corta de verdad si", esGuiaUPSValida("12345678901"));
 // Y los marcadores de bloque no se marcan como invalidos: no son guias, pero
 // tampoco un error del que avisar.
 ok("«SIN PEDIMENTO» es marcador, no guia invalida",
@@ -4008,11 +4020,15 @@ ok("y se informa de ella por su nombre",
 ok("con la fila donde estaba", sinPed.sinPedimento[0].fila === 2);
 ok("y la columna", sinPed.sinPedimento[0].columna === 1);
 
-// Lo que no pasa el dígito verificador tampoco entra, y también se nombra.
+// LO MAL ESCRITO TAMBIÉN SE TRAE. Dejarlo fuera y mencionarlo solo en el
+// diálogo era dejarlo perdido: el diálogo se cierra, nadie arregla el cuadre, y
+// el bulto no aparece en ninguna parte. Traído, el motor lo pinta «❌ Guía
+// Inválida» en rojo y se corrige escribiendo encima.
 let malas = bloquesDelCuadre([["GLOBAL H"], ["6102253"], ["1Z999AA10123456785"]]);
-ok("una guía inválida se descarta", malas.invalidas.length === 1);
+ok("una guía mal escrita se avisa", malas.invalidas.length === 1);
 ok("y se dice cuál era", malas.invalidas[0].valor === "1Z999AA10123456785");
-ok("y no abre bloque por ella sola", malas.bloques.length === 0);
+ok("pero se trae igual, en su bloque",
+   malas.bloques.length === 1 && malas.bloques[0].guias[0] === "1Z999AA10123456785");
 // La celda se nombra como la ve el usuario: «A3», no «fila 3, columna 1».
 ok("la celda se nombra con su letra",
    textoDeDescartes(malas.invalidas).indexOf("A3") !== -1);
@@ -4059,6 +4075,40 @@ ok("los pedimentos de la hoja se leen de la columna A",
    pedimentosYaEnLaHoja([["6102253"], [GA], ["6103516"]]).size === 2);
 ok("una guía no se confunde con un pedimento",
    !pedimentosYaEnLaHoja([[GA]]).has(GA));
+
+// LAS SUELTAS: las que en el cuadre no cuelgan de ningún pedimento. Van al
+// final bajo su cabecera, y NO pegadas al último bloque: colgarlas de un
+// pedimento que no es el suyo las contaría como bultos de él.
+const G_SUELTA = "12345678901";
+let planS = filasParaPegar(bloquesP, new Set(), [G_SUELTA], new Set());
+ok("la suelta se pega", planS.sueltas.length === 1);
+ok("con su cabecera delante",
+   planS.filas[planS.filas.length - 2][0].indexOf("SIN PEDIMENTO") !== -1);
+ok("y ella al final", planS.filas[planS.filas.length - 1][0] === G_SUELTA);
+// La cabecera tiene que ser un MARCADOR para el motor, no una captura mal
+// escrita: si no, saldría ella misma en rojo como guía inválida.
+ok("la cabecera es marcador estructural",
+   esMarcadorEstructural(planS.filas[planS.filas.length - 2][0]));
+ok("y por tanto abre bloque",
+   esCabeceraBloque(planS.filas[planS.filas.length - 2][0]));
+ok("el hueco en blanco sigue siendo uno",
+   planS.filas.filter(f => f[0] === "").length === 1);
+
+// Sin pedimento no hay salto por pedimento, así que la suelta se compara contra
+// TODO lo que ya hay escrito. Si no, apretar dos veces la pegaría otra vez.
+let planS2 = filasParaPegar(bloquesP, new Set(), [G_SUELTA], new Set([G_SUELTA]));
+ok("una suelta que ya estaba no se repite", planS2.sueltas.length === 0);
+ok("y no se cuela su cabecera sola",
+   !planS2.filas.some(f => String(f[0]).indexOf("SIN PEDIMENTO") !== -1));
+let planS3 = filasParaPegar([], new Set(), [G_SUELTA], new Set([G_SUELTA]));
+ok("si no queda nada, no se escribe nada", planS3.filas.length === 0);
+// Una suelta sola, sin bloques, todavía necesita su renglón en blanco delante.
+let planS4 = filasParaPegar([], new Set(), [G_SUELTA], new Set());
+ok("una suelta sola lleva su hueco", planS4.filas[0][0] === "");
+ok("y son tres renglones", planS4.filas.length === 3);
+
+ok("valoresYaEnLaHoja recoge guías y pedimentos",
+   valoresYaEnLaHoja([["6102253"], [GA], [""]]).size === 2);
 
 console.log("\n--- 13d. El vínculo al archivo del cuadre ---");
 // El ID va en una propiedad, no en el código: este repositorio es git y un

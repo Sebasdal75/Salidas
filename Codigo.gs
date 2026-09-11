@@ -2981,7 +2981,18 @@ function esGuiaUPSValida(guia) {
       }
       return ((10 - ((sumaImpares + (sumaPares * 2)) % 10)) % 10) === checkDigitReal;
   }
-  if (g.length > 7) return true;
+  // GUÍA CORTA: ONCE DÍGITOS, NI UNO MÁS NI UNO MENOS.
+  //
+  // Antes aquí ponía `if (g.length > 7) return true`, o sea que valía
+  // cualquier cosa de más de siete caracteres. Eso dejaba pasar de todo: un
+  // número tecleado a medias, una nota corta, un pedimento con un dígito de
+  // sobra. Y lo peor es que no fallaba: entraba al índice como guía buena, se
+  // contaba como bulto y pedía house.
+  //
+  // Los tres formatos que existen en esta operación son estos y no hay más:
+  // 7 dígitos = pedimento (arriba), 18 caracteres desde 1Z = guía UPS larga
+  // (arriba), 11 dígitos = guía corta. Todo lo demás está mal escrito.
+  if (/^\d{11}$/.test(g)) return true;
   return false;
 }
 
@@ -2991,6 +3002,10 @@ function TEST_guias() {
     ["1Z999AA10123456784", true],   // ejemplo canónico de UPS
     ["1Z999AA10123456785", false],  // dígito verificador alterado
     ["1Z999AA1012345678",  false],  // longitud incorrecta
+    ["12345678901",        true],   // guía corta: 11 dígitos exactos
+    ["1234567890",         false],  // 10 dígitos: le falta uno
+    ["123456789012",       false],  // 12 dígitos: le sobra uno
+    ["1234567890A",        false],  // 11 caracteres, pero no todos dígitos
     ["6098234",            false],  // pedimento, no guía
     ["609823",             false],  // pedimento incompleto
     ["",                   false]
