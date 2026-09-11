@@ -856,20 +856,27 @@ ok("imputa el resto no medido", lineas[3].indexOf("100 ms") !== -1 && lineas[3].
 ok("sin celdas no imprime celdas", lineas[1].indexOf("celdas") === -1);
 ok("sin datos no revienta", perfLineas(null, 0).length === 1);
 
-console.log("\n=== 6. Guías cortas: ONCE DÍGITOS EXACTOS ===");
+console.log("\n=== 6. Guías cortas: ONCE CARACTERES EXACTOS ===");
 // EN ESTA OPERACIÓN SOLO EXISTEN TRES FORMATOS, y no hay más:
-//   · 7 dígitos ............ pedimento
+//   · 7 dígitos ............. pedimento
 //   · 18 caracteres desde 1Z  guía UPS larga, con dígito verificador
-//   · 11 dígitos ........... guía corta
+//   · 11 caracteres ......... guía corta
 // Todo lo demás está mal escrito.
 //
 // Antes valía cualquier cosa de más de siete caracteres, que dejaba pasar un
 // número tecleado a medias o una nota suelta. Y no fallaba: entraba al índice
 // como guía buena, se contaba como bulto y pedía house.
-["12345678901", "99887766554", "00000000001"].forEach(g =>
-  ok("acepta guía corta de 11 dígitos " + g, esGuiaUPSValida(g) === true));
-["1234567890", "123456789012", "12345678", "AB123456789", "1234567890A",
- "XY-4477881"].forEach(g =>
+//
+// ONCE CARACTERES, NO ONCE DÍGITOS. Exigir dígitos tiró guías buenas de la
+// operación: «V0264205381» y «H6620215136» son once posiciones con una letra
+// delante, y salieron en rojo en una GLOBAL llena de costales. Lo que manda es
+// el LARGO —es lo que separa una guía corta de un número a medias—; el tipo de
+// cada carácter no aporta y sí rechaza cosas reales.
+["12345678901", "99887766554", "V0264205381", "H6620215136",
+ "AB123456789"].forEach(g =>
+  ok("acepta guía corta de 11 caracteres " + g, esGuiaUPSValida(g) === true));
+["1234567890", "123456789012", "12345678", "XY-4477881",
+ "V026420538-"].forEach(g =>
   ok("rechaza " + g, esGuiaUPSValida(g) === false));
 ok("7 dígitos sigue siendo pedimento, no guía", esGuiaUPSValida("1234567") === false);
 ok("6 dígitos no es guía válida", esGuiaUPSValida("123456") === false);

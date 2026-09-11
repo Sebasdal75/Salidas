@@ -513,7 +513,7 @@ function traerCostalesDeEstaUnidad() {
                "):\n" + textoDeDescartes(sinPedimento) + "\n";
     }
     if (invalidas.length) {
-        ojo += "\nLos tres formatos buenos: 7 dígitos el pedimento, 11 dígitos la " +
+        ojo += "\nLos tres formatos buenos: 7 dígitos el pedimento, 11 caracteres la " +
                "guía corta, 18 caracteres la 1Z. Corrígelas en el cuadre y vuelve " +
                "a apretar el botón.\n";
     }

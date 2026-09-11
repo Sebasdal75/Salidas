@@ -2981,7 +2981,7 @@ function esGuiaUPSValida(guia) {
       }
       return ((10 - ((sumaImpares + (sumaPares * 2)) % 10)) % 10) === checkDigitReal;
   }
-  // GUÍA CORTA: ONCE DÍGITOS, NI UNO MÁS NI UNO MENOS.
+  // GUÍA CORTA: ONCE CARACTERES, NI UNO MÁS NI UNO MENOS.
   //
   // Antes aquí ponía `if (g.length > 7) return true`, o sea que valía
   // cualquier cosa de más de siete caracteres. Eso dejaba pasar de todo: un
@@ -2989,10 +2989,16 @@ function esGuiaUPSValida(guia) {
   // sobra. Y lo peor es que no fallaba: entraba al índice como guía buena, se
   // contaba como bulto y pedía house.
   //
+  // ONCE CARACTERES, NO ONCE DÍGITOS. Un primer intento exigió dígitos y tiró
+  // guías buenas de la operación —«V0264205381», «H6620215136»—, que son once
+  // posiciones con una letra delante. Lo que manda es el LARGO, que es lo que
+  // distingue una guía corta de un número tecleado a medias; el tipo de cada
+  // carácter no aporta nada y sí rechaza cosas reales.
+  //
   // Los tres formatos que existen en esta operación son estos y no hay más:
   // 7 dígitos = pedimento (arriba), 18 caracteres desde 1Z = guía UPS larga
-  // (arriba), 11 dígitos = guía corta. Todo lo demás está mal escrito.
-  if (/^\d{11}$/.test(g)) return true;
+  // (arriba), 11 caracteres = guía corta. Todo lo demás está mal escrito.
+  if (/^[A-Z0-9]{11}$/.test(g)) return true;
   return false;
 }
 
@@ -3002,10 +3008,12 @@ function TEST_guias() {
     ["1Z999AA10123456784", true],   // ejemplo canónico de UPS
     ["1Z999AA10123456785", false],  // dígito verificador alterado
     ["1Z999AA1012345678",  false],  // longitud incorrecta
-    ["12345678901",        true],   // guía corta: 11 dígitos exactos
-    ["1234567890",         false],  // 10 dígitos: le falta uno
-    ["123456789012",       false],  // 12 dígitos: le sobra uno
-    ["1234567890A",        false],  // 11 caracteres, pero no todos dígitos
+    ["12345678901",        true],   // guía corta: 11 caracteres exactos
+    ["V0264205381",        true],   // guía corta real, con letra delante
+    ["H6620215136",        true],   // otra de las mismas
+    ["1234567890",         false],  // 10 caracteres: le falta uno
+    ["123456789012",       false],  // 12 caracteres: le sobra uno
+    ["V026420538-",        false],  // 11 posiciones pero con un signo dentro
     ["6098234",            false],  // pedimento, no guía
     ["609823",             false],  // pedimento incompleto
     ["",                   false]
