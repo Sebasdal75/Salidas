@@ -4681,6 +4681,7 @@ function onOpen() {
     .addItem('📋 Agrupar Guías por Pedimento (Col A)', 'agruparPorPedimento')
     .addItem('🧹 Limpiar guías movidas (Rango seleccionado)', 'limpiarGuiasMovidasSeleccion')
     .addItem('🔄 Forzar Actualización de esta pestaña', 'forzarActualizacionHojaActiva')
+    .addItem('📦 Traer los costales de esta unidad', 'traerCostalesDeEstaUnidad')
     .addSeparator()
 
     .addSubMenu(ui.createMenu('🔍 Revisar')
@@ -4694,7 +4695,8 @@ function onOpen() {
         .addItem('🔒 ¿Por qué esta pestaña es de solo lectura?', 'porQueSoloLectura')
         .addItem('🔓 Liberar pestañas de escaneo (quitar candados)', 'liberarPestanasDeEscaneo')
         .addItem('🔓 Quitar las protecciones del script', 'quitarProteccionesDelScript')
-        .addItem('📚 Unir pestañas INVENTARIO', 'unirInventarios'))
+        .addItem('📚 Unir pestañas INVENTARIO', 'unirInventarios')
+        .addItem('🔗 Vincular el archivo de costales', 'vincularArchivoDeCostales'))
 
     .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
         .addItem('Cierre del día (historial + caché)', 'cierreDelDia')

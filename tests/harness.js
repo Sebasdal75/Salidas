@@ -37,6 +37,7 @@ eval(fs.readFileSync(path.join(__dirname, '..', 'Codigo.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'House.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Salidas.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'UnirInventarios.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'Costales.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -3840,7 +3841,7 @@ let dataInv = [
     ["1Z999AA10123456784", "6102253"],        // invertida: guías primero
     ["1Z12345E1512345676", "1Z999AA10123456784"],
     ["6102253", ""],                          // …y aquí cierra
-    ["1Z12345E1512345689", ""],
+    ["1Z12345E1512345685", ""],
     ["6103516", ""]
 ];
 let regInv = obtenerRegistroMSDesdeCache({ headers: hdrsInv, data: dataInv }, "GLOBAL1");
@@ -3848,9 +3849,9 @@ ok("el pedimento se lleva las guías de ARRIBA",
    regInv.registroMS.get("6102253").has("1Z999AA10123456784"));
 ok("las dos", regInv.registroMS.get("6102253").size === 2);
 ok("y no las del bloque siguiente",
-   !regInv.registroMS.get("6102253").has("1Z12345E1512345689"));
+   !regInv.registroMS.get("6102253").has("1Z12345E1512345685"));
 ok("el segundo bloque es suyo",
-   regInv.registroMS.get("6103516").has("1Z12345E1512345689"));
+   regInv.registroMS.get("6103516").has("1Z12345E1512345685"));
 // La M-S normal de al lado se sigue leyendo hacia abajo, en la misma pasada.
 ok("una M-S normal no cambia de dirección",
    regInv.registroMS.get("6102253").has("1Z999AA10123456784"));
@@ -3922,6 +3923,122 @@ ok("no se acumulan resúmenes en la misma celda",
    cabezaEstado("✅ Guía" + SEP_RESUMEN + msgAbierto) === "✅ Guía");
 ok("una guía ya movida conserva su cabeza",
    cabezaEstado("➡ Salió en GLOBAL1" + SEP_RESUMEN + msgAbierto) === "➡ Salió en GLOBAL1");
+
+console.log("\n=== 13. Traer los costales a la unidad ===");
+
+console.log("\n--- 13a. Emparejar la pestaña, SIN ESPACIOS ---");
+// LA TRAMPA DE ESTE ARCHIVO: `claveHoja` solo hace trim y toUpperCase, y aquí
+// conviven las dos formas — la pestaña real se llama «Global1» (sin espacio) y
+// en el cuadre se escribe «Global 1». Sin normalizar no casarían, el botón no
+// encontraría nada, y NO habría forma de verlo: en pantalla se ven idénticos.
+ok("«Global1» y «Global 1» son la misma unidad",
+   pestanaDeLaUnidad("Global 1", "Global1"));
+ok("y al revés también", pestanaDeLaUnidad("Global1", "Global 1"));
+ok("el complemento también cuenta",
+   pestanaDeLaUnidad("Global 1 complemento", "Global1"));
+ok("sin distinguir mayúsculas", pestanaDeLaUnidad("GLOBAL 1 COMPLEMENTO", "global1"));
+// LAS FECHAS SE IGNORAN: el usuario renombra a mano, así que la comparación es
+// EXACTA. Por prefijo, «Global 1» casaría con «Global 10» y con cada día
+// guardado, y habría que elegir entre ellos.
+ok("una pestaña con fecha NO cuenta",
+   !pestanaDeLaUnidad("Global 1 10-09-2026", "Global1"));
+ok("«Global 10» NO es «Global 1»", !pestanaDeLaUnidad("Global 10", "Global1"));
+ok("otra unidad tampoco", !pestanaDeLaUnidad("Global 3", "Global1"));
+ok("sin nombre de unidad no casa nada", !pestanaDeLaUnidad("Global 1", ""));
+
+// El orden importa: primero la principal y después su complemento.
+let aCopiar = pestanasACopiar(
+    ["macho", "Global 3", "Global 1 complemento", "Global 1", "Global 10"], "Global1");
+ok("trae las dos", aCopiar.length === 2);
+ok("y la principal va primero", aCopiar[0] === "Global 1");
+ok("el complemento después", aCopiar[1] === "Global 1 complemento");
+ok("sin complemento, solo la principal",
+   pestanasACopiar(["Global 1", "Global 3"], "Global1").length === 1);
+ok("si no hay ninguna, lista vacía",
+   pestanasACopiar(["Global 3", "macho"], "Global1").length === 0);
+
+console.log("\n--- 13b. Leer los bloques de las cinco columnas ---");
+// El cuadre lleva cinco pares (guía, resumen): las guías en A, C, E, G, I y el
+// resumen del script del cuadre en B, D, F, H, J. Solo se leen las de guías.
+const GA = "1Z999AA10123456784", GB = "1Z12345E1512345676", GC = "1Z12345E1512345685";
+let rejilla = [
+    ["GLOBAL H", "RESUMEN", "EXCENTO H", "RESUMEN", "GLOBAL G"],
+    ["6102253",  "Bultos: 2", "6103516", "Bultos: 1", ""],
+    [GA,         "✅ Ok",     GC,        "✅ Ok",     ""],
+    [GB,         "✅ Ok",     "",        "",          ""]
+];
+let leido = bloquesDelCuadre(rejilla);
+ok("un bloque por columna con datos", leido.bloques.length === 2);
+ok("el primero es de la columna A", leido.bloques[0].pedimento === "6102253");
+ok("con sus dos guías", leido.bloques[0].guias.length === 2);
+ok("el segundo es de la columna C", leido.bloques[1].pedimento === "6103516");
+ok("con la suya", leido.bloques[1].guias.length === 1);
+// Los títulos de la fila 1 y los resúmenes no son guías: `esGuiaUPSValida` los
+// rechaza. Traerlos metería basura al índice de duplicados.
+ok("los títulos no se cuelan",
+   !leido.bloques[0].guias.some(g => g.indexOf("GLOBAL") !== -1));
+
+// Una guía sin pedimento encima no la reclama nadie: se descarta y se cuenta.
+let sinPed = bloquesDelCuadre([["GLOBAL H"], [GA], ["6102253"], [GB]]);
+ok("la guía anterior al pedimento no entra",
+   sinPed.bloques.length === 1 && sinPed.bloques[0].guias.length === 1);
+ok("y se cuenta como descartada", sinPed.descartadas >= 1);
+// Lo que no pasa el dígito verificador tampoco entra.
+// Sin el título arriba, lo único descartable es la guía: así el conteo es
+// exacto y no se confunde con los títulos, que también se descartan.
+ok("una guía inválida se descarta",
+   bloquesDelCuadre([["6102253"], ["1Z999AA10123456785"]]).descartadas === 1);
+ok("y no abre bloque por ella sola",
+   bloquesDelCuadre([["6102253"], ["1Z999AA10123456785"]]).bloques.length === 0);
+ok("una rejilla vacía no revienta", bloquesDelCuadre([]).bloques.length === 0);
+ok("null tampoco", bloquesDelCuadre(null).bloques.length === 0);
+
+console.log("\n--- 13c. Qué se pega: un solo hueco y nada repetido ---");
+let bloquesP = [
+    { pedimento: "6102253", guias: [GA, GB] },
+    { pedimento: "6103516", guias: [GC] }
+];
+let plan = filasParaPegar(bloquesP, new Set());
+// UN SOLO renglón en blanco, antes del primero. Entre bloques NO: el pedimento
+// ya abre bloque por sí mismo.
+ok("empieza con un renglón en blanco", plan.filas[0][0] === "");
+ok("y solo uno en todo el volcado",
+   plan.filas.filter(f => f[0] === "").length === 1);
+ok("el pedimento va antes que sus guías", plan.filas[1][0] === "6102253");
+ok("los bloques van pegados", plan.filas[4][0] === "6103516");
+ok("el total cuadra", plan.filas.length === 1 + 2 + 1 + 1 + 1);
+ok("se informa de lo pegado", plan.pegados.length === 2);
+
+// IDEMPOTENCIA: apretar dos veces no puede pegar dos veces. Sin esto, la
+// segunda pasada llena la hoja de duplicados de verdad.
+let plan2 = filasParaPegar(bloquesP, new Set(["6102253"]));
+ok("un pedimento que ya estaba se salta", plan2.pegados.length === 1);
+ok("y se dice cuál", plan2.saltados[0] === "6102253");
+ok("el hueco sigue siendo uno solo",
+   plan2.filas.filter(f => f[0] === "").length === 1);
+let plan3 = filasParaPegar(bloquesP, new Set(["6102253", "6103516"]));
+ok("si ya estaban todos, no se escribe NADA", plan3.filas.length === 0);
+ok("y se dicen los dos", plan3.saltados.length === 2);
+
+ok("los pedimentos de la hoja se leen de la columna A",
+   pedimentosYaEnLaHoja([["6102253"], [GA], ["6103516"]]).size === 2);
+ok("una guía no se confunde con un pedimento",
+   !pedimentosYaEnLaHoja([[GA]]).has(GA));
+
+console.log("\n--- 13d. El vínculo al archivo del cuadre ---");
+// El ID va en una propiedad, no en el código: este repositorio es git y un
+// identificador pegado aquí queda en el historial para siempre.
+ok("saca el ID de una URL de Sheets",
+   idDesdeUrl("https://docs.google.com/spreadsheets/d/1rrRDkkIfvoK_OAXT_5zYFT_LJBn7sKvSIBqx8PCyMDY/edit?usp=drivesdk")
+   === "1rrRDkkIfvoK_OAXT_5zYFT_LJBn7sKvSIBqx8PCyMDY");
+ok("acepta el ID pelado",
+   idDesdeUrl("1rrRDkkIfvoK_OAXT_5zYFT_LJBn7sKvSIBqx8PCyMDY")
+   === "1rrRDkkIfvoK_OAXT_5zYFT_LJBn7sKvSIBqx8PCyMDY");
+// Media URL pegada por error tiene que fallar AL GUARDARLA, no el día que
+// alguien aprieta el botón en el muelle.
+ok("media URL no vale", idDesdeUrl("docs.google.com/spreadsheets") === "");
+ok("vacío no vale", idDesdeUrl("") === "");
+ok("null no revienta", idDesdeUrl(null) === "");
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
