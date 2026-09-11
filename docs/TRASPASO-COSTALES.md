@@ -224,3 +224,92 @@ el usuario lo pruebe en una copia primero.**
 - **Español**, tanto en el código como al hablar con el usuario.
 - **Un archivo por cambio**, y decir siempre cuál hay que pegar y si hace falta
   reconstruir el caché.
+
+---
+
+# ANEXO — Traer los costales a la unidad (decidido con el usuario)
+
+Esta parte ya está cerrada. No hay nada que preguntar: se implementa así.
+
+## Qué hace
+
+Un botón en el menú de una pestaña de unidad (`Global1`, `Global 3`…) que trae
+de «Actual cuadre de bolsas» los bloques de esa unidad y los **pega al final de
+la columna A**, como escaneos normales.
+
+```
+1ZW612R60452089266   ← último escaneo del operador
+                     ← UN renglón en blanco (solo este)
+6108725              ← pedimento del 1er destino del cuadre
+1Z0RA8120413775919
+1Z…
+6108732              ← 2º destino, SIN renglón en blanco entre bloques
+1Z0638E80473695114
+1Z…
+```
+
+- **Un solo renglón en blanco**, antes del primer bloque. Entre bloques NO: el
+  pedimento ya abre bloque por sí mismo.
+- **Sin marcador `COSTALES`.** Se pidió expresamente.
+- **Sin resumen.** No se trae la tabla `RESUMEN PEDIMENTOS` ni los totales del
+  cuadre.
+
+## Por qué no hay que tocar el motor
+
+Porque lo pegado **es** un bloque normal de la columna A. De ahí sale todo solo:
+entra al índice del caché, recibe su estado en la B, **recibe su house en la C**
+—que es el motivo principal de querer esto—, cuenta en los totales y choca como
+duplicado si esa guía está en otra pestaña.
+
+No hay que enseñarle nada nuevo al recálculo. Es un importador que escribe en la
+columna A, y ya.
+
+## Qué pestañas del cuadre le tocan a cada unidad
+
+El usuario **renombra a mano** las pestañas del cuadre: todo lo que salga ese
+día se llama como la unidad. **Las fechas se ignoran por completo** — no hay que
+buscar por prefijo ni elegir la más reciente.
+
+Para una unidad `Global 1`:
+
+1. La pestaña `Global 1` del cuadre.
+2. Y `Global 1 complemento`, **si existe**.
+3. Si no existe la primera, no se pega nada y se dice cuál se buscó.
+
+### Comparar SIN ESPACIOS
+
+`claveHoja()` solo hace `trim` + `toUpperCase`, así que `GLOBAL1` y `GLOBAL 1`
+**no** son iguales para él. Y en el archivo de Salidas conviven las dos formas:
+la pestaña real se llama `Global1` (sin espacio) y también hay `Global 3` (con
+espacio).
+
+El emparejamiento compara quitando los espacios (`GLOBAL1` ≡ `GLOBAL 1`). Sin
+eso, el botón no encontraría nada y no habría forma de saber por qué: los dos
+nombres se ven idénticos en pantalla.
+
+## Reglas de implementación
+
+- **Con lock.** Se escribe en la columna A, que es columna de captura. Escribir
+  ahí mientras alguien escanea es la única forma de perder un escaneo en este
+  sistema.
+- **Idempotente.** Apretar dos veces no puede pegar dos veces. Antes de escribir,
+  comprobar si esos pedimentos ya están en la hoja y saltar los que sí.
+- **Ruidoso al fallar.** Si no encuentra la pestaña, o el cuadre no se puede
+  abrir, se dice qué se buscó y no se escribe nada. Nunca pegar «lo más parecido».
+- **Fuera del escaneo.** `openById` sobre otro archivo cuesta cientos de ms
+  contra un presupuesto de ~500 ms por escaneo. Solo botón.
+- **La house llega con retraso.** Al escanear, la house sale del caché en el
+  momento; estas guías las escribe el script, así que las recoge el relleno
+  automático del minuto siguiente. Conviene decirlo en el aviso final del botón
+  para que nadie piense que falló.
+- **Permisos.** El cuadre es de `salidasterminalups@gmail.com`. Quien apriete el
+  botón necesita lectura sobre ese archivo.
+
+## Dato del archivo
+
+ID del cuadre: `1rrRDkkIfvoK_OAXT_5zYFT_LJBn7sKvSIBqx8PCyMDY`
+
+Cada pestaña trae **cinco pares** (guía, resumen) en A/B, C/D, E/F, G/H, I/J. El
+pedimento de cada destino está en la **fila 2** de su columna de guías, y de la
+fila 3 hacia abajo van las guías. Se leen las cinco columnas; las vacías se
+saltan.
