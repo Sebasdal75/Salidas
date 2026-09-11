@@ -1,7 +1,40 @@
-# Llevar el WMS de Salidas al archivo de costales («Actual cuadre de bolsas»)
+# Costales: dos trabajos distintos, en direcciones opuestas
 
-> Documento de traspaso. Pégalo entero como primer mensaje en una sesión nueva,
-> sobre la rama que corresponda.
+> Documento de traspaso. Léelo entero antes de empezar.
+
+**AQUÍ HAY DOS COSAS QUE NO SE TOCAN ENTRE SÍ.** Confundirlas es el primer error
+posible, así que va antes que nada:
+
+| | **TRABAJO A** — Portar el WMS | **TRABAJO B** — Traer los costales |
+|---|---|---|
+| **Qué hace** | Llevar las funciones del WMS (retenidas, duplicados, house, salidas…) al archivo de costales, para que ahí también avisen | Un botón que trae los bloques del cuadre y los pega al final de una unidad de Salidas |
+| **Dónde vive el código** | En el script propio de **«Actual cuadre de bolsas»** | En **Salidas Escaneos** (`Codigo.gs`), un ítem de menú más |
+| **Qué archivo se modifica** | Solo el cuadre | Solo Salidas |
+| **Qué archivo se lee** | — | El cuadre, **solo lectura** |
+| **Tamaño** | Grande. Varias sesiones. | Pequeño. Una sesión. |
+| **Dónde está descrito** | Secciones §0 a §5 | El **ANEXO**, al final |
+
+**El TRABAJO B no toca el archivo de costales en absoluto**: solo lo abre para
+leer. Y **el TRABAJO A no toca Salidas en absoluto**.
+
+Son independientes: se pueden hacer en cualquier orden, o solo uno. Si lo que
+quieres es la house de los costales sin más, **el TRABAJO B solo ya te la da** —
+y es el barato de los dos.
+
+### Ramas
+
+- **TRABAJO B** va en este mismo repositorio (es `Codigo.gs`). Rama nueva desde
+  `main`.
+- **TRABAJO A** NO está en este repositorio: el script del cuadre es otro
+  proyecto de Apps Script y aquí no hay ni una línea suya. Antes de empezarlo
+  hay que decidir si se trae a este repo en su propia carpeta o si vive aparte.
+
+---
+
+# TRABAJO A — Llevar el WMS al archivo de costales
+
+> Todo lo de las secciones §0 a §5 es ESTE trabajo: código en el script del
+> cuadre. Salidas no se toca.
 
 ---
 
@@ -227,9 +260,12 @@ el usuario lo pruebe en una copia primero.**
 
 ---
 
-# ANEXO — Traer los costales a la unidad (decidido con el usuario)
+# TRABAJO B (ANEXO) — Traer los costales a la unidad
 
-Esta parte ya está cerrada. No hay nada que preguntar: se implementa así.
+> **Esto es código en SALIDAS ESCANEOS, no en el cuadre.** El cuadre solo se
+> abre para leer: no se le escribe ni una celda.
+>
+> Ya está cerrado con el usuario. No hay nada que preguntar: se implementa así.
 
 ## Qué hace
 
