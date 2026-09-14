@@ -4871,110 +4871,194 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
 // =========================================================================
 function onOpen() {
   const ui = SpreadsheetApp.getUi();
+
+  // EL MENÚ SE ORDENA POR PARA QUÉ SIRVE, NO POR QUÉ MÓDULO LO ESCRIBIÓ.
+  //
+  // Llegó a tener 57 entradas y encontrar las cuatro del día a día costaba más
+  // que hacer la tarea. Lo que manda ahora es cada cuánto se usa algo:
+  //
+  //   · sueltas arriba ... lo de cada rato, sin abrir nada
+  //   · 📥 Cada mañana ... la rutina de apertura del día
+  //   · 🔍 Revisar ....... cuando algo se ve raro y hay que entender por qué
+  //   · 🔧 Arreglar ...... cuando algo está mal y hay que repararlo
+  //   · ⚙️ Configuración . se tocó una vez el día que se montó esto
+  //
+  // Nada se ha borrado del código. Lo que salió del menú sigue existiendo y se
+  // puede correr desde el editor: son pruebas de desarrollo, migraciones ya
+  // hechas y las variantes de Drive de cosas que aquí se traen por OneDrive.
   const menu = ui.createMenu('📦 Opciones Avanzadas')
-    // Arriba, suelto, lo del día a día. Todo lo demás en submenús: son cosas de
-    // mantenimiento o de configuración, y tenerlas a la vista hacía un menú
-    // larguísimo donde costaba encontrar las dos que se usan a diario.
     .addItem('📋 Agrupar Guías por Pedimento (Col A)', 'agruparPorPedimento')
     .addItem('🧹 Limpiar guías movidas (Rango seleccionado)', 'limpiarGuiasMovidasSeleccion')
     .addItem('🔄 Forzar Actualización de esta pestaña', 'forzarActualizacionHojaActiva')
     .addItem('📦 Traer los costales de esta unidad', 'traerCostalesDeEstaUnidad')
     .addSeparator()
+    .addItem('🌙 Cierre del día (historial + caché)', 'cierreDelDia')
+    .addSeparator();
 
-    .addSubMenu(ui.createMenu('🔍 Revisar')
-        .addItem('¿Por qué esta guía sale así?', 'diagnosticarGuia')
-        .addItem('Diagnóstico del sistema', 'diagnosticoSistema')
-        .addItem('Medir velocidad de escaneo', 'medirRendimiento')
-        .addItem('Prueba: ¿qué cuesta abrir el caché?', 'probarCosteCache')
-        .addItem('📏 Espacio del archivo (tope de celdas)', 'revisarEspacioDelArchivo')
-        .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos')
-        .addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
-        .addItem('🔒 ¿Por qué esta pestaña es de solo lectura?', 'porQueSoloLectura')
-        .addItem('🔓 Liberar pestañas de escaneo (quitar candados)', 'liberarPestanasDeEscaneo')
-        .addItem('🔓 Quitar las protecciones del script', 'quitarProteccionesDelScript')
-        .addItem('📚 Unir pestañas INVENTARIO', 'unirInventarios')
-        .addItem('🔗 Vincular el archivo de costales', 'vincularArchivoDeCostales'))
-
-    .addSubMenu(ui.createMenu('🌙 Cierre y limpieza')
-        .addItem('Cierre del día (historial + caché)', 'cierreDelDia')
-        .addSeparator()
-        .addItem('Vaciar historial de borrados ahora', 'limpiarHistorialAhora')
-        .addItem('Vaciarlo solo cada día', 'instalarLimpiezaHistorial')
-        .addItem('Dejar de vaciarlo solo', 'quitarLimpiezaHistorial'))
-
-    .addSubMenu(ui.createMenu('⚙️ Disparadores')
-        .addItem('Trigger avanzado (6 min, sin usuario)', 'instalarTriggerAvanzado')
-        .addItem('Trigger simple + usuario en el historial', 'instalarTriggerConUsuario')
-        .addSeparator()
-        .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado')
-        .addSeparator()
-        .addItem('🩺 Revisar los disparadores', 'revisarDisparadores'))
-
-    .addSubMenu(ui.createMenu('🔧 Mantenimiento')
-        .addItem('Reconstruir caché de ESTA pestaña', 'reconstruirCacheDeHojaActiva')
-        .addItem('Reconstruir caché completo (todas)', 'RECONSTRUIR_CACHE_TOTAL')
-        .addItem('Reponer validación (solo esta pestaña)', 'aplicarValidacionHojaActiva')
-        .addItem('Reponer validación (todas las pestañas)', 'aplicarValidacionEnTodas')
-        .addItem('Proteger hojas del sistema', 'protegerHojasSistema'));
-
-  // EL SUBMENÚ DE HOUSES VA DENTRO DE UN try, Y NO ES PARANOIA.
+  // -----------------------------------------------------------------------
+  // 📥 CADA MAÑANA
+  // -----------------------------------------------------------------------
+  // Las importaciones van juntas y en el orden en que se hacen, porque son una
+  // rutina: primero las houses, después lo que salió ayer. Estaban repartidas
+  // en dos submenús distintos y había que acordarse de los dos.
   //
-  // Ya pasó: un fallo aquí no se lleva por delante el submenú, se lleva TODO el
-  // menú —cierre del día, reponer validación, diagnóstico, forzar
-  // actualización—, y siete operadores se quedan sin nada. El módulo de houses
-  // es opcional; lo que hay encima no lo es.
-  //
-  // Falla si House.gs no está pegado, si tiene un error, o si algo de lo que
-  // usa no está disponible en un disparador simple como este.
+  // Se arma aparte y solo se cuelga si tiene algo: con los módulos apagados,
+  // un submenú vacío es peor que ninguno.
+  let mañana = ui.createMenu('📥 Cada mañana');
+  let hayMañana = false;
+  try {
+      if (typeof importarInboundDesdeOneDrive === 'function' &&
+          typeof moduloActivo === 'function' &&
+          moduloActivo(SpreadsheetApp.getActiveSpreadsheet())) {
+          mañana.addItem('☁️ Importar inbound (houses) desde OneDrive', 'importarInboundDesdeOneDrive');
+          hayMañana = true;
+      }
+  } catch (err) { /* House.gs puede no estar pegado */ }
+  try {
+      if (typeof importarSalidasDesdeOneDrive === 'function') {
+          mañana.addItem('☁️ Importar lo que salió ayer (OneDrive)', 'importarSalidasDesdeOneDrive');
+          hayMañana = true;
+      }
+  } catch (err) { /* Salidas.gs puede no estar pegado */ }
+  if (hayMañana) menu.addSubMenu(mañana);
+
+  // -----------------------------------------------------------------------
+  // 🔍 REVISAR — entender por qué algo se ve como se ve
+  // -----------------------------------------------------------------------
+  let revisar = ui.createMenu('🔍 Revisar')
+      .addItem('❓ ¿Por qué esta guía sale así?', 'diagnosticarGuia');
+  try {
+      if (typeof consultarSalidaPrevia === 'function') {
+          revisar.addItem('🔎 ¿Esto ya salió? (guía o pedimento)', 'consultarSalidaPrevia');
+      }
+  } catch (err) { /* Salidas.gs puede no estar pegado */ }
+  revisar.addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
+         .addItem('📚 Duplicados contra el histórico', 'buscarDuplicadosHistoricos')
+         .addSeparator()
+         .addItem('🔒 ¿Por qué esta pestaña es de solo lectura?', 'porQueSoloLectura')
+         .addItem('🩺 Revisar los disparadores', 'revisarDisparadores')
+         .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema')
+         .addItem('📏 Espacio del archivo (tope de celdas)', 'revisarEspacioDelArchivo');
+  menu.addSubMenu(revisar);
+
+  // -----------------------------------------------------------------------
+  // 🔧 ARREGLAR — cuando algo está mal y hay que repararlo
+  // -----------------------------------------------------------------------
+  // «Reconstruir caché completo» va SOLO, al final y detrás de un separador,
+  // porque es la única de aquí que toca el archivo entero y tarda. Pegada a
+  // «Reconstruir caché de ESTA pestaña» se aprieta por error.
+  let arreglar = ui.createMenu('🔧 Arreglar')
+      .addItem('🔓 Liberar pestañas de escaneo (quitar candados)', 'liberarPestanasDeEscaneo')
+      .addItem('🗂️ Reconstruir caché de ESTA pestaña', 'reconstruirCacheDeHojaActiva')
+      .addItem('✔️ Reponer validación (solo esta pestaña)', 'aplicarValidacionHojaActiva');
+  try {
+      if (typeof reintentarHousesNoEncontradas === 'function' &&
+          typeof moduloActivo === 'function' &&
+          moduloActivo(SpreadsheetApp.getActiveSpreadsheet())) {
+          arreglar.addSeparator()
+                  .addItem('🏠 Buscar las houses que faltan (archivo frío)', 'completarHousesDesdeFrio')
+                  .addItem('🔁 Reintentar las houses no encontradas', 'reintentarHousesNoEncontradas');
+      }
+  } catch (err) { /* House.gs puede no estar pegado */ }
+  try {
+      if (typeof autorizarGuiaDeSalida === 'function') {
+          arreglar.addSeparator()
+                  .addItem('✅ Autorizar esta guía (devolución)', 'autorizarGuiaDeSalida')
+                  .addItem('⚡ Rehacer la lista rápida del escaneo', 'reconstruirSalidasRapido');
+      }
+  } catch (err) { /* Salidas.gs puede no estar pegado */ }
+  arreglar.addSeparator()
+          .addItem('🧨 Reconstruir caché completo (TODAS, tarda)', 'RECONSTRUIR_CACHE_TOTAL');
+  menu.addSubMenu(arreglar);
+
+  // -----------------------------------------------------------------------
+  // ⚙️ CONFIGURACIÓN — se tocó una vez, el día que se montó esto
+  // -----------------------------------------------------------------------
+  // Aquí abajo va todo lo que NO se usa en la operación. Está en submenús
+  // dentro del submenú a propósito: se entra buscando algo concreto, no
+  // mirando la lista.
+  let vinculos = ui.createMenu('🔗 Vínculos y archivos')
+      .addItem('🔗 Vincular el archivo de costales', 'vincularArchivoDeCostales');
+  let hayVinculos = true;
+  try {
+      if (typeof configurarUrlOneDrive === 'function') {
+          vinculos.addSeparator()
+                  .addItem('📇 Crear el archivo del índice de houses', 'crearArchivoDelIndice')
+                  .addItem('🔗 Añadir vínculo de OneDrive (inbound)', 'configurarUrlOneDrive')
+                  .addItem('🔎 Probar los vínculos de inbound', 'probarVinculoOneDrive')
+                  .addItem('🧹 Quitar los vínculos de inbound', 'quitarUrlsOneDrive');
+      }
+  } catch (err) { /* House.gs puede no estar pegado */ }
+  try {
+      if (typeof configurarUrlSalidas === 'function') {
+          vinculos.addSeparator()
+                  .addItem('🔗 Añadir vínculo del histórico de salidas', 'configurarUrlSalidas')
+                  .addItem('🔎 Probar el archivo de salidas (sin importar)', 'probarArchivoDeSalidas')
+                  .addItem('📆 Ventana: hasta dónde atrás importar', 'configurarVentanaDeSalidas')
+                  .addItem('🧹 Quitar los vínculos de salidas', 'quitarUrlsSalidas');
+      }
+  } catch (err) { /* Salidas.gs puede no estar pegado */ }
+
+  let disparadores = ui.createMenu('⚙️ Disparadores')
+      .addItem('Poner el trigger de escaneo (6 min)', 'instalarTriggerAvanzado')
+      .addItem('Quitar los disparadores', 'desinstalarTriggerAvanzado');
+  try {
+      if (typeof instalarTriggerHouse === 'function') {
+          disparadores.addSeparator()
+                      .addItem('Rellenar houses solo, cada 5 minutos', 'instalarTriggerHouse')
+                      .addItem('Dejar de rellenar houses solo', 'quitarTriggerHouse')
+                      .addItem('🩺 ¿Qué hizo el relleno automático?', 'estadoDelRelleno');
+      }
+  } catch (err) { /* House.gs puede no estar pegado */ }
+  disparadores.addSeparator()
+              .addItem('Vaciar historial de borrados ahora', 'limpiarHistorialAhora')
+              .addItem('Vaciarlo solo cada día', 'instalarLimpiezaHistorial')
+              .addItem('Dejar de vaciarlo solo', 'quitarLimpiezaHistorial');
+
+  let fondo = ui.createMenu('🧰 A fondo')
+      .addItem('✔️ Reponer validación (TODAS las pestañas)', 'aplicarValidacionEnTodas')
+      .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
+      .addItem('🔓 Quitar las protecciones del script', 'quitarProteccionesDelScript');
+  try {
+      if (typeof repararIndiceHouse === 'function') {
+          fondo.addSeparator()
+               .addItem('🧹 Reparar el índice de houses', 'repararIndiceHouse')
+               .addItem('🧽 Limpiar houses huérfanas ahora', 'limpiarHousesHuerfanasAhora')
+               .addItem('♻️ Reimportar todos los CSV de inbound', 'olvidarArchivosImportados')
+               .addItem('⛔ Apagar las houses en este archivo', 'desactivarHousesEnEsteArchivo');
+      }
+  } catch (err) { /* House.gs puede no estar pegado */ }
+  try {
+      if (typeof olvidarSalidasImportadas === 'function') {
+          fondo.addSeparator()
+               .addItem('🔔 Avisar de lo de HOY (sí / no)', 'alternarAvisoDeHoy')
+               .addItem('📏 ¿Cuánto pesa el índice de salidas?', 'medirIndiceDeSalidas')
+               .addItem('♻️ Reimportar todos los CSV de salidas', 'olvidarSalidasImportadas');
+      }
+  } catch (err) { /* Salidas.gs puede no estar pegado */ }
+
+  let config = ui.createMenu('⚙️ Configuración');
+  if (hayVinculos) config.addSubMenu(vinculos);
+  config.addSubMenu(disparadores).addSubMenu(fondo);
+  menu.addSeparator().addSubMenu(config);
+
+  // EL MÓDULO APAGADO SE PUEDE ENCENDER, Y ESO SÍ VA ARRIBA: es lo único de
+  // houses que se ve cuando están apagadas, y si se esconde no hay forma de
+  // volver a encenderlas desde la hoja.
   try {
       if (typeof moduloActivo === 'function' &&
-          moduloActivo(SpreadsheetApp.getActiveSpreadsheet())) {
-          menu.addSeparator()
-              .addSubMenu(ui.createMenu('🏠 Houses')
-                  .addItem('📇 Crear el archivo del índice', 'crearArchivoDelIndice')
-                  .addItem('📥 Importar inbound desde Drive', 'importarInboundAlIndice')
-                  .addItem('☁️ Importar inbound desde OneDrive', 'importarInboundDesdeOneDrive')
-                  .addItem('🔗 Añadir vínculo de OneDrive', 'configurarUrlOneDrive')
-                  .addItem('🔎 Probar los vínculos (diagnóstico)', 'probarVinculoOneDrive')
-                  .addItem('🧹 Quitar los vínculos', 'quitarUrlsOneDrive')
-                  .addSeparator()
-                  .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
-                  .addItem('↔️ Mover las houses de la D a la C', 'moverHousesDeColumna')
-                  .addItem('🧽 Limpiar houses huérfanas ahora', 'limpiarHousesHuerfanasAhora')
-                  .addItem('🧹 Reparar el índice (quitar houses basura)', 'repararIndiceHouse')
-                  .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
-                  .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
-                  .addSeparator()
-                  .addItem('Rellenar solo, cada 5 minutos', 'instalarTriggerHouse')
-                  .addItem('Dejar de rellenar solo', 'quitarTriggerHouse')
-                  .addItem('🩺 ¿Qué hizo el relleno automático?', 'estadoDelRelleno')
-                  .addSeparator()
-                  .addItem('⛔ Apagar el módulo en este archivo',
-                           'desactivarHousesEnEsteArchivo'));
-
-          if (typeof importarSalidasDesdeOneDrive === 'function') {
-              menu.addSubMenu(ui.createMenu('📤 Histórico de salidas')
-                  .addItem('☁️ Importar salidas desde OneDrive', 'importarSalidasDesdeOneDrive')
-                  .addItem('📥 Importar salidas desde Drive', 'importarSalidasDesdeDrive')
-                  .addItem('🔗 Añadir vínculo del histórico', 'configurarUrlSalidas')
-                  .addItem('🔎 Probar el archivo (sin importar)', 'probarArchivoDeSalidas')
-                  .addItem('📆 Ventana: hasta dónde atrás importar', 'configurarVentanaDeSalidas')
-                  .addItem('🧹 Quitar los vínculos', 'quitarUrlsSalidas')
-                  .addSeparator()
-                  .addSeparator()
-                  .addItem('⚡ Rehacer la lista rápida del escaneo', 'reconstruirSalidasRapido')
-                  .addItem('✅ Autorizar esta guía (devolución)', 'autorizarGuiaDeSalida')
-                  .addItem('🔎 ¿Esto ya salió? (guía o pedimento)', 'consultarSalidaPrevia')
-                  .addItem('🔔 Avisar de lo de HOY', 'alternarAvisoDeHoy')
-                  .addItem('📏 ¿Cuánto pesa el índice de salidas?', 'medirIndiceDeSalidas')
-                  .addItem('♻️ Reimportar todos los CSV', 'olvidarSalidasImportadas'));
-          }
-      } else if (typeof activarHousesEnEsteArchivo === 'function') {
+          !moduloActivo(SpreadsheetApp.getActiveSpreadsheet()) &&
+          typeof activarHousesEnEsteArchivo === 'function') {
           menu.addSeparator()
               .addItem('🏠 Activar el índice de houses…', 'activarHousesEnEsteArchivo');
       }
   } catch (err) {
       // El módulo de houses no está disponible. El menú principal sigue.
+      //
+      // NO ES PARANOIA: ya pasó que un fallo aquí se llevó por delante el menú
+      // ENTERO —cierre del día, forzar actualización, diagnóstico— y siete
+      // operadores se quedaron sin nada. Por eso cada trozo opcional de este
+      // menú va en su propio try: lo que falla se cae solo.
   }
 
   menu.addToUi();
