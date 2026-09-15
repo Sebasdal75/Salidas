@@ -3975,9 +3975,30 @@ ok("«Global 1» NO se lleva lo de «Global 10»",
 ok("«Global 10» NO es «Global 1»", !pestanaDeLaUnidad("Global 10", "Global1"));
 ok("otra unidad tampoco", !pestanaDeLaUnidad("Global 3", "Global1"));
 ok("sin nombre de unidad no casa nada", !pestanaDeLaUnidad("Global 1", ""));
-// Al revés no vale: lo que sobra va en Salidas, no en el cuadre.
-ok("una pestaña del cuadre con fecha NO cuenta",
-   !pestanaDeLaUnidad("Global 1 10-09-2026", "Global1"));
+// LOS DOS NOMBRES PUEDEN LLEVAR COSAS DETRÁS. La primera versión daba por hecho
+// que el corto era siempre el del cuadre, así que una pestaña del cuadre con
+// fecha no casaba con nada y desde fuera parecía que el botón exigía el mismo
+// nombre exacto en los dos archivos.
+ok("una pestaña del cuadre con fecha SÍ cuenta",
+   pestanaDeLaUnidad("Global 1 10-09-2026", "Global 1 LG30474"));
+ok("aunque la unidad no lleve nada detrás",
+   pestanaDeLaUnidad("Global 1 10-09-2026", "Global1"));
+ok("y su complemento igual",
+   pestanaDeLaUnidad("Global 1 10-09-2026 complemento", "Global 1 LG30474"));
+// Lo de detrás sobra en los dos lados, pero el NÚMERO no: es lo que separa una
+// unidad de otra, y cortar por él es lo que salva el caso «1» contra «10».
+ok("«Global 1» con fecha NO se lleva lo de «Global 10»",
+   !pestanaDeLaUnidad("Global 1 10-09-2026", "Global 10 LG30474"));
+ok("ni «Global 10» lo de «Global 1»",
+   !pestanaDeLaUnidad("Global 10 10-09-2026", "Global 1 LG30474"));
+// Una unidad sin número no tiene dónde cortar: ahí manda el nombre corto.
+ok("«Eslam» casa con «ESLAM 12-3»", pestanaDeLaUnidad("Eslam", "ESLAM 12-3"));
+ok("«Excento H» NO es «Excento G»",
+   !pestanaDeLaUnidad("Excento G", "EXCENTO H 20-AE"));
+ok("el núcleo corta en el primer número",
+   nucleoDeUnidad(trozosDeNombre("Global 2 20-AE-3H")).join(" ") === "GLOBAL 2");
+ok("y sin número es el nombre entero",
+   nucleoDeUnidad(trozosDeNombre("Excento H")).join(" ") === "EXCENTO H");
 
 // El orden importa: primero la principal y después su complemento.
 let aCopiar = pestanasACopiar(

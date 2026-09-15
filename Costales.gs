@@ -88,15 +88,49 @@ function empiezaPorLosTrozos(larga, corta) {
     return true;
 }
 
+// EL NÚCLEO: los trozos que de verdad nombran la unidad.
+//
+// Son los de delante hasta el PRIMER NÚMERO, ese incluido. «Global 2 20-AE-3H»
+// y «Global 2 15-09» tienen los dos el mismo núcleo, [GLOBAL, 2]: lo que va
+// detrás del número es la placa, la fecha o una nota, y nada de eso dice qué
+// unidad es.
+//
+// Cortar en el primer número es lo que mantiene separadas a «Global 1» y
+// «Global 10»: sus núcleos son [GLOBAL,1] y [GLOBAL,10], que no se parecen. Un
+// corte por largo o por texto pelado sí las confundiría, y la 1 se llevaría los
+// costales de la 10.
+//
+// Si no hay ningún número —«ESLAM», «EXCENTO H»— no hay dónde cortar y el
+// núcleo es el nombre entero.
+function nucleoDeUnidad(trozos) {
+    let t = trozos || [];
+    for (let i = 0; i < t.length; i++) {
+        if (/^\d+$/.test(t[i])) return t.slice(0, i + 1);
+    }
+    return t.slice(0);
+}
+
+function mismosTrozos(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+    return true;
+}
+
 // ¿Esta pestaña del cuadre le toca a esta unidad?
 //
-// La pestaña de Salidas lleva cosas detrás del nombre de la unidad —«Global 1
-// LG30474 …»— y la del cuadre no. Así que manda el nombre CORTO: el del cuadre
-// tiene que ser el principio del de Salidas, trozo a trozo.
+// LOS DOS NOMBRES PUEDEN LLEVAR COSAS DETRÁS, y esa es la corrección que hacía
+// falta. La primera versión daba por hecho que el nombre del cuadre era el
+// corto y el de Salidas el largo, así que «Global 2» casaba con «GLOBAL 2
+// 20-AE-3H» pero «Global 2 15-09» ya no casaba con nada, y desde fuera parecía
+// que el botón exigía el mismo nombre exacto en los dos archivos.
 //
-// Las FECHAS SE IGNORAN por decisión del usuario: él renombra a mano las
+// Ahora se comparan los NÚCLEOS, que ignoran lo de detrás en ambos lados. Y si
+// alguno no tiene número y por tanto no hay núcleo que cortar, vale también que
+// el corto sea el principio del largo: así «Eslam» sigue casando con «ESLAM
+// 12-3».
+//
+// Las FECHAS SE IGNORAN igual que antes: el usuario renombra a mano las
 // pestañas del cuadre para que lo que salga ese día se llame como la unidad.
-// Y en Salidas la fecha o la placa van DETRÁS, así que sobran solas.
 function pestanaDeLaUnidad(nombreCuadre, nombreUnidad) {
     return tipoDePestanaDelCuadre(nombreCuadre, nombreUnidad) !== "";
 }
@@ -111,7 +145,11 @@ function tipoDePestanaDelCuadre(nombreCuadre, nombreUnidad) {
     if (esComplemento) c = c.slice(0, c.length - 1);
     if (c.length === 0) return "";
 
-    return empiezaPorLosTrozos(u, c) ? (esComplemento ? "complemento" : "principal") : "";
+    let casa = mismosTrozos(nucleoDeUnidad(u), nucleoDeUnidad(c)) ||
+               empiezaPorLosTrozos(u, c) ||
+               empiezaPorLosTrozos(c, u);
+
+    return casa ? (esComplemento ? "complemento" : "principal") : "";
 }
 
 // Las pestañas del cuadre que hay que traer, en orden: primero la de la unidad
@@ -371,13 +409,23 @@ function traerCostalesDeEstaUnidad() {
     if (aCopiar.length === 0) {
         // Se dice QUÉ se buscó y QUÉ hay. Un «no encontré nada» a secas deja al
         // usuario mirando dos listas de nombres casi iguales.
+        // EL MENSAJE DICE LA REGLA DE VERDAD, no una inventada.
+        //
+        // El anterior decía «busqué "GLOBAL 2 20-AE-3H" y "GLOBAL 2 20-AE-3H
+        // complemento"», y eso se lee como que hay que llamar igual a las dos
+        // pestañas en los dos archivos. No es así, y hacía renombrar a mano algo
+        // que no lo necesitaba.
+        let nucleo = nucleoDeUnidad(trozosDeNombre(nombreUnidad)).join(" ");
         ui.alert("📦 Costales",
             "No encontré ninguna pestaña para «" + nombreUnidad + "» en " +
             cuadre.getName() + ".\n\n" +
-            "Busqué «" + nombreUnidad + "» y «" + nombreUnidad + " complemento» " +
-            "(sin distinguir espacios ni mayúsculas).\n\n" +
-            "Pestañas que hay ahí:\n" + nombres.slice(0, 20).join("\n") +
-            (nombres.length > 20 ? "\n…y " + (nombres.length - 20) + " más." : ""),
+            "De esta pestaña lo que cuenta es «" + nucleo + "». Lo de detrás " +
+            "—placa, fecha, notas— no importa, ni aquí ni en el cuadre. Busqué " +
+            "una que empiece igual, y su complemento.\n\n" +
+            "Pestañas que hay en el cuadre:\n" + nombres.slice(0, 20).join("\n") +
+            (nombres.length > 20 ? "\n…y " + (nombres.length - 20) + " más." : "") +
+            "\n\nSi alguna de esas es la buena, es que el número no coincide: " +
+            "«" + nucleo + "» no es lo mismo que «" + nucleo + "0».",
             ui.ButtonSet.OK);
         return;
     }
