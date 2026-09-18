@@ -4146,6 +4146,12 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                   } else {
                       let infoOtro = guiasRezagoGlobal.get(g);
                       if (infoOtro && infoOtro.hoja !== nombreHoja) { resultadosB[filaG][0] = "❌ Va en: " + infoOtro.hoja + " (Ped: " + infoOtro.pedimento + ")"; coloresB[filaG][0] = "#f5c6cb"; }
+                      // Lo traído del cuadre NO es ajeno: viene de los costales,
+                      // que es justo lo que se esperaba que fuera. Sin esta línea
+                      // meter costales en un REZAGO pinta la pestaña entera de
+                      // rojo, y una alerta que salta siempre deja de leerse —con
+                      // ella se pierden las de al lado, que sí son de verdad—.
+                      else if (avisoDeCostal(cacheInfo, g) !== "") { resultadosB[filaG][0] = "✅ Guía"; coloresB[filaG][0] = "#71b3e6"; }
                       else { resultadosB[filaG][0] = "⚠️ Ajena (No es de rezago)"; coloresB[filaG][0] = "#df5f6b"; }
                   }
               } else {
@@ -4175,9 +4181,24 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                           coloresB[filaG][0] = "#f5c6cb";
                           if (pedGemelo) pedimentosGemelos.set(pedGemelo, ped);
                           else guiasEnOtroPedimento.set(g, ped);
+                          sobran++;
                       }
-                      else { resultadosB[filaG][0] = "⚠️ Sobra (Ajena)" + (origen ? " (Escaneado en " + origen + ")" : txtFalta); coloresB[filaG][0] = "#df5f6b"; }
-                      sobran++;
+                      // Mismo caso que en el REZAGO: un costal no está en la
+                      // preforma de la unidad porque no tiene por qué estarlo.
+                      // «Sobra» sobre todas ellas es ruido, no un aviso.
+                      //
+                      // Y NO SUMA A `sobran`, que es la otra mitad: ese contador
+                      // alimenta el resumen del pedimento, así que contarlas
+                      // dejaría el bloque diciendo «sobran 73» para siempre.
+                      else if (avisoDeCostal(cacheInfo, g) !== "") {
+                          resultadosB[filaG][0] = "✅ Guía";
+                          coloresB[filaG][0] = "#71b3e6";
+                      }
+                      else {
+                          resultadosB[filaG][0] = "⚠️ Sobra (Ajena)" + (origen ? " (Escaneado en " + origen + ")" : txtFalta);
+                          coloresB[filaG][0] = "#df5f6b";
+                          sobran++;
+                      }
                   }
               }
           }
