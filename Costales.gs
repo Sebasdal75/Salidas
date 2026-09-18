@@ -282,28 +282,81 @@ function pedimentosYaEnLaHoja(colA) {
     return set;
 }
 
+// Las guías que YA están escritas en la columna A de la unidad.
+//
+// Es la otra mitad del filtro. El pedimento solo no basta: una guía escaneada a
+// mano cuyo pedimento todavía no esté en la hoja entraría otra vez con su
+// bloque, y saldría «🔄 Duplicado local» contra la que ya estaba.
+function guiasYaEnLaHoja(colA) {
+    let set = new Set();
+    (colA || []).forEach(f => {
+        let v = String((f || [])[0]).trim().toUpperCase();
+        if (v === "" || /^\d{7}$/.test(v)) return;
+        if (esMarcadorEstructural(v)) return;
+        set.add(v);
+    });
+    return set;
+}
+
 // Arma lo que se va a escribir: un renglón en blanco y después los bloques,
 // pegados uno tras otro.
 //
 // UN SOLO renglón en blanco, antes del primero. Entre bloques NO, porque el
 // pedimento ya abre bloque por sí mismo y un hueco de más solo alarga la hoja.
 //
-// Devuelve {filas, pegados, saltados}: `saltados` son los pedimentos que ya
-// estaban, y hay que decirlos en vez de callarlos —si alguien esperaba ver un
+// EL FILTRO ES POR GUÍA, NO SOLO POR PEDIMENTO.
+//
+// Mirar solo el pedimento no bastaba, y dejaba pasar dos formas de duplicar:
+//
+//   1. LA MISMA GUÍA EN DOS COLUMNAS DEL CUADRE. Las cinco columnas se leen
+//      seguidas y cada una arma sus bloques; una guía que esté en dos de ellas
+//      se pegaba DOS VECES EN LA MISMA PASADA, y la segunda salía «🔄 Duplicado
+//      local» contra la primera. Eso no lo provoca nadie escaneando: lo hacía
+//      el botón solo.
+//
+//   2. UNA GUÍA QUE YA SE ESCANEÓ A MANO en esta pestaña. Si su pedimento aún
+//      no estaba, el bloque entero entraba y todas las que ya estaban salían
+//      duplicadas. Es una superposición normal —el bulto puede haberse escaneado
+//      suelto y venir además en el costal— y no un error que alguien deba
+//      resolver borrando filas.
+//
+// Se queda la PRIMERA aparición y se descartan las siguientes. Y si a un bloque
+// no le queda ninguna guía, no se pega tampoco su pedimento: un pedimento solo,
+// sin guías debajo, sale «Bultos: 0» y parece un fallo.
+//
+// Devuelve {filas, pegados, saltados, repetidas}: `saltados` son los pedimentos
+// que ya estaban y `repetidas` las guías que no se trajeron por estar ya. Hay
+// que decir las dos cosas en vez de callarlas —si alguien esperaba ver un
 // bloque y no aparece, tiene que saber por qué—.
-function filasParaPegar(bloques, yaEstan) {
+function filasParaPegar(bloques, yaEstan, yaGuias) {
     let filas = [];
-    let pegados = [], saltados = [];
+    let pegados = [], saltados = [], repetidas = [];
+
+    // Se siembra con lo que ya hay escrito en la hoja y va creciendo con lo que
+    // esta misma pasada va pegando. Las dos cosas a la vez, en un solo sitio:
+    // así el caso 1 y el caso 2 se resuelven con la misma comprobación.
+    let vistas = new Set();
+    if (yaGuias) yaGuias.forEach(g => vistas.add(g));
 
     (bloques || []).forEach(b => {
         if (yaEstan && yaEstan.has(b.pedimento)) { saltados.push(b.pedimento); return; }
+
+        let nuevas = [];
+        b.guias.forEach(g => {
+            if (vistas.has(g)) { repetidas.push(g); return; }
+            vistas.add(g);
+            nuevas.push(g);
+        });
+        if (nuevas.length === 0) { saltados.push(b.pedimento); return; }
+
         if (filas.length === 0) filas.push([""]);      // el único hueco
         filas.push([b.pedimento]);
-        b.guias.forEach(g => filas.push([g]));
+        nuevas.forEach(g => filas.push([g]));
         pegados.push(b.pedimento);
     });
 
-    return { filas: filas, pegados: pegados, saltados: saltados };
+    return { filas: filas, pegados: pegados, saltados: saltados,
+             repetidas: repetidas };
 }
 
 // -------------------------------------------------------------------------
@@ -496,7 +549,8 @@ function traerCostalesDeEstaUnidad() {
         // punto puede haber entrado un escaneo más.
         let lr = Math.max(hoja.getLastRow(), 0);
         let colA = lr > 0 ? hoja.getRange(1, 1, lr, 1).getValues() : [];
-        let plan = filasParaPegar(bloques, pedimentosYaEnLaHoja(colA));
+        let plan = filasParaPegar(bloques, pedimentosYaEnLaHoja(colA),
+                                  guiasYaEnLaHoja(colA));
 
         // Marcar TODAS las guías leídas del cuadre, no solo las que se pegan
         // ahora, y ANTES de decidir si hay algo que pegar.
@@ -515,7 +569,8 @@ function traerCostalesDeEstaUnidad() {
             // reponer no salen en la columna B hasta que alguien repinte.
             invalidarCacheRAM();
             recalcularHoja(hoja, ss, getCacheData(ss), null, false, false);
-            resultado = { nada: true, saltados: plan.saltados };
+            resultado = { nada: true, saltados: plan.saltados,
+                          repetidas: plan.repetidas };
             return;
         }
 
@@ -538,6 +593,7 @@ function traerCostalesDeEstaUnidad() {
         }
 
         resultado = { pegados: plan.pegados, saltados: plan.saltados,
+                      repetidas: plan.repetidas,
                       filas: plan.filas.length, desde: desde };
     });
 
@@ -566,11 +622,25 @@ function traerCostalesDeEstaUnidad() {
                "a apretar el botón.\n";
     }
 
+    // Las guías que ya estaban se dicen SIEMPRE, y con un número delante. Antes
+    // no se decían de ninguna manera: se pegaban otra vez y el operador se
+    // encontraba media pestaña en «🔄 Duplicado local» sin saber de dónde salía.
+    let repes = "";
+    if (resultado.repetidas && resultado.repetidas.length) {
+        repes = "\n🔁 " + resultado.repetidas.length + " guías NO se pegaron " +
+                "porque ya estaban en esta pestaña —escaneadas antes, o " +
+                "repetidas en dos columnas del cuadre—. No es un error: se " +
+                "cuentan una sola vez.\n";
+    }
+
     if (resultado.nada) {
         ui.alert("📦 Costales",
-            "No se pegó nada: esos " + resultado.saltados.length + " pedimentos ya " +
-            "estaban en esta pestaña.\n\n" + resultado.saltados.join(", ") + "\n" +
-            ojo,
+            "No se pegó nada: todo lo del cuadre ya estaba en esta pestaña.\n\n" +
+            (resultado.saltados.length
+                ? "Pedimentos que ya estaban (" + resultado.saltados.length + "):\n" +
+                  resultado.saltados.join(", ") + "\n"
+                : "") +
+            repes + ojo,
             ui.ButtonSet.OK);
         return;
     }
@@ -580,9 +650,10 @@ function traerCostalesDeEstaUnidad() {
         resultado.desde + "\n" +
         "   · " + (resultado.filas - 1) + " renglones en total\n";
     if (resultado.saltados.length) {
-        msg += "\n⏭️ Saltados por estar ya en la hoja (" + resultado.saltados.length +
-               "):\n" + resultado.saltados.join(", ") + "\n";
+        msg += "\n⏭️ Pedimentos saltados por estar ya en la hoja (" +
+               resultado.saltados.length + "):\n" + resultado.saltados.join(", ") + "\n";
     }
+    msg += repes;
     msg += ojo;
     msg += "\nEstas filas salen marcadas como «" + TXT_COSTAL + "» en la columna B, " +
            "para que no se confundan con un escaneo de esta unidad. Si además " +

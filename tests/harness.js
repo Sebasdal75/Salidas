@@ -4098,6 +4098,46 @@ let plan3 = filasParaPegar(bloquesP, new Set(["6102253", "6103516"]));
 ok("si ya estaban todos, no se escribe NADA", plan3.filas.length === 0);
 ok("y se dicen los dos", plan3.saltados.length === 2);
 
+// EL FILTRO POR GUÍA. Mirar solo el pedimento dejaba pasar dos formas de
+// duplicar, y las dos salían «🔄 Duplicado local» sin que nadie hubiera
+// escaneado mal.
+//
+// CASO 1: la misma guía en dos columnas del cuadre. Se pegaba DOS VECES EN LA
+// MISMA PASADA y la segunda chocaba contra la primera. Eso lo hacía el botón
+// solo, no el operador.
+let bloquesRep = [
+    { pedimento: "6102253", guias: [GA, GB] },
+    { pedimento: "6103516", guias: [GA, GC] }     // GA repetida en otra columna
+];
+let planR = filasParaPegar(bloquesRep, new Set(), new Set());
+ok("la guía repetida entre columnas se pega una sola vez",
+   planR.filas.filter(f => f[0] === GA).length === 1);
+ok("y se informa de ella", planR.repetidas.length === 1 && planR.repetidas[0] === GA);
+ok("el otro bloque sigue entrando con lo suyo",
+   planR.pegados.length === 2 && planR.filas.filter(f => f[0] === GC).length === 1);
+
+// CASO 2: una guía ya escaneada a mano en esta pestaña. Si su pedimento aún no
+// estaba, el bloque entero entraba y todas las que ya estaban salían duplicadas.
+let planY = filasParaPegar(bloquesP, new Set(), new Set([GA]));
+ok("una guía ya escaneada no se vuelve a pegar",
+   planY.filas.filter(f => f[0] === GA).length === 0);
+ok("pero su bloque entra con el resto",
+   planY.filas.filter(f => f[0] === "6102253").length === 1 &&
+   planY.filas.filter(f => f[0] === GB).length === 1);
+ok("y se cuenta como repetida", planY.repetidas.length === 1);
+
+// Un pedimento SIN guías nuevas no se pega tampoco: solo, sin nada debajo,
+// sale «Bultos: 0» y parece un fallo.
+let planV = filasParaPegar([{ pedimento: "6102253", guias: [GA] }],
+                           new Set(), new Set([GA]));
+ok("un bloque que se queda sin guías no se pega", planV.filas.length === 0);
+ok("y su pedimento se cuenta como saltado", planV.saltados[0] === "6102253");
+
+ok("las guías de la hoja se leen de la columna A",
+   guiasYaEnLaHoja([["6102253"], [GA], [GB]]).size === 2);
+ok("un pedimento no cuenta como guía", !guiasYaEnLaHoja([["6102253"]]).has("6102253"));
+ok("un marcador tampoco", guiasYaEnLaHoja([["SIN PEDIMENTO"]]).size === 0);
+
 ok("los pedimentos de la hoja se leen de la columna A",
    pedimentosYaEnLaHoja([["6102253"], [GA], ["6103516"]]).size === 2);
 ok("una guía no se confunde con un pedimento",
