@@ -388,6 +388,26 @@ const COLOR_AVISO_BLOQUE = '#ffc107';
 function accesoTxtPedSinGuias() { return TXT_PED_SIN_GUIAS; }
 function accesoTxtGuiasSinPed() { return TXT_GUIAS_SIN_PED; }
 
+// Apunta una guía de la columna A que YA SE MOVIÓ, con el texto con el que
+// salió, para poder repetirlo después en la preforma de las hojas de rezago.
+//
+// Es una función suelta y no tres líneas dentro del bucle por lo que guarda:
+//
+//   · La clave va en MAYÚSCULAS. La columna O se lee ya normalizada y la A no,
+//     así que sin esto «1z999…» de la A nunca casaría con «1Z999…» de la O y la
+//     mitad de las movidas no aparecerían. Y no fallaría: simplemente faltarían.
+//
+//   · El texto pasa por `cabezaEstado`. Si esa fila era la última de su bloque,
+//     su estado arrastra un «► Bultos: 12 | ✅ TODO SALIÓ» que es el resumen del
+//     bloque ENTERO, no de esta guía. Copiarlo a la O pondría el total del
+//     pedimento al lado de un solo bulto.
+function anotarSiYaSeMovio(mapa, valorA, estadoB, esMovido) {
+    if (!mapa || !esMovido) return;
+    let v = String(valorA === undefined || valorA === null ? "" : valorA).trim();
+    if (v === "") return;
+    mapa.set(v.toUpperCase(), cabezaEstado(estadoB));
+}
+
 // El aviso de «faltan las guías», si este bloque está roto así.
 //
 // Es una función y no un `if` suelto porque la comprobación tiene una trampa:
@@ -3988,12 +4008,27 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   let pedsPorFilaA = pedimentosPorFila(datosMasivos, ultimaFila, 0, false);
 
   let resultadosB = []; let resultadosHoras = []; let coloresB = [];
+
+  // GUÍA YA MOVIDA -> el texto con el que salió («➡ MOVIDO A GLOBAL 1»).
+  //
+  // Se recoge aquí, que es donde ya se sabe, y se usa mucho más abajo para
+  // decirlo también EN LA PREFORMA de las hojas de rezago. Sin esto, una guía
+  // recuperada y ya despachada se ve en la columna O exactamente igual que una
+  // que sigue en el suelo esperando: la O no decía nada de ella.
+  //
+  // El conteo no cambia con esto y no hay que tocarlo: `escaneadasEnA` mete
+  // todas las guías válidas de la columna A sin mirar su estado, así que una
+  // movida ya contaba como recuperada y nunca salió en los faltantes.
+  let movidasEnA = new Map();
+
   for (let i = 0; i < ultimaFila; i++) {
     let valB = String(datosMasivos[i][0]).trim();
     let estB = String(datosMasivos[i][1]).trim();
     let esErrEstructura = estB.startsWith("🛑 ERROR");
     let esMovido = esEstadoSalida(estB);
     let dup = dupExternos.get(i);
+
+    anotarSiYaSeMovio(movidasEnA, valB, estB, esMovido);
 
     let fijo = '';
     let color = '#FFFFFF';
@@ -4415,6 +4450,28 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
             coloresP[bloque.filaPedimento][0] = "#FFF3CD";
           }
         }
+
+        // LAS QUE YA SE MOVIERON, DICHAS EN LA PREFORMA.
+        //
+        // Una guía recuperada y ya despachada se veía en la O igual que una que
+        // sigue en el suelo esperando: la celda de al lado, en blanco. Con
+        // cientos de renglones eso obliga a cruzar a mano la O contra la A para
+        // saber qué queda de verdad por sacar.
+        //
+        // Se copia el MISMO texto que lleva la columna B —«➡ MOVIDO A GLOBAL
+        // 1»— y no uno inventado: las dos columnas hablan del mismo bulto y
+        // decirlo con dos vocabularios obliga a traducir mentalmente.
+        bloque.filasGuias.forEach(fila => {
+            // SOLO si la celda está libre. Un pedimento repetido, una captura
+            // inválida o una retenida planificada ya escribieron ahí, y todo eso
+            // es más urgente que saber que la guía salió: hay que decidir algo.
+            if (resultadosP[fila][0] !== '') return;
+            let g = String(datosMasivos[fila][14]).trim().toUpperCase();
+            let txt = movidasEnA.get(g);
+            if (!txt) return;
+            resultadosP[fila][0] = txt;
+            coloresP[fila][0] = '#e0e0e0';   // el mismo gris de la B
+        });
       });
       totalPedimentos = pedimentosCompletos.size;
   }

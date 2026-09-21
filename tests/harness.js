@@ -4266,5 +4266,41 @@ ok("la cola del resumen se conserva",
    colaResumen("✅ Guía" + SEP_RESUMEN + "Bultos: 3") === SEP_RESUMEN + "Bultos: 3");
 ok("y sin cola no inventa nada", colaResumen("✅ Guía") === "");
 
+console.log("\n--- 14c. Las ya movidas, dichas en la preforma de rezago ---");
+// Una guia recuperada y ya despachada se veia en la columna O igual que una que
+// sigue en el suelo esperando: la celda de al lado, en blanco. Con cientos de
+// renglones eso obliga a cruzar la O contra la A a mano.
+let movidas = new Map();
+anotarSiYaSeMovio(movidas, G1, "➡ MOVIDO A GLOBAL 1", true);
+ok("una movida se apunta", movidas.get(G1) === "➡ MOVIDO A GLOBAL 1");
+
+// LA CLAVE VA EN MAYÚSCULAS. La columna O se lee ya normalizada y la A no, así
+// que sin esto la mitad de las movidas no apareceria. Y no fallaria: faltarian.
+let movMin = new Map();
+anotarSiYaSeMovio(movMin, G1.toLowerCase(), "➡ MOVIDO A GLOBAL 1", true);
+ok("la clave se normaliza a mayúsculas", movMin.has(G1));
+
+// EL TEXTO PASA POR cabezaEstado. Si esa fila era la última de su bloque, su
+// estado arrastra el resumen del bloque ENTERO. Copiarlo a la O pondria el
+// total del pedimento al lado de un solo bulto.
+let movCola = new Map();
+anotarSiYaSeMovio(movCola, G1, "➡ MOVIDO A GLOBAL 1" + SEP_RESUMEN + "Bultos: 12", true);
+ok("la cola del resumen no se copia", movCola.get(G1) === "➡ MOVIDO A GLOBAL 1");
+
+// Lo que no se movió no entra: en la O tiene que seguir viéndose pendiente.
+let noMov = new Map();
+anotarSiYaSeMovio(noMov, G1, "✅ Ok", false);
+ok("lo que no se movió no se apunta", noMov.size === 0);
+ok("una celda vacía tampoco",
+   (() => { let m = new Map(); anotarSiYaSeMovio(m, "", "➡ MOVIDO A X", true); return m.size === 0; })());
+ok("sin mapa no revienta",
+   (() => { try { anotarSiYaSeMovio(null, G1, "➡ MOVIDO A X", true); return true; }
+            catch (e) { return false; } })());
+
+// La marca de costal no puede esconder una movida: `esEstadoSalida` mira detrás
+// del prefijo, y es quien decide el `esMovido` que llega hasta aquí.
+ok("una movida marcada como costal sigue siendo movida",
+   esEstadoSalida(accesoTxtCostal() + " · ➡ MOVIDO A GLOBAL 1"));
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
