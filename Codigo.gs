@@ -361,6 +361,44 @@ function esCabeceraBloque(v) {
     return /^\d{7}$/.test(String(v).trim()) || esMarcadorEstructural(v);
 }
 
+// =========================================================================
+// LOS DOS BLOQUES ROTOS
+// =========================================================================
+//
+// Un bloque bien formado es un pedimento con sus guías debajo. Se puede romper
+// de dos maneras, y las dos pasaban CALLADAS hasta ahora:
+//
+//   · UN PEDIMENTO SOLO, sin ninguna guía debajo. Salía «Bultos: 0» en gris,
+//     que es un dato, no un aviso: a mitad de una hoja con cincuenta bloques no
+//     lo ve nadie. Y al cerrar el día ese pedimento se da por hecho.
+//
+//   · GUÍAS SIN PEDIMENTO ENCIMA. Salían «✅ Guía» tan tranquilas, cada una en
+//     azul, porque como guías están perfectas. Pero no las reclama ningún
+//     pedimento: no cuentan para ningún bloque, no cuadran con nada, y el
+//     operador no tiene forma de enterarse mirando la pantalla.
+//
+// El texto vive aquí, en un solo sitio, porque sale en los dos cerebros —la
+// GLOBAL y las M-S— y tiene que decir lo mismo en los dos.
+const TXT_PED_SIN_GUIAS = "⚠️ PEDIMENTO SIN GUÍAS";
+const TXT_GUIAS_SIN_PED = "⚠️ FALTA EL PEDIMENTO ARRIBA";
+const COLOR_AVISO_BLOQUE = '#ffc107';
+
+// Accesores para el banco de pruebas: las constantes con `const` no salen del
+// eval con el que carga este archivo, las funciones sí.
+function accesoTxtPedSinGuias() { return TXT_PED_SIN_GUIAS; }
+function accesoTxtGuiasSinPed() { return TXT_GUIAS_SIN_PED; }
+
+// El aviso de «faltan las guías», si este bloque está roto así.
+//
+// Es una función y no un `if` suelto porque la comprobación tiene una trampa:
+// hay que mirar las FILAS de guía, no las guías únicas. Un bloque con dos filas
+// que sean la misma guía repetida tiene cero guías únicas pero NO está vacío:
+// tiene un duplicado, que ya se avisa por su cuenta y con otro texto.
+function avisoPedimentoSinGuias(bloque) {
+    if (!bloque || !bloque.filasGuias) return "";
+    return bloque.filasGuias.length === 0 ? TXT_PED_SIN_GUIAS : "";
+}
+
 function asegurarColumnas(hoja, minimo) {
     let max = hoja.getMaxColumns();
     if (max < minimo) hoja.insertColumnsAfter(max, minimo - max);
@@ -4209,7 +4247,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 
           let nota = notaConAlerta(bloque.conAlerta);
 
-          if (esperadas.size === 0) {
+          // VA PRIMERO, antes que nada. Un pedimento sin guías no tiene
+          // preforma que cuadrar ni bultos que contar: cualquier otro mensaje
+          // —«No en preforma», «COMPLETO»— habla de unas guías que no existen.
+          if (avisoPedimentoSinGuias(bloque) !== "") {
+              estadoStr = TXT_PED_SIN_GUIAS;
+              coloresB[bloque.filaPedimento][0] = COLOR_AVISO_BLOQUE;
+          } else if (esperadas.size === 0) {
               if (pedGemelo) {
                   // MISMOS 1Z, OTRO NÚMERO: un dedazo en el pedimento, no
                   // guías descolocadas. Se dice aquí, en la fila del
@@ -4289,6 +4333,24 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               resultadosB[fUltima][0] = cabezaEstado(resultadosB[fUltima][0])
                   .replace(/ \(Escaneado en .*?\)/g, "") + SEP_RESUMEN + txtResumen;
           }
+      }
+      // GUÍAS SIN PEDIMENTO ENCIMA. Aquí la GLOBAL siempre lleva el pedimento
+      // delante, así que un bloque sin cabecera es un olvido, no un estado
+      // intermedio como en las M-S SALIDAS.
+      //
+      // El aviso va en la PRIMERA guía y no en la última, aunque el resumen de
+      // los bloques buenos vaya abajo: el pedimento que falta se escribe ENCIMA
+      // de esa fila, así que ahí es donde hay que mirar. Puesto en la última se
+      // movería con cada escaneo y señalaría al sitio equivocado.
+      //
+      // Se marca una sola fila, no las veinte del bloque: el mismo aviso
+      // repetido veinte veces es lo que hace que se deje de leer.
+      else if (ped === "SIN_CABECERA" && !esRezago && bloque.filasGuias.length > 0) {
+          let fPrimera = bloque.filasGuias[0];
+          resultadosB[fPrimera][0] = TXT_GUIAS_SIN_PED + " (" +
+              bloque.filasGuias.length + " guías sin dueño)" +
+              colaResumen(resultadosB[fPrimera][0]);
+          coloresB[fPrimera][0] = COLOR_AVISO_BLOQUE;
       }
   });
 
@@ -4595,7 +4657,15 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
           let nota = notaConAlerta(bloque.conAlerta);
           let base = "Bultos: " + guiasUnicas.size + " (" + tipoStr + ")";
 
-          if (guiasUnicas.size === 0) {
+          // NI UNA SOLA FILA DE GUÍA: el pedimento está solo. Antes salía
+          // «Bultos: 0» en gris, que es un dato y no un aviso, y a mitad de una
+          // hoja con cincuenta bloques no lo veía nadie.
+          if (avisoPedimentoSinGuias(bloque) !== "") {
+              msg = base + " | " + TXT_PED_SIN_GUIAS;
+              coloresB[bloque.filaPedimento][0] = COLOR_AVISO_BLOQUE;
+          } else if (guiasUnicas.size === 0) {
+              // SÍ hay filas, pero ninguna guía buena: todas llevan alerta. Eso
+              // ya se dice por su cuenta en cada fila y con su propio texto.
               msg = base;
               coloresB[bloque.filaPedimento][0] = nota !== "" ? "#ffc107" : "#e2e3e5";
           } else if (faltantes === 0 && nota === "") {
@@ -4653,6 +4723,25 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
               .replace(/ \(Escaneado en .*?\)/g, "")
               .replace(/ ⚠️ Sin escaneo de .*/g, "");
           resultadosB[filaUltimaGuia][0] = textoLimpio + SEP_RESUMEN + msg;
+      }
+      // GUÍAS SIN PEDIMENTO ENCIMA, en una M-S normal.
+      //
+      // SOLO cuando NO es invertida, y esa condición es la que importa: en una
+      // M-S SALIDAS el pedimento va DEBAJO, así que un bloque sin cabecera es
+      // el estado normal mientras se escanea y ya lo cuenta la rama de arriba.
+      // Sin distinguirlas, cada escaneo de una M-S SALIDAS saldría avisando de
+      // que falta un pedimento que todavía no toca escribir.
+      //
+      // El aviso va en la PRIMERA guía porque el pedimento que falta se escribe
+      // ENCIMA de ella. En la última se movería con cada escaneo y señalaría al
+      // sitio equivocado.
+      else if (!invertida && bloque.pedimento === "SIN_CABECERA" &&
+               bloque.filasGuias.length > 0) {
+          let fPrimera = bloque.filasGuias[0];
+          resultadosB[fPrimera][0] = TXT_GUIAS_SIN_PED + " (" +
+              bloque.filasGuias.length + " guías sin dueño)" +
+              colaResumen(resultadosB[fPrimera][0]);
+          coloresB[fPrimera][0] = COLOR_AVISO_BLOQUE;
       }
   });
 

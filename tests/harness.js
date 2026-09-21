@@ -4216,5 +4216,55 @@ ok("sin columna de costales, conjunto vacío",
    costalesDelCache([["GLOBAL 1_FISICO"]], ["GLOBAL 1_FISICO"]).size === 0);
 ok("sin caché tampoco revienta", costalesDelCache(null, null).size === 0);
 
+console.log("\n=== 14. Los dos bloques rotos ===");
+// Un bloque bien formado es un pedimento con sus guías debajo. Se rompe de dos
+// maneras, y las dos pasaban CALLADAS.
+const T_SIN_GUIAS = accesoTxtPedSinGuias();
+const T_SIN_PED = accesoTxtGuiasSinPed();
+
+console.log("\n--- 14a. Un pedimento sin ninguna guía debajo ---");
+// Antes salía «Bultos: 0» en gris, que es un dato y no un aviso: a mitad de una
+// hoja con cincuenta bloques no lo ve nadie, y al cerrar el día ese pedimento
+// se da por hecho.
+ok("un bloque sin filas de guía avisa",
+   avisoPedimentoSinGuias({ pedimento: "6102253", filasGuias: [] }) === T_SIN_GUIAS);
+ok("uno con guías no avisa",
+   avisoPedimentoSinGuias({ pedimento: "6102253", filasGuias: [4, 5] }) === "");
+
+// LA TRAMPA: se miran las FILAS, no las guías únicas. Un bloque con dos filas
+// que son la misma guía repetida tiene CERO guías únicas pero no está vacío:
+// tiene un duplicado, que ya se avisa por su cuenta y con otro texto. Contarlo
+// como «sin guías» taparía el duplicado con un mensaje que no es.
+ok("dos filas de la misma guía NO es un bloque vacío",
+   avisoPedimentoSinGuias({ pedimento: "6102253", filasGuias: [4, 5] }) === "");
+ok("sin bloque no revienta", avisoPedimentoSinGuias(null) === "");
+ok("sin filasGuias tampoco", avisoPedimentoSinGuias({ pedimento: "6102253" }) === "");
+
+// El aviso es de nivel AVISO, no crítico: el pedimento acabado de escanear
+// todavía no tiene guías y no puede salir en rojo cada vez.
+ok("es un aviso, no una alerta grave",
+   nivelAlerta(T_SIN_GUIAS) < nivelAlerta("⛔ DUPLICADO (En: X Fila 2)"));
+ok("y el de sin pedimento igual",
+   nivelAlerta(T_SIN_PED) < nivelAlerta("⛔ DUPLICADO (En: X Fila 2)"));
+// Pero por encima de lo informativo, o no se distinguiría de un resumen.
+ok("por encima de informativo", nivelAlerta(T_SIN_GUIAS) > nivelAlerta(""));
+
+console.log("\n--- 14b. Guías sin pedimento encima ---");
+// Salían «✅ Guía» tan tranquilas, en azul, porque COMO GUÍAS están perfectas.
+// Pero no las reclama ningún pedimento: no cuentan para ningún bloque y el
+// operador no tiene forma de enterarse mirando la pantalla.
+//
+// El texto dice ARRIBA porque en la GLOBAL y en las M-S normales el pedimento
+// va delante. En una M-S SALIDAS va debajo, y esa rama tiene su propio texto
+// —«Falta el pedimento abajo»— que no se toca.
+ok("el aviso apunta hacia arriba", T_SIN_PED.indexOf("ARRIBA") !== -1);
+ok("y el de la M-S SALIDAS sigue apuntando abajo",
+   T_SIN_PED.indexOf("ABAJO") === -1);
+// La cola del resumen se conserva al escribir el aviso: si esa fila arrastraba
+// un «► Bultos: …», pisarlo entero lo borraría hasta el siguiente recálculo.
+ok("la cola del resumen se conserva",
+   colaResumen("✅ Guía" + SEP_RESUMEN + "Bultos: 3") === SEP_RESUMEN + "Bultos: 3");
+ok("y sin cola no inventa nada", colaResumen("✅ Guía") === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
