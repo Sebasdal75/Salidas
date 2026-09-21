@@ -377,8 +377,12 @@ function esCabeceraBloque(v) {
 //     pedimento: no cuentan para ningún bloque, no cuadran con nada, y el
 //     operador no tiene forma de enterarse mirando la pantalla.
 //
-// El texto vive aquí, en un solo sitio, porque sale en los dos cerebros —la
-// GLOBAL y las M-S— y tiene que decir lo mismo en los dos.
+// LOS DOS AVISOS SON SOLO DE LAS M-S, y eso es una decisión, no un olvido. La
+// GLOBAL tiene la preforma de la columna O, que ya dice con nombres y apellidos
+// qué falta y qué sobra en cada pedimento; repetir ahí «sin guías» y «sin
+// pedimento» es ruido encima de algo que ya está dicho mejor. Las M-S no tienen
+// preforma contra la que cuadrar: ahí la estructura del bloque es lo único que
+// hay, y si se rompe nadie se entera.
 const TXT_PED_SIN_GUIAS = "⚠️ PEDIMENTO SIN GUÍAS";
 const TXT_GUIAS_SIN_PED = "⚠️ FALTA EL PEDIMENTO ARRIBA";
 const COLOR_AVISO_BLOQUE = '#ffc107';
@@ -4282,13 +4286,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 
           let nota = notaConAlerta(bloque.conAlerta);
 
-          // VA PRIMERO, antes que nada. Un pedimento sin guías no tiene
-          // preforma que cuadrar ni bultos que contar: cualquier otro mensaje
-          // —«No en preforma», «COMPLETO»— habla de unas guías que no existen.
-          if (avisoPedimentoSinGuias(bloque) !== "") {
-              estadoStr = TXT_PED_SIN_GUIAS;
-              coloresB[bloque.filaPedimento][0] = COLOR_AVISO_BLOQUE;
-          } else if (esperadas.size === 0) {
+          // LOS DOS AVISOS DE BLOQUE ROTO —pedimento sin guías, guías sin
+          // pedimento— VIVEN SOLO EN LAS M-S. Aquí la GLOBAL tiene la preforma
+          // de la columna O, que ya dice lo que falta y lo que sobra con
+          // nombres y apellidos; encima de eso los dos avisos son ruido.
+          if (esperadas.size === 0) {
               if (pedGemelo) {
                   // MISMOS 1Z, OTRO NÚMERO: un dedazo en el pedimento, no
                   // guías descolocadas. Se dice aquí, en la fila del
@@ -4368,24 +4370,6 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               resultadosB[fUltima][0] = cabezaEstado(resultadosB[fUltima][0])
                   .replace(/ \(Escaneado en .*?\)/g, "") + SEP_RESUMEN + txtResumen;
           }
-      }
-      // GUÍAS SIN PEDIMENTO ENCIMA. Aquí la GLOBAL siempre lleva el pedimento
-      // delante, así que un bloque sin cabecera es un olvido, no un estado
-      // intermedio como en las M-S SALIDAS.
-      //
-      // El aviso va en la PRIMERA guía y no en la última, aunque el resumen de
-      // los bloques buenos vaya abajo: el pedimento que falta se escribe ENCIMA
-      // de esa fila, así que ahí es donde hay que mirar. Puesto en la última se
-      // movería con cada escaneo y señalaría al sitio equivocado.
-      //
-      // Se marca una sola fila, no las veinte del bloque: el mismo aviso
-      // repetido veinte veces es lo que hace que se deje de leer.
-      else if (ped === "SIN_CABECERA" && !esRezago && bloque.filasGuias.length > 0) {
-          let fPrimera = bloque.filasGuias[0];
-          resultadosB[fPrimera][0] = TXT_GUIAS_SIN_PED + " (" +
-              bloque.filasGuias.length + " guías sin dueño)" +
-              colaResumen(resultadosB[fPrimera][0]);
-          coloresB[fPrimera][0] = COLOR_AVISO_BLOQUE;
       }
   });
 

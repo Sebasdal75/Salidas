@@ -4257,6 +4257,11 @@ console.log("\n--- 14b. Guías sin pedimento encima ---");
 // El texto dice ARRIBA porque en la GLOBAL y en las M-S normales el pedimento
 // va delante. En una M-S SALIDAS va debajo, y esa rama tiene su propio texto
 // —«Falta el pedimento abajo»— que no se toca.
+// SOLO EN LAS M-S, y es una decisión: la GLOBAL tiene la preforma de la columna
+// O, que ya dice con nombres y apellidos qué falta y qué sobra en cada
+// pedimento. Repetir ahí los dos avisos es ruido encima de algo mejor dicho.
+// Las M-S no tienen preforma contra la que cuadrar: ahí la estructura del
+// bloque es lo único que hay, y si se rompe nadie se entera.
 ok("el aviso apunta hacia arriba", T_SIN_PED.indexOf("ARRIBA") !== -1);
 ok("y el de la M-S SALIDAS sigue apuntando abajo",
    T_SIN_PED.indexOf("ABAJO") === -1);
