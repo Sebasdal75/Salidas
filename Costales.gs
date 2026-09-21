@@ -238,6 +238,41 @@ function bloquesDelCuadre(datos) {
              descartadas: invalidas.length + sinPedimento.length };
 }
 
+// UN PEDIMENTO, UN SOLO BLOQUE.
+//
+// Las cinco columnas del cuadre son cinco DESTINOS, no cinco pedimentos: el
+// mismo pedimento puede encabezar dos de ellas porque su carga va repartida. Y
+// la principal y su complemento pueden repetirlo también.
+//
+// Sin fusionarlos se pegaban DOS filas con el mismo número de pedimento, y el
+// motor hacía exactamente lo que tiene que hacer: marcarlas las dos con
+// «🛑 PEDIMENTO REPETIDO». Las dos, no solo la de abajo —eso es deliberado, si
+// no habría que buscar la otra a mano—, así que el operador veía encenderse una
+// fila de más arriba, de trabajo que ya estaba bien hecho, sin haber tocado
+// nada. El botón se lo hacía solo.
+//
+// Se conserva el orden de la primera aparición y se juntan las guías debajo de
+// ella, sin repetir. Que es lo que el bloque debería haber sido desde el
+// principio: un pedimento con todo lo suyo.
+function fusionarBloquesPorPedimento(bloques) {
+    let porPedimento = new Map();
+    let orden = [];
+
+    (bloques || []).forEach(b => {
+        if (!b || !b.pedimento) return;
+        if (!porPedimento.has(b.pedimento)) {
+            porPedimento.set(b.pedimento, { pedimento: b.pedimento, guias: [] });
+            orden.push(b.pedimento);
+        }
+        let destino = porPedimento.get(b.pedimento);
+        (b.guias || []).forEach(g => {
+            if (destino.guias.indexOf(g) === -1) destino.guias.push(g);
+        });
+    });
+
+    return orden.map(p => porPedimento.get(p));
+}
+
 // La letra de una columna del cuadre, para poder decir «C7» en vez de «fila 7
 // de la tercera columna de guías».
 function letraDeColumna(col) {
@@ -507,6 +542,11 @@ function traerCostalesDeEstaUnidad() {
         ui.alert("📦 Costales", "Fallo leyendo el cuadre:\n" + err, ui.ButtonSet.OK);
         return;
     }
+
+    // Se fusiona AQUÍ, con las dos pestañas ya leídas, y antes de enseñar el
+    // recuento: si no, el diálogo prometería más pedimentos de los que va a
+    // pegar y el número no cuadraría con lo que se ve en la hoja.
+    bloques = fusionarBloquesPorPedimento(bloques);
 
     if (bloques.length === 0) {
         let m = "Leí " + leidas.join(", ") + " y no encontré ningún bloque con " +

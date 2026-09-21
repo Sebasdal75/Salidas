@@ -4148,6 +4148,42 @@ ok("una guía no se confunde con un pedimento",
 let planSinSueltas = filasParaPegar([], new Set());
 ok("sin bloques no se escribe nada", planSinSueltas.filas.length === 0);
 
+console.log("\n--- 13c-bis. Un pedimento, un solo bloque ---");
+// Las cinco columnas del cuadre son cinco DESTINOS, no cinco pedimentos: el
+// mismo pedimento puede encabezar dos de ellas porque su carga va repartida.
+//
+// Sin fusionarlos se pegaban DOS filas con el mismo número, y el motor hacía lo
+// que tiene que hacer: marcar LAS DOS con «🛑 PEDIMENTO REPETIDO». Las dos, no
+// solo la de abajo, así que se encendía una fila de más arriba —trabajo que ya
+// estaba bien hecho— sin que nadie hubiera tocado nada.
+let dosColumnas = [
+    { pedimento: "6102253", guias: [GA] },
+    { pedimento: "6103516", guias: [GC] },
+    { pedimento: "6102253", guias: [GB] }      // el mismo, en otra columna
+];
+let fusPed = fusionarBloquesPorPedimento(dosColumnas);
+ok("el pedimento repetido se fusiona", fusPed.length === 2);
+ok("y se queda con las guías de las dos columnas",
+   fusPed[0].pedimento === "6102253" && fusPed[0].guias.length === 2);
+ok("respetando el orden de la primera aparición", fusPed[1].pedimento === "6103516");
+// Y con eso ya no se pega dos veces la misma fila de pedimento.
+ok("ya no salen dos filas del mismo pedimento",
+   filasParaPegar(fusPed, new Set(), new Set())
+       .filas.filter(f => f[0] === "6102253").length === 1);
+
+// La misma guía en los dos bloques fusionados tampoco se duplica.
+let conGuiaRepe = fusionarBloquesPorPedimento([
+    { pedimento: "6102253", guias: [GA, GB] },
+    { pedimento: "6102253", guias: [GA] }
+]);
+ok("ni la guía repetida dentro del mismo pedimento",
+   conGuiaRepe.length === 1 && conGuiaRepe[0].guias.length === 2);
+
+ok("sin bloques no revienta", fusionarBloquesPorPedimento([]).length === 0);
+ok("null tampoco", fusionarBloquesPorPedimento(null).length === 0);
+ok("un bloque sin pedimento se ignora",
+   fusionarBloquesPorPedimento([{ guias: [GA] }]).length === 0);
+
 console.log("\n--- 13d. El vínculo al archivo del cuadre ---");
 // El ID va en una propiedad, no en el código: este repositorio es git y un
 // identificador pegado aquí queda en el historial para siempre.
