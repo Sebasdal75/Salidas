@@ -377,12 +377,14 @@ function esCabeceraBloque(v) {
 //     pedimento: no cuentan para ningún bloque, no cuadran con nada, y el
 //     operador no tiene forma de enterarse mirando la pantalla.
 //
-// LOS DOS AVISOS SON SOLO DE LAS M-S, y eso es una decisión, no un olvido. La
-// GLOBAL tiene la preforma de la columna O, que ya dice con nombres y apellidos
-// qué falta y qué sobra en cada pedimento; repetir ahí «sin guías» y «sin
-// pedimento» es ruido encima de algo que ya está dicho mejor. Las M-S no tienen
-// preforma contra la que cuadrar: ahí la estructura del bloque es lo único que
-// hay, y si se rompe nadie se entera.
+// LOS DOS AVISOS SON SOLO DE LAS M-S. Es una decisión del usuario, pedida así,
+// no una consecuencia técnica: los dos avisos funcionarían igual de bien en una
+// GLOBAL y el código para ponerlos ahí es el mismo.
+//
+// Y OJO CON EL MOTIVO, que ya me equivoqué una vez: NO es que la GLOBAL tenga la
+// preforma de la columna O y no le haga falta. Hoy **solo las hojas de REZAGO
+// usan la columna O**; las demás la tienen vacía. Así que si algún día alguien
+// quiere extenderlos, el argumento «la O ya lo dice» solo vale para rezago.
 const TXT_PED_SIN_GUIAS = "⚠️ PEDIMENTO SIN GUÍAS";
 const TXT_GUIAS_SIN_PED = "⚠️ FALTA EL PEDIMENTO ARRIBA";
 const COLOR_AVISO_BLOQUE = '#ffc107';
@@ -4287,9 +4289,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           let nota = notaConAlerta(bloque.conAlerta);
 
           // LOS DOS AVISOS DE BLOQUE ROTO —pedimento sin guías, guías sin
-          // pedimento— VIVEN SOLO EN LAS M-S. Aquí la GLOBAL tiene la preforma
-          // de la columna O, que ya dice lo que falta y lo que sobra con
-          // nombres y apellidos; encima de eso los dos avisos son ruido.
+          // pedimento— VIVEN SOLO EN LAS M-S, por decisión del usuario. Aquí no
+          // se ponen. Ver la nota larga junto a TXT_PED_SIN_GUIAS: el motivo NO
+          // es que la GLOBAL tenga preforma que lo diga por ella —hoy solo las
+          // de rezago usan la columna O—, así que no lo «arregles» con eso.
           if (esperadas.size === 0) {
               if (pedGemelo) {
                   // MISMOS 1Z, OTRO NÚMERO: un dedazo en el pedimento, no

@@ -4257,11 +4257,12 @@ console.log("\n--- 14b. Guías sin pedimento encima ---");
 // El texto dice ARRIBA porque en la GLOBAL y en las M-S normales el pedimento
 // va delante. En una M-S SALIDAS va debajo, y esa rama tiene su propio texto
 // —«Falta el pedimento abajo»— que no se toca.
-// SOLO EN LAS M-S, y es una decisión: la GLOBAL tiene la preforma de la columna
-// O, que ya dice con nombres y apellidos qué falta y qué sobra en cada
-// pedimento. Repetir ahí los dos avisos es ruido encima de algo mejor dicho.
-// Las M-S no tienen preforma contra la que cuadrar: ahí la estructura del
-// bloque es lo único que hay, y si se rompe nadie se entera.
+// SOLO EN LAS M-S, pedido así. No es una consecuencia técnica: los dos avisos
+// funcionarían igual en una GLOBAL.
+//
+// Y OJO CON EL MOTIVO: NO es que la GLOBAL tenga la preforma de la columna O y
+// no le haga falta. Hoy SOLO las hojas de REZAGO usan la columna O; las demás
+// la tienen vacía. El argumento «la O ya lo dice» solo vale para rezago.
 ok("el aviso apunta hacia arriba", T_SIN_PED.indexOf("ARRIBA") !== -1);
 ok("y el de la M-S SALIDAS sigue apuntando abajo",
    T_SIN_PED.indexOf("ABAJO") === -1);
