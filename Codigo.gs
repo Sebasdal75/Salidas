@@ -5099,7 +5099,7 @@ function onOpen() {
   // houses lo escondía también, sin que nada lo dijera.
   const menu = ui.createMenu('📦 Opciones Avanzadas')
     .addItem('📋 Agrupar Guías por Pedimento (Col A)', 'agruparPorPedimento')
-    .addItem('🧹 Limpiar TODO lo que ya salió (esta pestaña)', 'limpiarGuiasMovidas')
+    .addItem('🧹 Limpiar TODO lo que ya salió (todas las M-S)', 'limpiarMovidasDeTodasLasMS')
     .addItem('🔄 Forzar Actualización de esta pestaña', 'forzarActualizacionHojaActiva')
     .addItem('🌙 Cierre del día (historial + caché)', 'cierreDelDia')
     // Va aquí, pegado al cierre, porque es lo que se hace DESPUÉS cuando el
@@ -5194,6 +5194,10 @@ function onOpen() {
       .addItem('✔️ Reponer validación en todas las pestañas', 'aplicarValidacionEnTodas')
       .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
       .addItem('🔓 Quitar las protecciones del script', 'quitarProteccionesDelScript')
+      // La variante de UNA pestaña se queda aquí abajo, no arriba. El barrido
+      // de todas las M-S cubre el día a día; esta es para cuando hay que
+      // limpiar una GLOBAL o una de rezago, que el barrido no toca.
+      .addItem('🧹 Limpiar lo ya salido de SOLO esta pestaña', 'limpiarGuiasMovidas')
       .addSeparator()
       .addItem('⚙️ Poner el trigger de escaneo (6 min)', 'instalarTriggerAvanzado')
       // VUELVEN AL MENÚ. Se habían quitado cuando el disparador de la noche
@@ -6689,9 +6693,9 @@ function limpiarGuiasMovidasSeleccion() { limpiarGuiasMovidas(); }
 // medio renombrar, con una fila rara— las demás tienen que limpiarse igual. Un
 // barrido nocturno que se cae en la tercera pestaña y no avisa es peor que no
 // tenerlo, porque al día siguiente nadie sabe que no corrió.
-function barrerMovidasDeLasMS(ss) {
+function barrerMovidasDeLasMS(ss, motivo) {
     let cacheInfo = refrescarCacheAntesDeLimpiar(ss);
-    let total = 0, hojas = 0, fallos = [];
+    let total = 0, fallos = [], limpiadas = [];
 
     ss.getSheets().forEach(h => {
         let n = claveHoja(h.getName());
@@ -6700,27 +6704,94 @@ function barrerMovidasDeLasMS(ss) {
 
         try {
             let r = limpiarMovidasDeHoja(h, ss, cacheInfo);
-            if (r) { total += r.eliminadas; hojas++; }
+            if (r) { total += r.eliminadas; limpiadas.push({ hoja: h, nombre: h.getName(), filas: r.eliminadas }); }
         } catch (err) {
             fallos.push(h.getName() + ": " + err);
         }
     });
 
+    // EL REPINTADO VA AL FINAL, cuando ya se limpiaron todas y el caché se ha
+    // releído UNA vez. Recalcular dentro del bucle costaría una relectura
+    // completa del caché por pestaña, y encima con datos a medias: las guías
+    // que aún no se han quitado de las otras M-S seguirían contando.
+    //
+    // Sin este repintado las filas suben pero se llevan el estado de la fila
+    // que ocupaban antes, y la hoja queda diciendo cosas de bultos que ya no
+    // están ahí hasta que alguien escanee o pasen los cinco minutos de la red
+    // de seguridad.
     if (total > 0) {
         invalidarCacheRAM();
         cacheInfo = getCacheData(ss);
+        limpiadas.forEach(x => {
+            try { recalcularHoja(x.hoja, ss, cacheInfo, null, false, true); }
+            catch (err) { fallos.push(x.nombre + " (al repintar): " + err); }
+        });
     }
 
     // Queda constancia en el historial de que el barrido corrió, aunque no
     // borrara nada. Sin esa línea no hay forma de distinguir «no había nada que
     // limpiar» de «el disparador lleva tres semanas caído».
     registrarEnHistorialLote(ss, [eventoHistorial(
-        "(todas las M-S)", hojas, "Barrido nocturno",
-        total + " filas", hojas + " pestañas",
-        "LIMPIEZA DE LA NOCHE (guías ya salidas)" +
+        "(todas las M-S)", limpiadas.length, "Barrido de M-S",
+        total + " filas", limpiadas.length + " pestañas",
+        (motivo || "LIMPIEZA DE LA NOCHE") + " (guías ya salidas)" +
         (fallos.length ? " — FALLARON: " + fallos.join(" | ") : ""))]);
 
-    return { filas: total, hojas: hojas, fallos: fallos };
+    return { filas: total, hojas: limpiadas.length, fallos: fallos,
+             detalle: limpiadas.map(x => x.nombre + ": " + x.filas) };
+}
+
+// EL BOTÓN: el mismo barrido, pedido a mano y sobre TODAS las M-S de una vez.
+//
+// Es el mismo trabajo que hace el disparador de la noche, no una copia: ir
+// pestaña por pestaña es justo lo que se quería evitar, y dos implementaciones
+// del mismo borrado acabarían divergiendo el día que se toque una sola.
+function limpiarMovidasDeTodasLasMS() {
+  const ss = obtenerArchivo();
+  const ui = SpreadsheetApp.getUi();
+
+  let candidatas = ss.getSheets().map(h => h.getName()).filter(n => {
+      let c = claveHoja(n);
+      return !esHojaSistema(c) && !esHojaInterna(c) && esHojaMS(c);
+  });
+
+  if (candidatas.length === 0) {
+      ui.alert("🧹 Limpiar las M-S", "No hay ninguna pestaña M-S en este archivo.", ui.ButtonSet.OK);
+      return;
+  }
+
+  let r = ui.alert("🧹 Limpiar las M-S",
+      "Se va a quitar de estas " + candidatas.length + " pestañas TODO lo que " +
+      "ya salió:\n\n  · " + candidatas.join("\n  · ") + "\n\n" +
+      "Primero se refresca el caché de todo el archivo, para que no se quede " +
+      "ninguna que ya se fue. Todo lo que se borre queda en " +
+      "HISTORIAL_BORRADOS.\n\n¿Sigo?", ui.ButtonSet.YES_NO);
+  if (r !== ui.Button.YES) return;
+
+  let res = null;
+  // La marca de mantenimiento vale para todo el barrido: se escribe en muchas
+  // pestañas y cada escritura puede despertar al resto del sistema.
+  marcarMantenimiento();
+  try {
+      conLock(archivo => { res = barrerMovidasDeLasMS(archivo, "LIMPIEZA A MANO DESDE EL MENÚ"); });
+  } finally {
+      quitarMantenimiento();
+  }
+
+  if (!res) {
+      ui.alert("🧹 Limpiar las M-S", "No se pudo tomar el archivo. Inténtalo otra vez.", ui.ButtonSet.OK);
+      return;
+  }
+
+  let msg = res.filas === 0
+      ? "No había nada que limpiar: ninguna de esas " + candidatas.length +
+        " pestañas tiene guías que ya salieron."
+      : "Listo.\n\n   · " + res.filas + " filas quitadas de " + res.hojas +
+        " pestañas\n\n" + res.detalle.map(d => "   · " + d).join("\n");
+  if (res.fallos.length) {
+      msg += "\n\n❌ Estas NO se pudieron limpiar:\n" + res.fallos.join("\n");
+  }
+  ui.alert("🧹 Limpiar las M-S", msg, ui.ButtonSet.OK);
 }
 
 // =========================================================================
