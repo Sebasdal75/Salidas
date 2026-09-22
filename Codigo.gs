@@ -1017,7 +1017,18 @@ function cierreDelDia() {
     // se reconstruye entero una sola vez.
     marcarMantenimiento();
     try {
-      limpiarHistorialDiario();
+      // El vaciado PELADO, no el del disparador de la noche, por dos motivos y
+      // los dos serios:
+      //
+      //   · Aquí ya estamos DENTRO de `conLock`, y el del disparador vuelve a
+      //     pedir el lock. Un lock pedido dos veces en la misma ejecución no
+      //     está garantizado que se conceda: el cierre se quedaría colgado o se
+      //     saltaría el barrido sin decir nada.
+      //
+      //   · El diálogo del cierre promete, con todas sus letras, que «el
+      //     CONTENIDO de las hojas de escaneo NO se toca». Barrer las M-S aquí
+      //     sería romper esa promesa justo en la operación que la enuncia.
+      vaciarHistorialBorrados(archivo);
 
       // El recorte va ANTES de rehacer la fotografía: así el caché se construye
       // sobre las hojas ya recortadas y no se queda con filas que ya no existen.
@@ -1071,8 +1082,43 @@ const HORA_LIMPIEZA_HISTORIAL = 22;
 // Vacía el historial dejando la fila de encabezados. Solo borra CONTENIDO
 // (clearContent), nunca la fila ni el formato, así que los encabezados, los
 // anchos y cualquier validación siguen intactos.
+// EL DISPARADOR DE LA NOCHE. Hace dos cosas, en este orden:
+//
+//   1. Barrer de todas las M-S lo que ya salió.
+//   2. Vaciar HISTORIAL_BORRADOS.
+//
+// EL ORDEN IMPORTA Y NO ES EL OBVIO. El barrido ESCRIBE en el historial —cada
+// fila que se lleva queda anotada—, así que vaciarlo primero y barrer después
+// dejaría el historial lleno justo de lo que acaba de pasar, que es lo
+// contrario de lo que se quiere: el historial se vacía para empezar el día
+// limpio. Barriendo primero, lo del barrido se va con el resto del día.
+//
+// EL NOMBRE SE QUEDA aunque ya haga más cosas. Un disparador instalado hace
+// meses guarda el NOMBRE de la función: cambiarlo dejaría ese disparador
+// llamando cada noche a algo que ya no existe, fallando en silencio. Renombrarlo
+// costaría que cada uno de los siete vuelva a instalarlo a mano.
 function limpiarHistorialDiario() {
   const ss = obtenerArchivo();
+
+  // El barrido toca muchas pestañas. Sin la marca de mantenimiento, cada
+  // escritura puede despertar al resto del sistema una vez por pestaña.
+  marcarMantenimiento();
+  try {
+      conLock(archivo => { barrerMovidasDeLasMS(archivo); });
+  } catch (err) {
+      // Que falle el barrido no puede impedir que se vacíe el historial: son
+      // dos tareas independientes y la segunda no depende de la primera.
+  } finally {
+      quitarMantenimiento();
+  }
+
+  return vaciarHistorialBorrados(ss);
+}
+
+// El vaciado a secas, sin nada más. Separado para que «Vaciar historial ahora»
+// no arrastre el barrido de las M-S: quien lo pide quiere vaciar el registro,
+// no que se le borren filas de las hojas de escaneo.
+function vaciarHistorialBorrados(ss) {
   const hoja = ss.getSheetByName("HISTORIAL_BORRADOS");
   if (!hoja) return 0;
 
@@ -1104,7 +1150,11 @@ function limpiarHistorialAhora() {
       ui.ButtonSet.YES_NO);
   if (resp !== ui.Button.YES) return;
 
-  let borrados = limpiarHistorialDiario();
+  // Se llama al vaciado PELADO, no al del disparador: quien pide esto quiere
+  // vaciar el registro, no que de paso se le borren filas de las hojas de
+  // escaneo. Que un botón llamado «vaciar historial» se lleve por delante
+  // medio turno de trabajo es la clase de sorpresa que no se perdona.
+  let borrados = vaciarHistorialBorrados(ss);
   ss.toast("✅ Historial vaciado (" + borrados + " registros).", "Listo", 5);
 }
 
@@ -1116,10 +1166,11 @@ function instalarLimpiezaHistorial() {
   ScriptApp.newTrigger('limpiarHistorialDiario')
            .timeBased().atHour(HORA_LIMPIEZA_HISTORIAL).everyDays(1).create();
 
-  ss.toast('✅ El historial se vaciará solo cada día alrededor de las ' +
-           HORA_LIMPIEZA_HISTORIAL + ':00. Para cambiar la hora, edita ' +
-           'HORA_LIMPIEZA_HISTORIAL al inicio del código y vuelve a instalarlo.',
-           'Limpieza automática activa', 8);
+  ss.toast('✅ Cada día alrededor de las ' + HORA_LIMPIEZA_HISTORIAL + ':00: ' +
+           'se barre de TODAS las M-S lo que ya salió, y después se vacía el ' +
+           'historial. Para cambiar la hora, edita HORA_LIMPIEZA_HISTORIAL al ' +
+           'inicio del código y vuelve a instalarlo.',
+           'Limpieza de la noche activa', 10);
 }
 
 function quitarLimpiezaHistorial() {
@@ -5048,7 +5099,7 @@ function onOpen() {
   // houses lo escondía también, sin que nada lo dijera.
   const menu = ui.createMenu('📦 Opciones Avanzadas')
     .addItem('📋 Agrupar Guías por Pedimento (Col A)', 'agruparPorPedimento')
-    .addItem('🧹 Limpiar guías movidas (Rango seleccionado)', 'limpiarGuiasMovidasSeleccion')
+    .addItem('🧹 Limpiar TODO lo que ya salió (esta pestaña)', 'limpiarGuiasMovidas')
     .addItem('🔄 Forzar Actualización de esta pestaña', 'forzarActualizacionHojaActiva')
     .addItem('🌙 Cierre del día (historial + caché)', 'cierreDelDia')
     // Va aquí, pegado al cierre, porque es lo que se hace DESPUÉS cuando el
@@ -5144,7 +5195,13 @@ function onOpen() {
       .addItem('🔒 Proteger hojas del sistema', 'protegerHojasSistema')
       .addItem('🔓 Quitar las protecciones del script', 'quitarProteccionesDelScript')
       .addSeparator()
-      .addItem('⚙️ Poner el trigger de escaneo (6 min)', 'instalarTriggerAvanzado'));
+      .addItem('⚙️ Poner el trigger de escaneo (6 min)', 'instalarTriggerAvanzado')
+      // VUELVEN AL MENÚ. Se habían quitado cuando el disparador de la noche
+      // solo vaciaba el historial y daba igual tenerlo o no. Ahora ademas
+      // BARRE LAS M-S, así que hay que poder ponerlo y quitarlo sin abrir el
+      // editor de código.
+      .addItem('🌙 Poner la limpieza de la noche', 'instalarLimpiezaHistorial')
+      .addItem('🌙 Quitar la limpieza de la noche', 'quitarLimpiezaHistorial'));
 
   menu.addToUi();
 }
@@ -6423,29 +6480,50 @@ function pedimentoConserva(valores, i, hasta, paraEliminar, invertida) {
     return false;
 }
 
-function limpiarGuiasMovidasSeleccion() {
-  conLock(ss => {
-    const hoja = ss.getActiveSheet();
-    const rangoSeleccionado = hoja.getActiveRange();
-    if (!rangoSeleccionado) return;
+// ANTES DE BORRAR, PREGUNTAR BIEN.
+//
+// La limpieza decide qué se va mirando el CACHÉ —«¿esta guía está escaneada en
+// una hoja de unidad?»— y no el texto de la columna B. Si el caché viene
+// atrasado, la respuesta es que no y la fila se queda, aunque el bulto salió
+// hace horas. Eso es justo lo que pasaba: quedaban sin limpiar las filas que
+// llevaban una alerta encima, porque el «➡ Salió en …» nunca llegó a
+// escribirse.
+//
+// Así que se rehacen las fotografías de TODAS las pestañas antes de tocar nada.
+// Cuesta una escritura por pestaña y se paga una vez al día: borrar de menos es
+// molesto, pero borrar una fila que no había salido es perder un bulto.
+function refrescarCacheAntesDeLimpiar(ss) {
+    podarCacheHuerfano(ss);
+    ss.getSheets().forEach(h => {
+        let n = claveHoja(h.getName());
+        if (!esHojaSistema(n) && !esHojaInterna(n)) actualizarFotografiaMental(h, ss);
+    });
+    invalidarCacheRAM();
+    return getCacheData(ss);
+}
 
-    asegurarColumnas(hoja, 12);
-    let filaInicio = rangoSeleccionado.getRow();
-    let numFilasSeleccion = rangoSeleccionado.getNumRows();
-    if (numFilasSeleccion < 1) return;
+// Quita de UNA pestaña, entera, todas las filas cuya guía ya salió.
+//
+// Es el núcleo que comparten el botón del menú y el barrido de la noche. Antes
+// esto vivía dentro de la función del botón y solo sabía trabajar sobre el
+// rango seleccionado, así que el disparador no podía reutilizarlo.
+//
+// Devuelve {eliminadas, conAlerta} o null si no había nada que hacer.
+function limpiarMovidasDeHoja(hoja, ss, cacheInfo) {
+    let nombreHoja = claveHoja(hoja.getName());
+    if (esHojaSistema(nombreHoja) || esHojaInterna(nombreHoja)) return null;
 
     let lr = hoja.getLastRow();
-    let maxFilaData = Math.max(lr, filaInicio + numFilasSeleccion - 1);
-    let totalFilasAProcesar = maxFilaData - filaInicio + 1;
-    if (totalFilasAProcesar < 1) return;
+    if (lr < 1) return null;
 
-    let rangoData = hoja.getRange(filaInicio, 1, totalFilasAProcesar, 12);
+    asegurarColumnas(hoja, 12);
+    let rangoData = hoja.getRange(1, 1, lr, 12);
     let valores = rangoData.getValues();
 
     // Los valores suben, así que TODO lo que va pegado a la fila tiene que subir
     // con ellos. Antes solo se movían los valores: los colores se quedaban en su
-    // sitio y acababan describiendo una fila que ya no era esa (por eso "no me
-    // borra el color"), y las validaciones se quedaban descolocadas igual.
+    // sitio y acababan describiendo una fila que ya no era esa, y las
+    // validaciones se quedaban descolocadas igual.
     let fondos    = rangoData.getBackgrounds();
     let colorsFte = rangoData.getFontColors();
     let lineasFte = rangoData.getFontLines();
@@ -6453,7 +6531,6 @@ function limpiarGuiasMovidasSeleccion() {
 
     let paraEliminar = new Set();
     let filasHistorial = [];
-    let nombreHoja = claveHoja(hoja.getName());
 
     // El caché sabe qué guías están escaneadas en una hoja de unidad. Eso es el
     // HECHO de que salieron; el «➡ Salió en …» de la columna B es solo cómo se
@@ -6463,13 +6540,12 @@ function limpiarGuiasMovidasSeleccion() {
     //
     // Por eso antes se quedaban sin limpiar precisamente las filas problemáticas
     // —las que llevaban un duplicado— aunque el bulto se hubiera embarcado hacía
-    // horas. Ahora se pregunta al caché y no al texto.
+    // horas. Se pregunta al caché y no al texto.
     // Se excluye ESTA pestaña: una guía escaneada aquí no ha salido de aquí.
-    let cacheParaSalidas = getCacheData(ss);
-    let salidas = mapaSalidasDesdeCache(cacheParaSalidas, nombreHoja);
+    let salidas = mapaSalidasDesdeCache(cacheInfo, nombreHoja);
     let conAlerta = 0;
 
-    for (let i = 0; i < numFilasSeleccion && i < valores.length; i++) {
+    for (let i = 0; i < valores.length; i++) {
         let valB = String(valores[i][1]).trim();
         let guiaBorrada = String(valores[i][0]).trim();
         let clave = guiaBorrada.toUpperCase();
@@ -6490,7 +6566,7 @@ function limpiarGuiasMovidasSeleccion() {
               "; la fila seguía marcada «" + cabezaEstado(valB) + "»)";
         if (!porTexto) conAlerta++;
 
-        filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", guiaBorrada, valB, motivo));
+        filasHistorial.push(eventoHistorial(nombreHoja, i + 1, "Físico (Col A)", guiaBorrada, valB, motivo));
     }
 
     // ¿Le queda alguna guía a este pedimento después de la limpieza?
@@ -6501,20 +6577,17 @@ function limpiarGuiasMovidasSeleccion() {
     // SIGUIENTE, el pedimento se daba por lleno y se quedaba ahí colgado con
     // todas sus guías ya borradas. Ese es el «dejó un pedimento arriba».
     let invertida = esHojaSalidasMS(nombreHoja);
-    for (let i = 0; i < numFilasSeleccion && i < valores.length; i++) {
+    for (let i = 0; i < valores.length; i++) {
         let valA = String(valores[i][0]).trim().toUpperCase();
         if (!/^\d{7}$/.test(valA) || paraEliminar.has(i)) continue;
 
-        if (!pedimentoConserva(valores, i, numFilasSeleccion, paraEliminar, invertida)) {
+        if (!pedimentoConserva(valores, i, valores.length, paraEliminar, invertida)) {
             paraEliminar.add(i);
-            filasHistorial.push(eventoHistorial(nombreHoja, filaInicio + i, "Físico (Col A)", valA, "Vacío", "LIMPIEZA DE PEDIMENTO VACÍO"));
+            filasHistorial.push(eventoHistorial(nombreHoja, i + 1, "Físico (Col A)", valA, "Vacío", "LIMPIEZA DE PEDIMENTO VACÍO"));
         }
     }
 
-    if (paraEliminar.size === 0) {
-        ss.toast('ℹ️ No se encontraron guías movidas en el rango seleccionado.', 'Sin cambios', 5);
-        return;
-    }
+    if (paraEliminar.size === 0) return null;
 
     registrarEnHistorialLote(ss, filasHistorial);
 
@@ -6552,18 +6625,102 @@ function limpiarGuiasMovidasSeleccion() {
     rangoData.setDataValidations(nuevasValidaciones);
 
     actualizarFotografiaMental(hoja, ss);
-    invalidarCacheRAM();
-    let cacheInfo = getCacheData(ss);
 
-    recalcularHoja(hoja, ss, cacheInfo, null);
+    return { eliminadas: eliminadas, conAlerta: conAlerta };
+}
+
+// EL BOTÓN: limpia la pestaña ENTERA, sin seleccionar nada.
+//
+// Antes trabajaba solo sobre el rango marcado, y eso tenía dos problemas que no
+// avisaban: había que acordarse de seleccionar hasta abajo del todo, y lo que
+// se quedara fuera de la selección se quedaba en la hoja pareciendo pendiente.
+// Una hoja de mil filas se limpiaba «casi entera» y nadie lo notaba.
+function limpiarGuiasMovidas() {
+  conLock(ss => {
+    const hoja = ss.getActiveSheet();
+    const nombreHoja = claveHoja(hoja.getName());
+
+    if (esHojaSistema(nombreHoja) || esHojaInterna(nombreHoja)) {
+        ss.toast('ℹ️ Esta pestaña es del sistema. Colócate en una de escaneo.', 'Sin Acción', 4);
+        return;
+    }
+
+    ss.toast('⏳ Refrescando el caché antes de borrar…', 'Limpieza', 5);
+    let cacheInfo = refrescarCacheAntesDeLimpiar(ss);
+
+    // Se recalcula ANTES de borrar, no después: así lo que se vaya ya lleva su
+    // estado definitivo y queda en el historial con él, en vez de con el que
+    // tuviera de la pasada anterior.
+    recalcularHoja(hoja, ss, cacheInfo, null, false, true);
+
+    let r = limpiarMovidasDeHoja(hoja, ss, cacheInfo);
+    if (!r) {
+        ss.toast('ℹ️ No hay ninguna guía movida en esta pestaña.', 'Sin cambios', 5);
+        return;
+    }
+
+    invalidarCacheRAM();
+    cacheInfo = getCacheData(ss);
+    recalcularHoja(hoja, ss, cacheInfo, null, false, true);
     if (esHojaInventario(nombreHoja)) sincronizarInventariosAfectados(ss, cacheInfo, null, nombreHoja);
 
-    ss.toast('✅ Guías limpiadas (' + eliminadas + ' filas). Colores y validaciones subieron con ellas.' +
-             (conAlerta > 0
-                ? '  ⚠️ ' + conAlerta + ' seguían marcadas con alerta aunque ya habían salido: mira el historial.'
+    ss.toast('✅ ' + r.eliminadas + ' filas limpiadas de «' + hoja.getName() + '». ' +
+             'Colores y validaciones subieron con ellas.' +
+             (r.conAlerta > 0
+                ? '  ⚠️ ' + r.conAlerta + ' seguían marcadas con alerta aunque ya habían salido: mira el historial.'
                 : ''),
-             'Limpieza Completa', conAlerta > 0 ? 12 : 5);
+             'Limpieza Completa', r.conAlerta > 0 ? 12 : 5);
   });
+}
+
+// El nombre viejo sigue existiendo y apunta al nuevo.
+//
+// Un disparador instalado hace meses guarda el NOMBRE de la función, no la
+// función: renombrarla a secas deja ese disparador fallando cada noche sin que
+// nada lo diga. Y lo mismo con un menú que alguien no haya recargado.
+function limpiarGuiasMovidasSeleccion() { limpiarGuiasMovidas(); }
+
+// EL BARRIDO DE LA NOCHE: todo lo movido de todas las M-S.
+//
+// Solo las M-S, que es donde se pidió. Las de unidad son el destino —lo que
+// llega ahí no ha salido de ahí— y las de rezago llevan su propio ritmo.
+//
+// Va pestaña por pestaña y cada una en su try: si una falla —protegida, a
+// medio renombrar, con una fila rara— las demás tienen que limpiarse igual. Un
+// barrido nocturno que se cae en la tercera pestaña y no avisa es peor que no
+// tenerlo, porque al día siguiente nadie sabe que no corrió.
+function barrerMovidasDeLasMS(ss) {
+    let cacheInfo = refrescarCacheAntesDeLimpiar(ss);
+    let total = 0, hojas = 0, fallos = [];
+
+    ss.getSheets().forEach(h => {
+        let n = claveHoja(h.getName());
+        if (esHojaSistema(n) || esHojaInterna(n)) return;
+        if (!esHojaMS(n)) return;
+
+        try {
+            let r = limpiarMovidasDeHoja(h, ss, cacheInfo);
+            if (r) { total += r.eliminadas; hojas++; }
+        } catch (err) {
+            fallos.push(h.getName() + ": " + err);
+        }
+    });
+
+    if (total > 0) {
+        invalidarCacheRAM();
+        cacheInfo = getCacheData(ss);
+    }
+
+    // Queda constancia en el historial de que el barrido corrió, aunque no
+    // borrara nada. Sin esa línea no hay forma de distinguir «no había nada que
+    // limpiar» de «el disparador lleva tres semanas caído».
+    registrarEnHistorialLote(ss, [eventoHistorial(
+        "(todas las M-S)", hojas, "Barrido nocturno",
+        total + " filas", hojas + " pestañas",
+        "LIMPIEZA DE LA NOCHE (guías ya salidas)" +
+        (fallos.length ? " — FALLARON: " + fallos.join(" | ") : ""))]);
+
+    return { filas: total, hojas: hojas, fallos: fallos };
 }
 
 // =========================================================================

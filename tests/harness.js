@@ -4344,5 +4344,40 @@ ok("sin mapa no revienta",
 ok("una movida marcada como costal sigue siendo movida",
    esEstadoSalida(accesoTxtCostal() + " · ➡ MOVIDO A GLOBAL 1"));
 
+console.log("\n=== 15. La limpieza de lo ya salido ===");
+// `pedimentoConserva` es lo que decide si un pedimento se queda colgado sin
+// guías después de la limpieza, y ahora lo usan DOS caminos —el botón y el
+// barrido de la noche— sobre la hoja ENTERA, no sobre un rango.
+//
+// HAY QUE MIRAR HACIA EL LADO CORRECTO. En una M-S normal las guías van DEBAJO
+// de su pedimento; en una M-S SALIDAS van ENCIMA. Buscando siempre hacia abajo,
+// en una M-S SALIDAS se encuentran las guías del bloque SIGUIENTE, el pedimento
+// se da por lleno y se queda ahí con todas sus suyas ya borradas.
+let hojaMS = [["6102253"], [G1], [G2], ["6103516"], [G3]];
+
+// Normal: al pedimento de la fila 0 le quedan guías si no se borran las suyas.
+ok("con guías vivas debajo, el pedimento se queda",
+   pedimentoConserva(hojaMS, 0, hojaMS.length, new Set(), false) === true);
+ok("si se borran sus dos guías, se va",
+   pedimentoConserva(hojaMS, 0, hojaMS.length, new Set([1, 2]), false) === false);
+// El recorrido PARA en el siguiente pedimento: lo que hay más allá no es suyo.
+ok("no se queda con las guías del bloque siguiente",
+   pedimentoConserva(hojaMS, 0, hojaMS.length, new Set([1, 2]), false) === false);
+
+// INVERTIDA (M-S SALIDAS): las guías del pedimento están ARRIBA.
+let hojaInv = [[G1], [G2], ["6102253"], [G3], ["6103516"]];
+ok("invertida: mira hacia arriba y encuentra las suyas",
+   pedimentoConserva(hojaInv, 2, hojaInv.length, new Set(), true) === true);
+ok("invertida: con las suyas borradas, se va",
+   pedimentoConserva(hojaInv, 2, hojaInv.length, new Set([0, 1]), true) === false);
+// Y ESTE es el que fallaba: buscando hacia abajo encontraría G3, que es del
+// pedimento de abajo, y dejaría el de arriba colgado.
+ok("invertida: NO se queda con la guía del bloque de abajo",
+   pedimentoConserva(hojaInv, 2, hojaInv.length, new Set([0, 1]), true) === false);
+
+// Un pedimento al final, sin nada después, no conserva nada.
+ok("un pedimento suelto al final se va",
+   pedimentoConserva([[G1], ["6102253"]], 1, 2, new Set(), false) === false);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
