@@ -4379,5 +4379,85 @@ ok("invertida: NO se queda con la guía del bloque de abajo",
 ok("un pedimento suelto al final se va",
    pedimentoConserva([[G1], ["6102253"]], 1, 2, new Set(), false) === false);
 
+console.log("\n=== 16. La house tiene que cuadrar con su guía ===");
+// LA REGLA, sacada de los datos reales: una guía UPS es «1Z» + SEIS caracteres
+// de número de embarcador, y la house que le toca empieza por esos mismos seis.
+//
+//     1ZA2F338 042893 4294   ->   A2F338 CFPBS
+//     1ZY829R5 663875 6858   ->   Y829R5 FKLCV
+//
+// Sirve para cazar el desastre silencioso del módulo: una fila del CSV leída
+// corrida por una columna le pone a cada guía la house de la de al lado. Nada
+// falla, nada avisa, y cada bulto sale con la house de otro.
+[["1ZA2F3380428934294", "A2F338CFPBS"],
+ ["1ZA2F3380428914814", "A2F338CFLFV"],
+ ["1ZYY76790406047665", "YY76794FHPC"],
+ ["1ZY8E1910412704676", "Y8E1917TDH8"],
+ ["1ZY829R56638756858", "Y829R5FKLCV"],
+ ["1ZY7F1410441872089", "Y7F141G9C7K"],
+ ["1ZY68V48D947812881", "Y68V48HK3XR"]].forEach(c =>
+  ok("cuadran " + c[0] + " / " + c[1], houseNoCuadra(c[0], c[1]) === ""));
+
+ok("el embarcador son los seis de después del 1Z",
+   embarcadorDeGuia("1ZA2F3380428934294") === "A2F338");
+ok("y en otra igual", embarcadorDeGuia("1ZY68V48D947812881") === "Y68V48");
+
+// La house de la guía de al lado: mismo formato, otro embarcador.
+ok("una house de otra guía NO cuadra",
+   houseNoCuadra("1ZA2F3380428934294", "Y829R5FKLCV") !== "");
+ok("y el motivo dice por cuál debería empezar",
+   houseNoCuadra("1ZA2F3380428934294", "Y829R5FKLCV").indexOf("A2F338") !== -1);
+// Un solo carácter cambiado tambien se caza: es el error de tecleo tipico.
+ok("un carácter distinto en el embarcador NO cuadra",
+   houseNoCuadra("1ZA2F3380428934294", "A2F339CFPBS") !== "");
+
+// GUÍA CORTA: no hay embarcador que mirar, la house ES la guía.
+ok("una guía corta con su mismo número cuadra",
+   houseNoCuadra("V0399301629", "V0399301629") === "");
+ok("y con otro número no",
+   houseNoCuadra("V0399301629", "V0391336517") !== "");
+
+// LO QUE NO SE PUEDE COMPROBAR NO SE DENUNCIA. Un informe con mil líneas
+// dudosas no lo lee nadie, y entonces tampoco se leen las veinte de verdad.
+ok("sin guía no se dice nada", houseNoCuadra("", "A2F338CFPBS") === "");
+ok("sin house tampoco", houseNoCuadra("1ZA2F3380428934294", "") === "");
+ok("una guía de largo raro no se juzga", houseNoCuadra("ABC123", "A2F338CFPBS") === "");
+ok("null no revienta", houseNoCuadra(null, null) === "");
+// Los guiones y los espacios no cuentan: el mismo dato llega de varias formas.
+ok("los separadores no estorban",
+   houseNoCuadra("1z a2f338-0428-934294", "a2f338 cfpbs") === "");
+
+console.log("\n--- 16b. «Shipment not on file» no es una house ---");
+// Es la forma que tiene el sistema de origen de decir «todavía no tengo ese
+// embarque». Entraba al índice como un número bueno, se pegaba en la columna C,
+// y desde ahí la guía SÍ tenía house —una que no existe— así que el relleno no
+// volvía a buscarla nunca. La de verdad, al llegar, ya no tenía quien la
+// reclamara.
+["SHIPMENT NOT ON FILE", "shipment not on file", "Not On File",
+ "NOT FOUND", "N/A", "NULL", "PENDIENTE"].forEach(t =>
+  ok("«" + t + "» se descarta", houseSospechosa(t) === true));
+ok("una house de verdad NO se descarta", houseSospechosa("A2F338CFPBS") === false);
+ok("ni una corta", houseSospechosa("V0399301629") === false);
+// Y no se cuenta DOS veces: como house que no se cargó ya la caza
+// `houseSospechosa`; contarla además como descuadre sería decir lo mismo con
+// dos nombres en dos informes distintos.
+ok("un «not on file» no sale además como descuadre",
+   houseNoCuadra("1ZA2F3380428934294", "SHIPMENT NOT ON FILE") === "");
+
+console.log("\n--- 16c. El informe ---");
+let filasIdx = [
+    ["1ZA2F3380428934294", "A2F338CFPBS", "2026-09-01", "PREALERTA"],
+    ["1ZY829R56638756858", "A2F338CFPBS", "2026-09-01", "PREALERTA"],  // la de al lado
+    ["V0399301629",        "V0399301629", "2026-09-01", "PREALERTA"],
+    ["",                   "A2F338CFPBS", "",           ""]            // sin guía
+];
+let desc = descuadresDeIndice(filasIdx, "INDICE_HOUSE");
+ok("solo sale la que no cuadra", desc.length === 1);
+ok("con su guía", desc[0][0] === "1ZY829R56638756858");
+ok("y con el embarcador que debería llevar", desc[0][2] === "Y829R5");
+ok("y dice de qué índice salió", desc[0][6] === "INDICE_HOUSE");
+ok("sin filas no revienta", descuadresDeIndice([], "X").length === 0);
+ok("null tampoco", descuadresDeIndice(null, "X").length === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

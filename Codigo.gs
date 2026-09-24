@@ -5135,6 +5135,7 @@ function onOpen() {
               .addItem('☁️ Importar inbound desde OneDrive', 'importarInboundDesdeOneDrive')
               .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
               .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
+              .addItem('🔎 Revisar houses contra su guía', 'revisarHousesContraSuGuia')
               .addSeparator()
               .addItem('🔗 Añadir vínculo de OneDrive', 'configurarUrlOneDrive')
               .addItem('🧹 Quitar los vínculos', 'quitarUrlsOneDrive')

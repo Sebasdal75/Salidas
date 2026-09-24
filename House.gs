@@ -816,15 +816,95 @@ function origenDesconocido() { return ORIGEN_DESCONOCIDO; }
 // pegada a un bulto.
 const LARGO_MAX_HOUSE = 40;
 
+// LO QUE EL TRANSPORTISTA ESCRIBE CUANDO NO SABE.
+//
+// «SHIPMENT NOT ON FILE» no es una house: es la forma que tiene el sistema de
+// origen de decir «todavía no tengo ese embarque». Entraba al índice como si
+// fuera un número bueno, se pegaba en la columna C, y a partir de ahí la guía
+// SÍ tenía house —una house que no existe— así que el relleno automático no
+// volvía a buscarla nunca. La house de verdad, cuando llegaba al día
+// siguiente, ya no tenía quien la reclamara.
+//
+// Se comparan las letras solas, sin espacios ni signos: el mismo texto llega
+// unas veces con guiones y otras con dobles espacios.
+const TEXTOS_SIN_HOUSE = [
+    "SHIPMENTNOTONFILE", "NOTONFILE", "NOTFOUND", "NODATA",
+    "NOHOUSE", "NA", "N/A", "NULL", "NONE", "PENDING", "PENDIENTE"
+];
+
+function esTextoDeSinHouse(valor) {
+    let h = String(valor === undefined || valor === null ? "" : valor)
+            .toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (h === "") return false;
+    return TEXTOS_SIN_HOUSE.some(t => h === t.replace(/[^A-Z0-9]/g, ''));
+}
+
 function houseSospechosa(valor) {
     let h = String(valor === undefined || valor === null ? "" : valor).trim();
     if (h === "") return true;
     if (h.length > LARGO_MAX_HOUSE) return true;
+    // Un «no lo tengo» del transportista, no una house.
+    if (esTextoDeSinHouse(h)) return true;
     // Una guía dentro: la fila se partió mal.
     if (/1Z[A-Z0-9]{16}/i.test(h.replace(/[^A-Za-z0-9]/g, ""))) return true;
     // Una fecha dentro: lo mismo.
     if (/\d{1,4}[-\/]\d{1,2}[-\/]\d{1,4}/.test(h)) return true;
     return false;
+}
+
+// =========================================================================
+// ¿LA HOUSE CORRESPONDE A SU GUÍA?
+// =========================================================================
+//
+// Una guía UPS es «1Z» + SEIS caracteres de número de embarcador + el resto. Y
+// la house que le toca empieza por esos mismos seis:
+//
+//     1ZA2F338 042893 4294   ->   A2F338 CFPBS
+//     1ZY829R5 663875 6858   ->   Y829R5 FKLCV
+//     1ZY68V48 D94781 2881   ->   Y68V48 HK3XR
+//
+// Las guías CORTAS no tienen embarcador que mirar: ahí la house ES la guía.
+//
+//     V0399301629            ->   V0399301629
+//
+// Sirve para cazar el desastre silencioso de este módulo: una fila del CSV que
+// se lee corrida por una columna le pone a cada guía la house de la de al lado.
+// Nada falla, nada avisa, y cada bulto sale etiquetado con la house de otro.
+const LARGO_EMBARCADOR = 6;
+
+// Los seis caracteres del embarcador, o "" si esta guía no los tiene.
+function embarcadorDeGuia(guia) {
+    let g = claveGuiaHouse(guia);
+    if (g.length !== 18 || g.indexOf("1Z") !== 0) return "";
+    return g.substring(2, 2 + LARGO_EMBARCADOR);
+}
+
+// "" si cuadra O si no hay forma de saberlo; el motivo si no cuadra.
+//
+// EL «NO HAY FORMA DE SABERLO» DEVUELVE "" A PROPÓSITO. Lo que no se puede
+// comprobar no se denuncia: un informe con mil líneas dudosas no lo lee nadie,
+// y entonces tampoco se leen las veinte que sí eran de verdad.
+function houseNoCuadra(guia, house) {
+    let g = claveGuiaHouse(guia);
+    let h = claveGuiaHouse(house);
+    if (g === "" || h === "") return "";
+    // Un «no lo tengo» no es un descuadre: es una house que no se cargó, y de
+    // eso ya se encarga `houseSospechosa`. Contarlo aquí sería decir dos veces
+    // lo mismo con dos nombres.
+    if (esTextoDeSinHouse(house)) return "";
+
+    let emb = embarcadorDeGuia(g);
+    if (emb !== "") {
+        return h.indexOf(emb) === 0 ? ""
+             : "la house debería empezar por «" + emb + "»";
+    }
+
+    // Guía corta: la house es ella misma.
+    if (/^[A-Z0-9]{11}$/.test(g)) {
+        return h === g ? "" : "una guía corta lleva su mismo número como house";
+    }
+
+    return "";
 }
 
 // ¿Esta celda contiene una guía a la que ponerle house? Devuelve la guía
@@ -2348,6 +2428,98 @@ function filasSinBasura(filas) {
         limpias.push(f);
     });
     return { limpias: limpias, tiradas: tiradas };
+}
+
+// =========================================================================
+// EL INFORME DE HOUSES QUE NO CUADRAN
+// =========================================================================
+//
+// Vive en el ARCHIVO DEL ÍNDICE, no en el de operación, y no es por orden: el
+// de operación lo tienen abierto siete personas todo el día y cada pestaña que
+// se le añade es peso en cada escaneo. El informe se mira de vez en cuando, no
+// cada minuto.
+const HOJA_ERRORES_HOUSE = "ERRORES_HOUSE";
+
+// Tope de líneas del informe. Si el CSV entró corrido, TODAS las filas
+// descuadran: escribir doscientas mil sería tardar diez minutos para decir algo
+// que ya se ve en las primeras veinte.
+const MAX_ERRORES_HOUSE = 3000;
+
+// Las parejas que no cuadran, de una lista de filas del índice.
+//
+// Puro, sin hablar con Sheets, para poder probarlo: la regla de qué cuadra y
+// qué no es justo lo que, si se equivoca, no da error —devuelve un informe
+// vacío o uno lleno de falsos— y eso solo se ve contándolo a mano.
+function descuadresDeIndice(filas, cual) {
+    let salida = [];
+    (filas || []).forEach(f => {
+        let guia = String((f || [])[0] === undefined ? "" : f[0]).trim();
+        let house = String((f || [])[1] === undefined ? "" : f[1]).trim();
+        if (guia === "" || house === "") return;
+        let motivo = houseNoCuadra(guia, house);
+        if (motivo === "") return;
+        salida.push([guia, house, embarcadorDeGuia(guia), motivo,
+                     String(f[2] === undefined ? "" : f[2]),
+                     String(f[3] === undefined ? "" : f[3]),
+                     cual || ""]);
+    });
+    return salida;
+}
+
+function revisarHousesContraSuGuia() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let todos = [];
+    let revisadas = 0;
+    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+        let filas = leerIndice(ss, nombre);
+        revisadas += filas.length;
+        descuadresDeIndice(filas, nombre).forEach(d => todos.push(d));
+    });
+
+    if (revisadas === 0) {
+        ui.alert("🔎 Houses contra su guía",
+                 "El índice está vacío. Importa primero.", ui.ButtonSet.OK);
+        return;
+    }
+
+    const archivo = archivoDelIndice();
+    let hoja = archivo.getSheetByName(HOJA_ERRORES_HOUSE);
+    if (!hoja) hoja = archivo.insertSheet(HOJA_ERRORES_HOUSE, archivo.getNumSheets());
+
+    // Se borra y se rehace: un informe es una foto de AHORA. Acumular dejaría
+    // dentro los descuadres ya corregidos y nadie sabría cuáles siguen vivos.
+    hoja.clear();
+    let cabecera = [["GUIA", "HOUSE", "DEBERÍA EMPEZAR POR", "QUÉ PASA",
+                     "FECHA", "ORIGEN", "ÍNDICE"]];
+    hoja.getRange(1, 1, 1, 7).setValues(cabecera);
+    hoja.getRange(1, 1, 1, 7).setFontWeight("bold");
+
+    let recortado = todos.length > MAX_ERRORES_HOUSE;
+    let aEscribir = recortado ? todos.slice(0, MAX_ERRORES_HOUSE) : todos;
+    if (aEscribir.length > 0) {
+        asegurarFilas(hoja, aEscribir.length + 2);
+        hoja.getRange(2, 1, aEscribir.length, 7).setValues(aEscribir);
+    }
+    archivo.setActiveSheet(hoja);
+
+    let msg = "Revisé " + revisadas.toLocaleString() + " renglones del índice.\n\n";
+    if (todos.length === 0) {
+        msg += "✅ Todas las houses cuadran con su guía.\n\n" +
+               "La regla: una guía «1Z» + seis caracteres de embarcador lleva " +
+               "una house que empieza por esos mismos seis. Una guía corta lleva " +
+               "su propio número.";
+    } else {
+        msg += "⚠️ " + todos.length.toLocaleString() + " no cuadran" +
+               (recortado ? " (se escribieron las primeras " + MAX_ERRORES_HOUSE + ")" : "") +
+               ".\n\nEstán en la pestaña «" + HOJA_ERRORES_HOUSE + "» de " +
+               archivo.getName() + ".\n\n" +
+               "Si son MUCHAS de golpe, sospecha del CSV antes que de las " +
+               "houses: una columna corrida le pone a cada guía la house de la " +
+               "de al lado, y entonces no cuadra ninguna.";
+    }
+    ui.alert("🔎 Houses contra su guía", msg, ui.ButtonSet.OK);
 }
 
 function repararIndiceHouse() {
