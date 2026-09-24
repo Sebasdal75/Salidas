@@ -4710,5 +4710,41 @@ ok("null tampoco", colorSinInfo(null) === colorSinInfo("#FFFFFF"));
 ok("oscurecer respeta el formato", /^#[0-9a-f]{6}$/.test(oscurecerColor("#07c369")));
 ok("y no se pasa de cero", oscurecerColor("#000000") === "#000000");
 
+console.log("\n--- 18g. El listado de lo marcado, en la columna I ---");
+// La columna A de la pestaña es la LISTA QUE SE TECLEA. La columna I es otra
+// cosa: lo que el sistema tiene marcado AHORA, que incluye las que se quedaron
+// sin house sin que nadie las apuntara.
+ok("el listado va en la columna I", accesoColListadoSinInfo() === 9);
+// Separadas por seis columnas a propósito: pegadas, el listado parecería parte
+// de la lista y alguien borraría de ahí creyendo que desmarca una guía. Y no
+// desmarca nada, porque el listado es un espejo, no la fuente.
+ok("lejos de la columna A que se teclea", accesoColListadoSinInfo() > 4);
+
+// SE MIRA LA COLUMNA B, no el caché ni la lista: aquí sale lo que el operador
+// ve de verdad en la hoja. Reconstruirlo desde el caché diría lo que DEBERÍA
+// estar marcado, que es justo lo que no se quiere comprobar.
+let hojaConAvisos = [
+    ["6102253",  "Bultos: 3"],
+    [G1,         "✅ Ok · " + accesoTxtSinInfo()],
+    [G2,         "✅ Ok"],
+    [G3,         "✅ Guía" + SEP_RESUMEN + "Bultos: 3 · " + accesoTxtSinInfo()],
+    ["",         ""],
+    ["SIN PEDIMENTO", "✅ Ok · " + accesoTxtSinInfo()]
+];
+let listado = filasConAvisoSinInfo(hojaConAvisos, "GLOBAL 1");
+ok("salen solo las marcadas", listado.length === 2);
+ok("con su guía", listado[0][0] === G1);
+ok("con la pestaña", listado[0][1] === "GLOBAL 1");
+ok("y con su fila de verdad", listado[0][2] === 2);
+ok("la que arrastra resumen también sale", listado[1][0] === G3);
+// El resumen del bloque es del pedimento entero: en una columna estrecha tapa
+// lo unico que importa.
+ok("pero sin el resumen colgando", listado[1][3].indexOf("Bultos") === -1);
+ok("un pedimento nunca sale", !listado.some(f => f[0] === "6102253"));
+ok("ni un marcador de bloque", !listado.some(f => f[0] === "SIN PEDIMENTO"));
+ok("una hoja sin nada da lista vacía",
+   filasConAvisoSinInfo([[G1, "✅ Ok"]], "X").length === 0);
+ok("sin datos no revienta", filasConAvisoSinInfo(null, "X").length === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

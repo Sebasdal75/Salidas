@@ -3130,6 +3130,86 @@ function refrescarSinInfoEnCache(ss) {
     return n;
 }
 
+// =========================================================================
+// EL LISTADO DE LO QUE ESTÁ MARCADO AHORA MISMO
+// =========================================================================
+//
+// La columna A de la pestaña es la LISTA QUE SE TECLEA: lo que alguien decidió
+// marcar a mano. La columna I es otra cosa: es lo que el sistema tiene marcado
+// AHORA, que incluye además todas las que se quedaron sin house sin que nadie
+// las apuntara.
+//
+// Separadas por seis columnas a propósito. Pegadas, el listado parecería parte
+// de la lista y alguien acabaría borrando de ahí creyendo que desmarca una
+// guía —y no desmarca nada, porque el listado es un espejo, no la fuente—.
+const COL_LISTADO_SIN_INFO = 9;   // columna I
+
+function accesoColListadoSinInfo() { return COL_LISTADO_SIN_INFO; }
+
+// Cuántas filas se listan. Si un día falla el inbound entero, TODO el archivo
+// sale marcado: escribir cien mil renglones para decir «falló la importación»
+// es tardar cinco minutos en dar una noticia que cabe en una línea.
+const MAX_LISTADO_SIN_INFO = 2000;
+
+// Recorre las pestañas de escaneo y devuelve lo que lleva el aviso puesto.
+//
+// Se mira la COLUMNA B, no la lista ni el caché, y esa es la diferencia que lo
+// hace útil: aquí sale lo que el operador está viendo de verdad en la hoja, con
+// su pestaña y su fila. Reconstruirlo desde el caché diría lo que DEBERÍA estar
+// marcado, que es justo lo que no se quiere comprobar.
+function filasConAvisoSinInfo(datos, nombreHoja) {
+    let salida = [];
+    for (let i = 0; i < (datos || []).length; i++) {
+        let fila = datos[i] || [];
+        let guia = String(fila[0] === undefined ? "" : fila[0]).trim();
+        // Un pedimento o un marcador de bloque nunca son la guía que falta.
+        if (guia === "" || esCabeceraBloque(guia)) continue;
+        let estado = String(fila[1] === undefined ? "" : fila[1]).trim();
+        if (!esAvisoSinInfo(estado)) continue;
+        // La CABEZA del estado, sin el resumen del bloque: ese resumen es del
+        // pedimento entero y en una columna estrecha tapa lo único que importa.
+        salida.push([guia, nombreHoja, i + 1, cabezaEstado(estado)]);
+    }
+    return salida;
+}
+
+function guiasConAvisoSinInfo(ss) {
+    let salida = [];
+    ss.getSheets().forEach(hoja => {
+        let n = claveHoja(hoja.getName());
+        if (esHojaSistema(n) || esHojaInterna(n)) return;
+        let lr = hoja.getLastRow();
+        if (lr < 1) return;
+
+        let datos = hoja.getRange(1, 1, lr, 2).getValues();
+        filasConAvisoSinInfo(datos, hoja.getName()).forEach(f => salida.push(f));
+    });
+    return salida;
+}
+
+// Escribe el listado en la columna I de la pestaña.
+function escribirListadoSinInfo(hoja, filas) {
+    let maxFilas = hoja.getMaxRows();
+    // Se borra el listado ANTERIOR entero. Es una foto de ahora: dejar dentro
+    // las que ya se resolvieron es peor que no tener listado, porque nadie
+    // sabría cuáles siguen vivas.
+    if (maxFilas > 0) {
+        hoja.getRange(1, COL_LISTADO_SIN_INFO, maxFilas, 4).clearContent();
+    }
+
+    hoja.getRange(1, COL_LISTADO_SIN_INFO, 1, 4)
+        .setValues([["MARCADAS AHORA", "EN LA PESTAÑA", "FILA", "ESTADO"]])
+        .setFontWeight("bold");
+
+    let recortado = filas.length > MAX_LISTADO_SIN_INFO;
+    let aEscribir = recortado ? filas.slice(0, MAX_LISTADO_SIN_INFO) : filas;
+    if (aEscribir.length === 0) return recortado;
+
+    asegurarFilas(hoja, aEscribir.length + 2);
+    hoja.getRange(2, COL_LISTADO_SIN_INFO, aEscribir.length, 4).setValues(aEscribir);
+    return recortado;
+}
+
 // Crea la pestaña si no existe, y la deja apuntada en el caché.
 //
 // Es un botón y no algo automático a propósito: crear pestañas solo se hace
@@ -3154,6 +3234,17 @@ function prepararHojaSinInformacion() {
     let n = 0;
     try { n = refrescarSinInfoEnCache(ss); } catch (err) { n = -1; }
     invalidarCacheRAM();
+
+    // El listado de la columna I se rehace aquí, con el mismo botón. Un botón
+    // aparte solo para refrescarlo sería uno más en un menú que ya se podó una
+    // vez por estar saturado, y nadie se acordaría de apretar los dos.
+    let marcadas = [];
+    let recortado = false;
+    try {
+        marcadas = guiasConAvisoSinInfo(ss);
+        recortado = escribirListadoSinInfo(hoja, marcadas);
+    } catch (err) { marcadas = null; }
+
     ss.setActiveSheet(hoja);
 
     ui.alert("🛑 Guías sin información",
@@ -3170,6 +3261,12 @@ function prepararHojaSinInformacion() {
         "Ahora mismo hay " + (n < 0 ? "?" : n) + " guías en la lista.\n\n" +
         "Quitar una guía de la lista le quita el aviso: la lista se rehace " +
         "entera cada vez que tocas la columna A.\n\n" +
+        "En la COLUMNA I tienes las que están marcadas AHORA MISMO en las " +
+        "hojas" + (marcadas === null ? " (no se pudo leer)"
+                 : ": " + marcadas.length + ", con su pestaña y su fila") +
+        (recortado ? ". Se listaron las primeras " + MAX_LISTADO_SIN_INFO : "") +
+        ".\n\nEsa columna es un ESPEJO, no la lista: borrar ahí no desmarca " +
+        "nada. Para desmarcar, quita la guía de la columna A.\n\n" +
         "Esta pestaña NO es de escaneo. No cuenta bultos ni choca como " +
         "duplicado con las guías de verdad.", ui.ButtonSet.OK);
 }
@@ -5619,7 +5716,7 @@ function onOpen() {
   menu.addSubMenu(ui.createMenu('🔍 Revisar')
       .addItem('❓ ¿Por qué esta guía sale así?', 'diagnosticarGuia')
       .addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
-      .addItem('🛑 Lista de guías sin información', 'prepararHojaSinInformacion')
+      .addItem('🛑 Guías sin información (lista y marcadas)', 'prepararHojaSinInformacion')
       .addSeparator()
       .addItem('🩺 Revisar los disparadores', 'revisarDisparadores')
       .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema'));
