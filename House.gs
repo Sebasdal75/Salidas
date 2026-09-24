@@ -2576,24 +2576,19 @@ function revisarHousesContraSuGuia() {
         asegurarFilas(hoja, aEscribir.length + 2);
         hoja.getRange(2, 1, aEscribir.length, 7).setValues(aEscribir);
     }
-    // Llevar ahí la vista solo sirve si el índice comparte archivo con la
-    // operación. Cuando vive aparte —que es lo normal— `setActiveSheet` no
-    // enseña nada: la pestaña está en OTRO libro que no está abierto, así que
-    // lo que hace falta es el enlace, no un salto que no ocurre.
-    if (!indiceEstaAparte()) archivo.setActiveSheet(hoja);
+    archivo.setActiveSheet(hoja);
 
     let msg = "Revisé " + revisadas.toLocaleString() + " renglones del índice.\n\n";
     if (todos.length === 0) {
         msg += "✅ Todas las houses cuadran con su guía.\n\n" +
                "La regla: una guía «1Z» + seis caracteres de embarcador lleva " +
                "una house que empieza por esos mismos seis. Una guía corta lleva " +
-               "su propio número.\n\nLa pestaña «" + HOJA_ERRORES_HOUSE +
-               "» queda vacía en:\n" + archivo.getUrl();
+               "su propio número.";
     } else {
         msg += "⚠️ " + todos.length.toLocaleString() + " no cuadran" +
                (recortado ? " (se escribieron las primeras " + MAX_ERRORES_HOUSE + ")" : "") +
                ".\n\nEstán en la pestaña «" + HOJA_ERRORES_HOUSE + "» de " +
-               archivo.getName() + ":\n" + archivo.getUrl() + "\n\n" +
+               archivo.getName() + ".\n\n" +
                "Si son MUCHAS de golpe, sospecha del CSV antes que de las " +
                "houses: una columna corrida le pone a cada guía la house de la " +
                "de al lado, y entonces no cuadra ninguna.";
