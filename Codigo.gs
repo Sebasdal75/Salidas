@@ -2975,6 +2975,14 @@ const HEADER_SIN_INFO = "__SININFO";
 const TXT_SIN_INFO = "🛑 GUÍA SIN INFORMACIÓN";
 const COLOR_SIN_INFO = '#6f42c1';
 
+// La misma alerta, pero diciendo POR QUÉ. Las dos paran el bulto igual; lo que
+// cambia es qué hay que hacer con él: la de la lista ya está identificada y
+// alguien la puso ahí a mano, la de aquí solo necesita que se le busque la
+// house y se meta al índice. Sin distinguirlas hay que ir a mirar la lista
+// para saber cuál de las dos es.
+const TXT_SIN_HOUSE = TXT_SIN_INFO + " (sin house)";
+
+function accesoTxtSinHouse() { return TXT_SIN_HOUSE; }
 function accesoTxtSinInfo() { return TXT_SIN_INFO; }
 function accesoHeaderSinInfo() { return HEADER_SIN_INFO; }
 
@@ -3091,6 +3099,36 @@ function prepararHojaSinInformacion() {
         "entera cada vez que tocas la columna A.\n\n" +
         "Esta pestaña NO es de escaneo. No cuenta bultos ni choca como " +
         "duplicado con las guías de verdad.", ui.ButtonSet.OK);
+}
+
+// El marcador que el relleno escribe cuando buscó la house y no estaba.
+//
+// Se pregunta por `typeof` porque vive en House.gs, que es opcional: si no está
+// pegado, esto no puede reventar el escaneo de nadie.
+function marcaDeSinHouse() {
+    try {
+        return (typeof TXT_HOUSE_SIN_DATO === 'string' && TXT_HOUSE_SIN_DATO !== "")
+             ? TXT_HOUSE_SIN_DATO : "—";
+    } catch (err) { return "—"; }
+}
+
+// ¿A esta fila se le buscó la house y NO estaba?
+//
+// LA CELDA VACÍA NO CUENTA, y es la distinción que hace que esto sirva de algo.
+// Vacía significa «todavía no se ha mirado»: el relleno pasa cada cinco minutos,
+// así que TODA guía recién escaneada tiene la house vacía durante un rato.
+// Avisar por eso sacaría la alerta en cada escaneo, se volvería ruido de fondo,
+// y con ella dejarían de leerse las de verdad.
+//
+// El marcador «—» es otra cosa: lo escribe el relleno cuando YA fue al índice y
+// esa guía no estaba. Eso sí es información, y es la que se pidió ver.
+function avisoDeSinHouse(datosMasivos, i, valor) {
+    let v = String(valor === undefined || valor === null ? "" : valor).trim();
+    if (v === "" || esMarcadorEstructural(v) || /^\d{7}$/.test(v)) return "";
+    let fila = (datosMasivos || [])[i] || [];
+    let h = String(fila[2] === undefined || fila[2] === null ? "" : fila[2]).trim();
+    if (h === "") return "";
+    return h === marcaDeSinHouse() ? TXT_SIN_HOUSE : "";
 }
 
 function avisoDeSinInfo(cacheInfo, valor) {
@@ -4336,6 +4374,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
     // un aviso menos grave es lo que hacía que siguiera dando vueltas.
     else if (avisoDeSinInfo(cacheInfo, valB) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
+    // Y la misma alerta si se le buscó la house y no estaba. Ver
+    // `avisoDeSinHouse`: la celda VACÍA no cuenta, solo el marcador «—».
+    else if (avisoDeSinHouse(datosMasivos, i, valB) !== "") { fijo = TXT_SIN_HOUSE; color = COLOR_SIN_INFO; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else {
@@ -4862,6 +4903,9 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
     // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
     // un aviso menos grave es lo que hacía que siguiera dando vueltas.
     else if (!vacia && avisoDeSinInfo(cacheInfo, valB) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
+    // Y la misma alerta si se le buscó la house y no estaba. Ver
+    // `avisoDeSinHouse`: la celda VACÍA no cuenta, solo el marcador «—».
+    else if (!vacia && avisoDeSinHouse(datosMasivos, i, valB) !== "") { fijo = TXT_SIN_HOUSE; color = COLOR_SIN_INFO; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else {
@@ -5224,6 +5268,9 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
     // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
     // un aviso menos grave es lo que hacía que siguiera dando vueltas.
     else if (!vacia && avisoDeSinInfo(cacheInfo, valA) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
+    // Y la misma alerta si se le buscó la house y no estaba. Ver
+    // `avisoDeSinHouse`: la celda VACÍA no cuenta, solo el marcador «—».
+    else if (!vacia && avisoDeSinHouse(datosMasivos, i, valA) !== "") { fijo = TXT_SIN_HOUSE; color = COLOR_SIN_INFO; }
     else if (dup) { fijo = dup; color = '#ff9800'; }
 
     resultadosB.push([fijo]);

@@ -4601,5 +4601,52 @@ let salidasSI = mapaSalidasDesdeCache({ data: datosDup, headers: cabsDup }, null
 ok("la sin información no cuenta como salida", !salidasSI.has(G1));
 ok("la normal sí", salidasSI.has(G2));
 
+console.log("\n--- 18d. La misma alerta cuando no hay house ---");
+const T_SINHOUSE = accesoTxtSinHouse();
+const MARCA_SH = marcaDeSinHouse();
+
+// LA CELDA VACÍA NO CUENTA, y es la distinción que hace que esto sirva de algo.
+// Vacía significa «todavía no se ha mirado»: el relleno pasa cada cinco
+// minutos, así que TODA guía recién escaneada tiene la house vacía un rato.
+// Avisar por eso sacaría la alerta en cada escaneo y se volvería ruido de
+// fondo; con ella dejarían de leerse las de verdad.
+let filasSH = [
+    [G1, "", ""],            // recién escaneada: la house aún no se ha mirado
+    [G2, "", MARCA_SH],      // buscada y NO estaba
+    [G3, "", "A2F338CFPBS"], // con su house
+    ["6102253", "", MARCA_SH]
+];
+ok("la house vacía NO avisa", avisoDeSinHouse(filasSH, 0, G1) === "");
+ok("el marcador SÍ avisa", avisoDeSinHouse(filasSH, 1, G2) === T_SINHOUSE);
+ok("con house no avisa", avisoDeSinHouse(filasSH, 2, G3) === "");
+ok("un pedimento nunca avisa", avisoDeSinHouse(filasSH, 3, "6102253") === "");
+ok("una fila que no existe no revienta", avisoDeSinHouse(filasSH, 99, G1) === "");
+ok("sin datos tampoco", avisoDeSinHouse(null, 0, G1) === "");
+
+// Es la MISMA alerta, con el motivo detrás: las dos paran el bulto igual, pero
+// lo que hay que hacer cambia. La de la lista ya la puso alguien a mano; esta
+// solo necesita que se le busque la house.
+ok("lleva el mismo texto delante", T_SINHOUSE.indexOf(accesoTxtSinInfo()) === 0);
+ok("y dice por qué", T_SINHOUSE.indexOf("house") !== -1);
+ok("y es igual de grave",
+   nivelAlerta(T_SINHOUSE) === nivelAlerta(accesoTxtSinInfo()));
+
+// EL MARCADOR SOLO SE REINTENTA EN LA PASADA A MANO. En la automática basta
+// UNA guía marcada para que cada pasada cargue el índice entero —cientos de
+// miles de filas— solo para volver a no encontrarla.
+let conMarca = [[G1, "", MARCA_SH]];
+ok("la automática no reintenta lo marcado",
+   celdasPorLlenar(conMarca, { guia: 1, house: 3, desde: 1 }, 1, false).length === 0);
+ok("la de a mano sí",
+   celdasPorLlenar(conMarca, { guia: 1, house: 3, desde: 1 }, 1, true).length === 1);
+ok("y va señalada como reintento",
+   celdasPorLlenar(conMarca, { guia: 1, house: 3, desde: 1 }, 1, true)[0].reintento === true);
+// Una celda vacía se llena en las dos, y NO es un reintento: si sigue sin
+// aparecer hay que escribirle el marcador, que es lo que evita buscarla otra vez.
+ok("la vacía se llena en la automática",
+   celdasPorLlenar([[G1, "", ""]], { guia: 1, house: 3, desde: 1 }, 1, false).length === 1);
+ok("y no cuenta como reintento",
+   !celdasPorLlenar([[G1, "", ""]], { guia: 1, house: 3, desde: 1 }, 1, false)[0].reintento);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

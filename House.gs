@@ -105,8 +105,14 @@ function colHousePreforma() { return COL_HOUSE_PREFORMA; }
 const DIAS_INDICE_CALIENTE = 90;
 
 // Marca de «buscada y no está». Sin ella, una guía que no aparece en el índice
-// se reintentaría cada minuto para siempre, y cada reintento arrastra la carga
-// del índice entero. Con la marca se busca una vez.
+// se reintentaría cada cinco minutos para siempre, y basta UNA guía marcada
+// para que cada pasada automática cargue el índice entero —cientos de miles de
+// filas— solo para volver a no encontrarla.
+//
+// Por eso las marcadas SOLO se reintentan en la pasada A MANO, la del botón
+// «Poner AHORA las houses que faltan». Que es justo cuando tiene sentido: se
+// aprieta después de haber metido las houses que faltaban al índice, y así el
+// aviso de «sin house» de la columna B se quita solo sin acordarse de nada más.
 const TXT_HOUSE_SIN_DATO = "—";
 
 const PROP_ARCHIVOS_IMPORTADOS = 'HOUSE_ARCHIVOS_IMPORTADOS';
@@ -1018,7 +1024,7 @@ function particionPorAntiguedad(filas, hoy, dias) {
 //
 // La marca de «no encontrada» cuenta como llena: si se reintentara, cada minuto
 // se volvería a cargar el índice entero para volver a no encontrarla.
-function celdasPorLlenar(datos, par, filaInicial) {
+function celdasPorLlenar(datos, par, filaInicial, reintentarMarcadas) {
     let colGuia = (par && par.guia ? par.guia : 1) - 1;
     let idx = (par && par.house ? par.house : COL_HOUSE) - 1;
     let base = filaInicial || 1;
@@ -1030,11 +1036,26 @@ function celdasPorLlenar(datos, par, filaInicial) {
         let guia = esGuiaParaHouse(fila[colGuia]);
         if (guia === "") continue;
         let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
-        if (house !== "") continue;
+        // LAS QUE LLEVAN EL MARCADOR «—» TAMBIÉN VUELVEN A BUSCARSE.
+        //
+        // Antes no: una vez escrito el marcador, esa celda se daba por resuelta
+        // para siempre y solo «Reintentar las no encontradas» la desbloqueaba.
+        // Eso obligaba a acordarse de un botón, y con el aviso de «sin house»
+        // en la columna B el olvido se nota: el bulto sigue marcado como parado
+        // aunque su house ya esté en el índice.
+        //
+        // Volver a mirarlas no cuesta nada: el índice ya está en un Map y el
+        // recorrido de filas ya se hace igual. Lo que sí costaría es
+        // REESCRIBIR el marcador encima del marcador en cada pasada, y por eso
+        // van marcadas como `reintento`: si siguen sin aparecer, no se tocan.
+        // Solo en la pasada a mano. En la automática una sola guía marcada
+        // obligaría a cargar el índice entero cada cinco minutos.
+        let esReintento = reintentarMarcadas && (house === marcaDeSinHouse());
+        if (house !== "" && !esReintento) continue;
         // `base` importa: cuando solo se lee la cola de la hoja, el índice del
         // array ya no es la fila. Confundirlos escribiría houses 400 filas más
         // arriba, encima de guías que no son.
-        salida.push({ fila: base + i, guia: guia });
+        salida.push({ fila: base + i, guia: guia, reintento: esReintento });
     }
     return salida;
 }
@@ -1918,7 +1939,7 @@ function rellenarHousesPendientes(forzar, segundosMax) {
             // completas son precisamente las que tienen houses que guardar.
             paresGuiaHouseEnHoja(datos, par, desde).forEach(p => cosechados.push(p));
 
-            let faltan = celdasPorLlenar(datos, par, desde);
+            let faltan = celdasPorLlenar(datos, par, desde, !!forzar);
             let sobran = celdasPorBorrar(datos, par, desde);
             if (faltan.length || sobran.length) {
                 pendientes.push({ hoja: hoja, col: par.house, par: par, datos: datos,
@@ -1961,10 +1982,15 @@ function rellenarHousesPendientes(forzar, segundosMax) {
 
     let puestas = 0, sinDato = 0, corregidas = 0;
     pendientes.forEach(p => {
-        let items = p.faltan.map(f => {
+        let items = [];
+        p.faltan.forEach(f => {
             let house = mapa.get(f.guia);
+            // Sigue sin estar Y ya llevaba el marcador: no se escribe nada.
+            // Reescribir «—» encima de «—» es una escritura por fila y por
+            // pasada, cada cinco minutos, para dejar la celda como estaba.
+            if (!house && f.reintento) { sinDato++; return; }
             if (house) puestas++; else sinDato++;
-            return { fila: f.fila, valor: house || TXT_HOUSE_SIN_DATO };
+            items.push({ fila: f.fila, valor: house || TXT_HOUSE_SIN_DATO });
         });
 
         // Y las que están puestas pero ya no corresponden a su guía: pasa cuando
