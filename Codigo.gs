@@ -2984,7 +2984,49 @@ const HEADER_SIN_INFO = "__SININFO";
 // vista, que es la forma más tonta de esconder información.
 const TXT_SIN_INFO = "Sin información";
 const SEP_SIN_INFO = " · ";
+
+// EL COLOR NO ES UNO FIJO: ES EL DE LA FILA, UN POCO MÁS OSCURO.
+//
+// Un morado propio se veía, pero rompía la lectura de la columna: el verde
+// quiere decir «bien», el ámbar «revisa», el naranja «duplicado»… y una fila
+// morada no quería decir nada de eso, había que acordarse. Con el mismo tono
+// más oscuro la fila sigue diciendo lo que decía —bien, a revisar, movida— y
+// ADEMÁS que le falta información.
+//
+// 0.75 y no menos: tiene que notarse al lado de una fila normal y seguir
+// leyéndose con texto negro. Bajando a 0.6 el verde queda casi negro.
+const FACTOR_OSCURO_SIN_INFO = 0.75;
+
+// El color de respaldo, para las filas que no tienen ninguno. Oscurecer el
+// blanco da un gris que no dice nada.
 const COLOR_SIN_INFO = '#6f42c1';
+
+function oscurecerColor(hex, factor) {
+    let m = /^#?([0-9a-fA-F]{6})$/.exec(String(hex === undefined || hex === null ? "" : hex).trim());
+    if (!m) return "";
+    let n = parseInt(m[1], 16);
+    let f = (factor === undefined || factor === null) ? FACTOR_OSCURO_SIN_INFO : factor;
+    let comp = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(v =>
+        Math.max(0, Math.min(255, Math.round(v * f))));
+    return "#" + comp.map(v => ("0" + v.toString(16)).slice(-2)).join("");
+}
+
+// El color que le toca a una fila sin información, a partir del que ya tenía.
+function colorSinInfo(base) {
+    let b = String(base === undefined || base === null ? "" : base).trim();
+    let m = /^#?([0-9a-fA-F]{6})$/.exec(b);
+    if (!m) return COLOR_SIN_INFO;
+
+    // El blanco no tiene nada que oscurecer: saldría un gris, y un gris ya
+    // significa otra cosa en esta hoja (fila movida). Ahí sí hace falta un
+    // color propio.
+    let n = parseInt(m[1], 16);
+    let lum = (((n >> 16) & 255) + ((n >> 8) & 255) + (n & 255)) / 3;
+    if (lum >= 250) return COLOR_SIN_INFO;
+
+    let osc = oscurecerColor(b, FACTOR_OSCURO_SIN_INFO);
+    return osc === "" ? COLOR_SIN_INFO : osc;
+}
 
 // El aviso va AL FINAL DE TODO, detrás del resumen del bloque si lo hay.
 //
@@ -3177,9 +3219,9 @@ function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ulti
         // cosas las necesita el operador. El aviso dice que falta averiguar
         // algo, no que la guía esté mal.
         resultadosB[i][0] = conAvisoSinInfo(resultadosB[i][0]);
-        // El color SÍ se pisa. Es lo que hace que se vea desde lejos; con el
-        // verde de «✅ Ok» el aviso pasaría inadvertido entre cien renglones.
-        coloresB[i][0] = COLOR_SIN_INFO;
+        // El color se oscurece, no se cambia por otro. Ver `colorSinInfo`: la
+        // fila sigue diciendo lo que decía y además que le falta información.
+        coloresB[i][0] = colorSinInfo(coloresB[i][0]);
         n++;
     }
     return n;

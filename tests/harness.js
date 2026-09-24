@@ -4681,5 +4681,34 @@ ok("un aviso viejo NO se conserva sobre un estado nuevo",
 ok("una retenida vieja si se conserva",
    conservarAlertaGrave("🛑 RETENIDA (FEMAD)", "✅ Ok").indexOf("RETENIDA") !== -1);
 
+console.log("\n--- 18f. El color: el de la fila, un poco más oscuro ---");
+// Un color propio se veía, pero rompía la lectura de la columna: el verde
+// quiere decir «bien», el ámbar «revisa», el naranja «duplicado»… y una fila de
+// otro color no quería decir nada de eso, había que acordarse. Oscureciendo el
+// suyo, la fila sigue diciendo lo que decía y ADEMÁS que le falta información.
+ok("el verde de «Ok» se oscurece", colorSinInfo("#07c369") === "#05924f");
+ok("el ámbar también", colorSinInfo("#ffc107") === "#bf9105");
+ok("y el naranja del duplicado", colorSinInfo("#ff9800") === "#bf7200");
+ok("cada uno queda distinto del otro",
+   colorSinInfo("#07c369") !== colorSinInfo("#ffc107"));
+
+// TIENE QUE SEGUIR LEYÉNDOSE CON TEXTO NEGRO. Bajando mucho el factor el verde
+// queda casi negro y el aviso deja de poder leerse, que es peor que no pintarlo.
+let v = parseInt(colorSinInfo("#07c369").slice(1), 16);
+let lum = (((v >> 16) & 255) + ((v >> 8) & 255) + (v & 255)) / 3;
+ok("no queda tan oscuro que no se lea", lum > 60);
+ok("pero sí más oscuro que el original", lum < (0x07 + 0xc3 + 0x69) / 3);
+
+// EL BLANCO NO TIENE NADA QUE OSCURECER: saldría un gris, y el gris ya
+// significa otra cosa en esta hoja —fila movida—. Ahí sí hace falta uno propio.
+ok("el blanco recibe un color propio", colorSinInfo("#FFFFFF") !== "#bfbfbf");
+ok("y no se queda en blanco", colorSinInfo("#FFFFFF") !== "#FFFFFF");
+ok("sin color también", colorSinInfo("") === colorSinInfo("#FFFFFF"));
+ok("una basura no revienta", colorSinInfo("azul") === colorSinInfo("#FFFFFF"));
+ok("null tampoco", colorSinInfo(null) === colorSinInfo("#FFFFFF"));
+
+ok("oscurecer respeta el formato", /^#[0-9a-f]{6}$/.test(oscurecerColor("#07c369")));
+ok("y no se pasa de cero", oscurecerColor("#000000") === "#000000");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
