@@ -4532,5 +4532,51 @@ ok("null tampoco", quitarGuiasRepetidas(null).limpias.length === 0);
 ok("una fila sin guía se conserva",
    quitarGuiasRepetidas([["", "A2F338CFPBS", "", ""]]).limpias.length === 1);
 
+console.log("\n=== 18. La lista de guías sin información ===");
+const T_SININFO = accesoTxtSinInfo();
+const H_SININFO = accesoHeaderSinInfo();
+
+console.log("\n--- 18a. Reconocer la pestaña ---");
+// El nombre se reconoce SIN ACENTOS y sin importar los espacios: nadie escribe
+// el nombre de una pestaña dos veces igual, y si no casa NO FALLA NADA —el
+// aviso simplemente no sale nunca y no hay forma de verlo—.
+["SIN INFORMACION", "Sin información", "sin informacion",
+ "SIN  INFORMACIÓN", " Sin Informacion ", "SIN INFO"].forEach(n =>
+  ok("«" + n + "» es la pestaña", esHojaSinInfo(n) === true));
+["MACHO", "GLOBAL 1", "SIN PEDIMENTO", "INFORMACION", ""].forEach(n =>
+  ok("«" + n + "» NO lo es", esHojaSinInfo(n) === false));
+
+// ES INTERNA, y esto es lo que de verdad importa. Sin marcarla, el caché la
+// toma por una Global con miles de guías en la columna A y entonces CADA guía
+// de la lista choca contra la de verdad: «⛔ DUPLICADO (En: SIN INFORMACIÓN)»
+// sobre bultos normales, y los bloques sin poder cerrarse. Es el mismo fallo
+// que ya costó caro con el índice de houses.
+ok("la pestaña es INTERNA", esHojaInterna("SIN INFORMACION") === true);
+ok("y por tanto de sistema", esHojaSistema("Sin información") === true);
+
+console.log("\n--- 18b. El aviso ---");
+let cabsSI = ["GLOBAL 1_FISICO", H_SININFO];
+let datosSI = [cabsSI, ["", G1], ["", G2], ["", ""]];
+let setSI = sinInfoDelCache(datosSI, cabsSI);
+ok("las guías salen de su columna del caché", setSI.size === 2 && setSI.has(G1));
+ok("sin esa columna, conjunto vacío",
+   sinInfoDelCache([["GLOBAL 1_FISICO"]], ["GLOBAL 1_FISICO"]).size === 0);
+ok("sin caché tampoco revienta", sinInfoDelCache(null, null).size === 0);
+
+// El aviso es de nivel CRÍTICO. No es decoración: `conservarAlertasGraves` solo
+// protege de un pase parcial lo que está por encima de aviso, y si este bajara
+// de nivel una pasada cualquiera lo borraría y el bulto volvería a viajar.
+ok("es una alerta crítica, como la retenida",
+   nivelAlerta(T_SININFO) === nivelAlerta("🛑 RETENIDA (FEMAD)"));
+ok("por encima de un duplicado",
+   nivelAlerta(T_SININFO) > nivelAlerta("⛔ DUPLICADO (En: X Fila 2)"));
+
+// Un marcador de bloque no puede acabar marcado: «SIN PEDIMENTO» sin espacios
+// pasa por guía corta, y si alguien lo pega en la lista marcaría separadores.
+ok("un marcador no recibe el aviso",
+   avisoDeSinInfo({ data: datosSI, headers: cabsSI }, "SIN PEDIMENTO") === "");
+ok("ni una celda vacía",
+   avisoDeSinInfo({ data: datosSI, headers: cabsSI }, "") === "");
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

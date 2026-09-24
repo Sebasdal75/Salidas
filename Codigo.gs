@@ -154,7 +154,28 @@ function esHojaInterna(nombreHoja) {
     // escaneo cada guía chocaría contra su propia copia. Es el mismo fallo que
     // ya costó una tanda de duplicados falsos con el índice de houses.
     if (n.indexOf("INDICE_SALIDAS") !== -1 || n.indexOf("SALIDAS_RAPIDO") !== -1) return true;
+    // «SIN INFORMACIÓN» es una LISTA, no una pestaña de escaneo. Si no se marca
+    // interna, el caché la toma por una Global con miles de guías en la columna
+    // A y entonces CADA guía de la lista choca contra la de verdad: «⛔
+    // DUPLICADO (En: SIN INFORMACIÓN)» sobre bultos perfectamente normales, y
+    // los bloques sin poder cerrarse. Es el mismo fallo que ya costó caro con
+    // el índice de houses.
+    if (esHojaSinInfo(n)) return true;
     return n.indexOf("INDICE_HOUSE") !== -1 || n === "HOUSE_ACTIVO";
+}
+
+// La pestaña donde se apuntan las guías que no tienen información en el
+// sistema. Se reconoce SIN ACENTOS y sin importar los espacios de más: nadie
+// escribe el nombre de una pestaña dos veces igual, y si no casa no falla nada
+// —simplemente el aviso no sale nunca y no hay forma de verlo—.
+const HOJA_SIN_INFO = "SIN INFORMACION";
+
+function esHojaSinInfo(nombreHoja) {
+    let n = claveHoja(nombreHoja)
+        .replace(/[ÁÀÄÂ]/g, 'A').replace(/[ÉÈËÊ]/g, 'E').replace(/[ÍÌÏÎ]/g, 'I')
+        .replace(/[ÓÒÖÔ]/g, 'O').replace(/[ÚÙÜÛ]/g, 'U')
+        .replace(/[^A-Z0-9]+/g, ' ').trim();
+    return n === HOJA_SIN_INFO || n === "SIN INFO";
 }
 
 // Cualquier pestaña con "MACHO" en el nombre: o es la lista FEMAD, o es una
@@ -754,6 +775,7 @@ function aplicarValidacionEnTodas() {
 function invalidarCacheRAM() {
     olvidarRetenidasEnRAM();
     olvidarCostalesEnRAM();
+    olvidarSinInfoEnRAM();
     globalCacheData = null;
     globalCacheHeaders = null;
     globalCacheMap = null;
@@ -1335,8 +1357,13 @@ function procesarEdicion(e) {
       if (colsValidas.indexOf(colInicial + c) !== -1) tocaValida = true;
   }
   const tocaMacho = (nombreHoja === HOJA_MACHO && colInicial <= 13 && (colInicial + numCols - 1) >= 13);
-  if (!tocaValida && !tocaMacho) return;
-  if (esHojaSistema(nombreHoja) && !tocaMacho) return;
+  // La lista de «sin información» es una pestaña INTERNA, así que la línea de
+  // abajo la descartaría. Hay que dejarla pasar aparte, igual que la MACHO: si
+  // no, se podría escribir una guía en la lista y no pasaría absolutamente
+  // nada, sin ningún error, hasta la próxima reconstrucción del caché.
+  const tocaSinInfo = esHojaSinInfo(nombreHoja) && colInicial === 1;
+  if (!tocaValida && !tocaMacho && !tocaSinInfo) return;
+  if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;
 
   const lock = LockService.getDocumentLock();
   if (!intentarLock(lock)) {
@@ -1354,6 +1381,20 @@ function procesarEdicion(e) {
         sincronizarMacho(hoja, e.source);
         e.source.toast('✅ Columna M sincronizada en todas las pestañas', 'Sincronización MACHO', 4);
         if (numCols === 1 && colInicial === 13) return;
+    }
+
+    // =====================================================================
+    // LISTA DE GUÍAS SIN INFORMACIÓN
+    // =====================================================================
+    // Se rehace la lista entera, no solo lo editado: es una pestaña corta y
+    // reemplazarla es lo único que hace que BORRAR una guía de ahí le quite el
+    // aviso. Con un añadido incremental, quitarla de la lista no la desmarcaría
+    // nunca y no habría forma de deshacerlo.
+    if (tocaSinInfo) {
+        let n = refrescarSinInfoEnCache(e.source);
+        e.source.toast('✅ ' + n + ' guías sin información. El aviso sale en todas ' +
+                       'las pestañas al escanearlas.', 'Sin información', 5);
+        return;
     }
     if (!tocaValida) return;
 
@@ -2884,6 +2925,154 @@ function refrescarRetenidasEnCache(ss) {
     return n;
 }
 
+// =========================================================================
+// GUÍAS SIN INFORMACIÓN EN EL SISTEMA
+// =========================================================================
+//
+// Misma mecánica que las retenidas, y por la misma razón: el caché se lee
+// ENTERO en cada escaneo y ya está en memoria, así que una columna más ahí no
+// cuesta ninguna llamada. Preguntar a una pestaña en cada escaneo sí costaría.
+//
+// QUÉ RESUELVE. Hay bultos que llegan sin nada detrás: ni pedimento, ni
+// referencia, ni nadie que los reclame. Hasta ahora eso solo lo sabía quien lo
+// hubiera visto, y el bulto seguía viajando de una unidad a otra porque al
+// escanearlo salía «✅ Ok» como cualquiera. Apuntándolo en la pestaña, el aviso
+// sale en el momento del escaneo y en TODAS las pestañas a la vez.
+//
+// El nombre empieza por «__» a propósito, igual que la house y las retenidas:
+// eso la protege del podado de columnas huérfanas —no es de ninguna pestaña— y
+// la deja fuera del índice de duplicados, que solo mira las que acaban en
+// «_FISICO».
+const HEADER_SIN_INFO = "__SININFO";
+const TXT_SIN_INFO = "🛑 GUÍA SIN INFORMACIÓN";
+const COLOR_SIN_INFO = '#6f42c1';
+
+function accesoTxtSinInfo() { return TXT_SIN_INFO; }
+function accesoHeaderSinInfo() { return HEADER_SIN_INFO; }
+
+// Se REEMPLAZA entera, igual que las retenidas: una guía que alguien quita de
+// la lista tiene que dejar de estar marcada. Acumulando, el aviso se quedaría
+// pegado a esa guía para siempre y nadie sabría cómo quitárselo.
+function guardarSinInfoEnCache(source, lista) {
+    let cacheSheet = source.getSheetByName("CACHE_SISTEMA");
+    if (!cacheSheet) return 0;
+
+    let limpias = [];
+    let vistas = new Set();
+    (lista || []).forEach(v => {
+        let g = String(v === undefined || v === null ? "" : v).trim().toUpperCase();
+        // Solo lo que es una guía. La pestaña la teclean personas y una nota
+        // suelta no puede acabar marcando filas.
+        if (g === "" || vistas.has(g) || !esGuiaUPSValida(g)) return;
+        vistas.add(g);
+        limpias.push([g]);
+    });
+
+    let headers = cacheSheet.getRange(1, 1, 1, cacheSheet.getMaxColumns()).getValues()[0];
+    let col = columnaDeHeader(cacheSheet, headers, HEADER_SIN_INFO);
+    if (col === -1) return 0;
+
+    let maxFilas = cacheSheet.getMaxRows();
+    if (maxFilas > 1) cacheSheet.getRange(2, col, maxFilas - 1, 1).clearContent();
+    if (limpias.length === 0) return 0;
+    asegurarFilas(cacheSheet, limpias.length + 1);
+    cacheSheet.getRange(2, col, limpias.length, 1).setValues(limpias);
+    return limpias.length;
+}
+
+// Puro, para poder probarlo sin hablar con Sheets.
+function sinInfoDelCache(data, headers) {
+    let set = new Set();
+    if (!data || !headers) return set;
+    let c = headers.indexOf(HEADER_SIN_INFO);
+    if (c === -1) return set;
+    for (let r = 1; r < data.length; r++) {
+        let v = data[r] ? data[r][c] : "";
+        if (v === "" || v === null || v === undefined) continue;
+        set.add(String(v).trim().toUpperCase());
+    }
+    return set;
+}
+
+let globalSinInfo = null;
+function olvidarSinInfoEnRAM() { globalSinInfo = null; }
+
+function conjuntoSinInfo(cacheInfo) {
+    if (globalSinInfo === null) {
+        globalSinInfo = sinInfoDelCache(cacheInfo ? cacheInfo.data : null,
+                                        cacheInfo ? cacheInfo.headers : null);
+    }
+    return globalSinInfo;
+}
+
+// Vuelve a poner la lista en el caché leyendo la pestaña.
+//
+// HACE FALTA porque «Reconstruir caché completo» BORRA la hoja del caché y con
+// ella esta columna. Sin esto, después de una reconstrucción ninguna guía
+// saldría sin información hasta que alguien tocara la pestaña —y nadie ata esas
+// dos cosas—: el aviso desaparecería en silencio justo después de la operación
+// que se hace para arreglar las cosas.
+function refrescarSinInfoEnCache(ss) {
+    let hoja = null;
+    ss.getSheets().forEach(h => { if (esHojaSinInfo(h.getName())) hoja = h; });
+    if (!hoja) return 0;
+    let lr = hoja.getLastRow();
+    if (lr < 1) return 0;
+    // Se lee la columna A entera: la lista se teclea y se pega, y exigir una
+    // fila de encabezado sería una regla más que recordar.
+    let lista = hoja.getRange(1, 1, lr, 1).getValues().map(f => f[0]);
+    let n = guardarSinInfoEnCache(ss, lista);
+    olvidarSinInfoEnRAM();
+    return n;
+}
+
+// Crea la pestaña si no existe, y la deja apuntada en el caché.
+//
+// Es un botón y no algo automático a propósito: crear pestañas solo se hace
+// cuando alguien lo pide. Una pestaña que aparece sola en un archivo que usan
+// siete personas es de las cosas que dan miedo con razón.
+function prepararHojaSinInformacion() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let hoja = null;
+    ss.getSheets().forEach(h => { if (esHojaSinInfo(h.getName())) hoja = h; });
+
+    let creada = false;
+    if (!hoja) {
+        hoja = ss.insertSheet(HOJA_SIN_INFO, ss.getNumSheets());
+        hoja.getRange(1, 1).setValue("GUIAS SIN INFORMACION");
+        hoja.getRange(1, 1).setFontWeight("bold");
+        hoja.setColumnWidth(1, 220);
+        creada = true;
+    }
+
+    let n = 0;
+    try { n = refrescarSinInfoEnCache(ss); } catch (err) { n = -1; }
+    invalidarCacheRAM();
+    ss.setActiveSheet(hoja);
+
+    ui.alert("🛑 Guías sin información",
+        (creada ? "Pestaña «" + hoja.getName() + "» creada.\n\n"
+                : "La pestaña «" + hoja.getName() + "» ya existía.\n\n") +
+        "Pega ahí las guías en la COLUMNA A, una por renglón. Al escanear " +
+        "cualquiera de ellas, en cualquier pestaña, la columna B dirá «" +
+        TXT_SIN_INFO + "».\n\n" +
+        "Ahora mismo hay " + (n < 0 ? "?" : n) + " guías en la lista.\n\n" +
+        "Quitar una guía de la lista le quita el aviso: la lista se rehace " +
+        "entera cada vez que tocas la columna A.\n\n" +
+        "Esta pestaña NO es de escaneo. No cuenta bultos ni choca como " +
+        "duplicado con las guías de verdad.", ui.ButtonSet.OK);
+}
+
+function avisoDeSinInfo(cacheInfo, valor) {
+    let v = String(valor === undefined || valor === null ? "" : valor).trim().toUpperCase();
+    if (v === "" || esMarcadorEstructural(v)) return "";
+    try {
+        return conjuntoSinInfo(cacheInfo).has(v) ? TXT_SIN_INFO : "";
+    } catch (err) { return ""; }
+}
+
 function avisoDeRetenida(cacheInfo, valor) {
     let v = String(valor === undefined || valor === null ? "" : valor).trim().toUpperCase();
     if (v === "" || esMarcadorEstructural(v)) return "";
@@ -4098,6 +4287,11 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // guía retenida acabó embarcándose, eso es exactamente lo que hay que ver,
     // no taparlo con el estado de la salida.
     else if (avisoDeRetenida(cacheInfo, valB) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
+    // SIN INFORMACIÓN va justo después de la retenida y antes que todo lo
+    // demás. Si no hay nada detrás de ese bulto no importa si además está
+    // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
+    // un aviso menos grave es lo que hacía que siguiera dando vueltas.
+    else if (avisoDeSinInfo(cacheInfo, valB) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else {
@@ -4619,6 +4813,11 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
     if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
     // RETENIDA manda sobre todo lo demás: ver la nota en la Global.
     else if (!vacia && avisoDeRetenida(cacheInfo, valB) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
+    // SIN INFORMACIÓN va justo después de la retenida y antes que todo lo
+    // demás. Si no hay nada detrás de ese bulto no importa si además está
+    // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
+    // un aviso menos grave es lo que hacía que siguiera dando vueltas.
+    else if (!vacia && avisoDeSinInfo(cacheInfo, valB) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else {
@@ -4976,6 +5175,11 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
     let color = '#FFFFFF';
     if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
     else if (!vacia && avisoDeRetenida(cacheInfo, valA) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
+    // SIN INFORMACIÓN va justo después de la retenida y antes que todo lo
+    // demás. Si no hay nada detrás de ese bulto no importa si además está
+    // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
+    // un aviso menos grave es lo que hacía que siguiera dando vueltas.
+    else if (!vacia && avisoDeSinInfo(cacheInfo, valA) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
     else if (dup) { fijo = dup; color = '#ff9800'; }
 
     resultadosB.push([fijo]);
@@ -5186,6 +5390,7 @@ function onOpen() {
   menu.addSubMenu(ui.createMenu('🔍 Revisar')
       .addItem('❓ ¿Por qué esta guía sale así?', 'diagnosticarGuia')
       .addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
+      .addItem('🛑 Lista de guías sin información', 'prepararHojaSinInformacion')
       .addSeparator()
       .addItem('🩺 Revisar los disparadores', 'revisarDisparadores')
       .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema'));
@@ -7083,10 +7288,16 @@ function RECONSTRUIR_CACHE_TOTAL() {
     // el aviso «RETENIDA» desaparecería justo después de reconstruir.
     let retenidas = 0;
     try { retenidas = refrescarRetenidasEnCache(ss); } catch (err) { retenidas = -1; }
+    // La lista de «sin información» vive en la misma columna del caché que se
+    // acaba de borrar. Sin esta línea, reconstruir el caché —la operación que
+    // se hace justamente para arreglar las cosas— apagaría el aviso en silencio.
+    let sinInfo = 0;
+    try { sinInfo = refrescarSinInfoEnCache(ss); } catch (err) { sinInfo = -1; }
     invalidarCacheRAM();
 
     ss.toast('✅ Caché reconstruido' +
-             (retenidas >= 0 ? ' · retenidas: ' + retenidas : ' · ⚠️ sin la lista de retenidas'),
+             (retenidas >= 0 ? ' · retenidas: ' + retenidas : ' · ⚠️ sin la lista de retenidas') +
+             (sinInfo >= 0 ? ' · sin información: ' + sinInfo : ' · ⚠️ sin la lista de sin información'),
              'Listo', 5);
   });
 }
