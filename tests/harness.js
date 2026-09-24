@@ -4578,5 +4578,28 @@ ok("un marcador no recibe el aviso",
 ok("ni una celda vacía",
    avisoDeSinInfo({ data: datosSI, headers: cabsSI }, "") === "");
 
+console.log("\n--- 18c. Ni duplicadas ni salidas ---");
+// UNA GUÍA SIN INFORMACIÓN NO ES UN BULTO ESCANEADO DOS VECES: es uno parado al
+// que se le pasa el lector varias veces justamente para volver a leer el aviso.
+//
+// Se filtra al CONSTRUIR el índice, no al consultarlo, y eso es lo que importa:
+// saltarlas solo al preguntar evitaría que ESTA fila saliera marcada, pero la
+// de la OTRA pestaña seguiría chocando contra ella. El aviso aparecería en un
+// lado y no en el otro, que es peor que aparecer en los dos.
+let cabsDup = ["GLOBAL 1_FISICO", "GLOBAL 2_FISICO", H_SININFO];
+let datosDup = [cabsDup, [G1, G1, G1], [G2, G2, ""]];
+let idxDup = construirIndiceCache(datosDup, cabsDup);
+ok("la guía sin información NO entra al índice de duplicados", !idxDup.has(G1));
+ok("una normal escaneada en dos pestañas SÍ entra",
+   idxDup.has(G2) && idxDup.get(G2).length === 2);
+
+// Y TAMPOCO CUENTA COMO SALIDA aunque esté escaneada en una unidad. La
+// consecuencia de contarla es muy concreta: la limpieza BORRA las filas que ya
+// salieron, así que el bulto parado desapareceria de la hoja y nadie volvería a
+// acordarse de él.
+let salidasSI = mapaSalidasDesdeCache({ data: datosDup, headers: cabsDup }, null);
+ok("la sin información no cuenta como salida", !salidasSI.has(G1));
+ok("la normal sí", salidasSI.has(G2));
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

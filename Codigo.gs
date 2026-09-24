@@ -2044,6 +2044,17 @@ function construirIndiceCache(data, headers) {
     }
     if (columnas.length === 0) return mapa;
 
+    // LAS GUÍAS SIN INFORMACIÓN NO ENTRAN AL ÍNDICE DE DUPLICADOS.
+    //
+    // Y tiene que ser aquí, no al consultarlo. Saltarlas solo al preguntar
+    // evitaría que ESTA fila saliera marcada, pero la de la OTRA pestaña
+    // seguiría chocando contra ella: el aviso aparecería en un lado y no en el
+    // otro, que es peor que aparecer en los dos.
+    //
+    // No es un bulto escaneado dos veces por error: es uno parado al que se le
+    // pasa el lector varias veces justamente para volver a leer el aviso.
+    let sinInfoIdx = sinInfoDelCache(data, headers);
+
     // El recorrido va por COLUMNAS y luego por filas, igual que antes, y eso no
     // es un detalle de estilo: el orden en que se apilan las entradas decide
     // cuál se nombra en «⛔ DUPLICADO (En: … Fila N)», porque quien consulta se
@@ -2067,6 +2078,7 @@ function construirIndiceCache(data, headers) {
 
             let v = String(bruto).trim().toUpperCase();
             if (v === "" || esMarcadorEstructural(v)) continue;
+            if (sinInfoIdx.has(v)) continue;
 
             let arr = mapa.get(v);
             if (arr) arr.push({ hoja: col.hoja, fila: r, isMS: col.isMS, isInventario: col.isInventario });
@@ -2274,6 +2286,19 @@ function avisoDeYaSalio(source, valor, pedBloque) {
     let v = String(valor === undefined || valor === null ? "" : valor).trim();
     if (v === "" || esMarcadorEstructural(v)) return "";
     if (/^\d{7}$/.test(v)) return "";
+
+    // UNA GUÍA SIN INFORMACIÓN NO SALIÓ DE NINGUNA PARTE, diga lo que diga el
+    // histórico. Está parada esperando que alguien averigüe qué es.
+    //
+    // El filtro va AQUÍ dentro y no en quien llama, porque esta función se usa
+    // en dos sitios: el estado de la columna A —donde el aviso de «sin
+    // información» ya gana por orden— y el de la PREFORMA, donde no gana nada.
+    // Puesto fuera, la columna O seguiría diciendo «Salió en …» sobre un bulto
+    // que está ahí parado, y las dos columnas se contradirían.
+    try {
+        if (conjuntoSinInfo(getCacheData(source)).has(v.toUpperCase())) return "";
+    } catch (err) { /* sin caché no se puede saber: se sigue como siempre */ }
+
     try {
         if (typeof salidaPreviaDe !== 'function') return "";
         let previa = salidaPreviaDe(source, v);
@@ -2337,6 +2362,9 @@ function calcularDuplicadosExternos(datosMasivos, ultimaFila, claveEsta, cacheIn
     let esInv = esHojaInventario(claveEsta);
     let esMS = esHojaMS(claveEsta);
 
+    // Las guías SIN INFORMACIÓN ya no están en `cacheInfo.map`: se quedan fuera
+    // al construir el índice, que es el único sitio donde filtrarlas sirve de
+    // algo. Ver la nota en `construirIndiceCache`.
     for (let i = 0; i < ultimaFila; i++) {
         let v = String(datosMasivos[i][0]).trim().toUpperCase();
         if (v === "" || v.startsWith("IW") || esCabeceraBloque(v)) continue;
@@ -3430,6 +3458,14 @@ function mapaSalidasDesdeCache(cacheInfo, hojaExcluida) {
     let salidas = new Map();
     if (!cacheInfo || !cacheInfo.headers || !cacheInfo.data) return salidas;
     let excluida = hojaExcluida ? claveHoja(hojaExcluida) : null;
+    // Se lee del `cacheInfo` QUE LLEGA, no del conjunto guardado en RAM.
+    //
+    // `conjuntoSinInfo` se queda con la primera foto que ve y la reutiliza toda
+    // la ejecución. Esta función, en cambio, la llaman con cachés distintos —el
+    // barrido de limpieza le pasa uno recién releído—, y con el de RAM podría
+    // estar contestando sobre una lista vieja. Leerlo aquí cuesta un recorrido
+    // de una columna.
+    let sinInfoAqui = sinInfoDelCache(cacheInfo.data, cacheInfo.headers);
 
     for (let c = 0; c < cacheInfo.headers.length; c++) {
         let header = String(cacheInfo.headers[c]);
@@ -3449,7 +3485,15 @@ function mapaSalidasDesdeCache(cacheInfo, hojaExcluida) {
             let fila = cacheInfo.data[r];
             if (!fila) continue;
             let v = String(fila[c]).trim().toUpperCase();
-            if (v !== "" && !esCabeceraBloque(v)) salidas.set(v, n);
+            if (v === "" || esCabeceraBloque(v)) continue;
+            // Una guía SIN INFORMACIÓN no ha salido de ninguna parte aunque
+            // esté escaneada en una unidad: está parada esperando que alguien
+            // averigüe qué es. Contarla como salida tiene una consecuencia muy
+            // concreta y muy mala: la limpieza BORRA las filas que ya salieron,
+            // así que el bulto parado desaparecería de la hoja y nadie volvería
+            // a acordarse de él.
+            if (sinInfoAqui.has(v)) continue;
+            salidas.set(v, n);
         }
     }
     return salidas;
