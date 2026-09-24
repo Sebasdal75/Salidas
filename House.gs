@@ -2596,6 +2596,149 @@ function revisarHousesContraSuGuia() {
     ui.alert("🔎 Houses contra su guía", msg, ui.ButtonSet.OK);
 }
 
+// =========================================================================
+// 1Z REPETIDOS EN EL ÍNDICE
+// =========================================================================
+//
+// `fusionarEnIndice` ya se queda con una sola fila por guía, así que un índice
+// importado con el código de hoy no debería traerlos. Los que hay vienen de
+// antes de esa regla, o de pegar a mano.
+//
+// NO SE BORRAN TODOS LOS REPETIDOS: solo los que DICEN LO MISMO. Si la misma
+// guía aparece con DOS houses distintas eso no es un duplicado, es una
+// contradicción, y elegir una en silencio es exactamente lo que no se puede
+// hacer aquí: una house cambiada sin que nadie lo sepa no se descubre hasta que
+// el bulto está en el lugar equivocado. Esas se quedan las dos y se reportan.
+//
+// Devuelve {limpias, quitadas, conflictos}.
+function quitarGuiasRepetidas(filas) {
+    let primeraDe = new Map();   // guía -> la fila que se queda
+    let casasDe = new Map();     // guía -> Set de houses distintas vistas
+    let orden = [];
+    let conflictos = [];
+
+    (filas || []).forEach(f => {
+        let g = claveGuiaHouse((f || [])[0]);
+        if (g === "") { orden.push({ suelta: f }); return; }
+        let house = String((f || [])[1] === undefined ? "" : f[1]).trim();
+        let clave = claveGuiaHouse(house);
+
+        if (!primeraDe.has(g)) {
+            let fila = [g, house, f[2] === undefined ? "" : f[2],
+                        f[3] === undefined ? "" : f[3]];
+            primeraDe.set(g, fila);
+            casasDe.set(g, new Set([clave]));
+            orden.push({ guia: g });
+            return;
+        }
+
+        casasDe.get(g).add(clave);
+
+        // SE RESCATA LO QUE LA PRIMERA NO TRAÍA. Quedarse con la primera a
+        // secas perdería la fecha o el origen si la repetida sí los tenía, y
+        // el origen es lo único que permite investigar después de dónde salió
+        // una house que no cuadra.
+        let queda = primeraDe.get(g);
+        if (String(queda[2]).trim() === "" && f[2] !== undefined) queda[2] = f[2];
+        if (String(queda[3]).trim() === "" && f[3] !== undefined) queda[3] = f[3];
+    });
+
+    let limpias = [];
+    let quitadas = 0;
+    let vistas = new Set();
+    orden.forEach(o => {
+        if (o.suelta !== undefined) { limpias.push(o.suelta); return; }
+        if (vistas.has(o.guia)) return;
+        vistas.add(o.guia);
+        limpias.push(primeraDe.get(o.guia));
+    });
+
+    quitadas = (filas || []).length - limpias.length;
+
+    casasDe.forEach((set, g) => {
+        if (set.size <= 1) return;
+        conflictos.push({ guia: g, houses: Array.from(set) });
+    });
+
+    return { limpias: limpias, quitadas: quitadas, conflictos: conflictos };
+}
+
+function quitarRepetidosDelIndice() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let previo = {};
+    let totalPrevio = 0;
+    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+        previo[nombre] = leerIndice(ss, nombre);
+        totalPrevio += previo[nombre].length;
+    });
+
+    if (totalPrevio === 0) {
+        ui.alert("🧹 1Z repetidos", "El índice está vacío.", ui.ButtonSet.OK);
+        return;
+    }
+
+    // Se cuenta ANTES de preguntar: decir «voy a quitar 0» y hacer que alguien
+    // confirme una operación que no hace nada es perder su tiempo dos veces.
+    let plan = {};
+    let aQuitar = 0, conflictos = [];
+    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+        plan[nombre] = quitarGuiasRepetidas(previo[nombre]);
+        aQuitar += plan[nombre].quitadas;
+        plan[nombre].conflictos.forEach(c => conflictos.push(c));
+    });
+
+    if (aQuitar === 0) {
+        ui.alert("🧹 1Z repetidos",
+            "No hay ninguna guía repetida con la misma house en las " +
+            totalPrevio.toLocaleString() + " del índice." +
+            (conflictos.length
+                ? "\n\n⚠️ Pero " + conflictos.length + " guías aparecen con " +
+                  "houses DISTINTAS. Esas no se tocan: elegir una en silencio " +
+                  "es lo que hace que un bulto acabe en el sitio equivocado.\n\n" +
+                  conflictos.slice(0, 10).map(c => "   · " + c.guia + ": " +
+                      c.houses.join(" / ")).join("\n")
+                : ""),
+            ui.ButtonSet.OK);
+        return;
+    }
+
+    let r = ui.alert("🧹 1Z repetidos",
+        "Voy a quitar " + aQuitar.toLocaleString() + " renglones repetidos de " +
+        totalPrevio.toLocaleString() + ".\n\n" +
+        "Solo los que DICEN LO MISMO: misma guía y misma house. De cada grupo " +
+        "se queda uno, y se le rescata la fecha y el origen si la primera fila " +
+        "no los traía.\n\n" +
+        (conflictos.length
+            ? "⚠️ " + conflictos.length + " guías salen con houses DISTINTAS. " +
+              "Esas NO se tocan: se quedan las dos y te las digo al final.\n\n"
+            : "") +
+        "¿Sigo?", ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+        if (plan[nombre].quitadas === 0) return;
+        escribirIndice(ss, nombre, plan[nombre].limpias);
+    });
+
+    // El caché lleva su propia copia guía → house: se olvida para que la
+    // próxima búsqueda salga del índice ya limpio.
+    try { olvidarMapaHouseEnRAM(); } catch (err) { /* puede no existir */ }
+
+    let msg = "Listo.\n\n   · " + aQuitar.toLocaleString() + " renglones " +
+              "repetidos quitados\n   · quedan " +
+              (totalPrevio - aQuitar).toLocaleString() + "\n";
+    if (conflictos.length) {
+        msg += "\n⚠️ Estas " + conflictos.length + " guías siguen dos veces " +
+               "porque tienen houses DISTINTAS. Hay que mirarlas a mano:\n" +
+               conflictos.slice(0, 20).map(c => "   · " + c.guia + ": " +
+                   c.houses.join(" / ")).join("\n") +
+               (conflictos.length > 20 ? "\n   …y " + (conflictos.length - 20) + " más." : "");
+    }
+    ui.alert("🧹 1Z repetidos", msg, ui.ButtonSet.OK);
+}
+
 function repararIndiceHouse() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();

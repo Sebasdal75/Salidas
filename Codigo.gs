@@ -5141,6 +5141,7 @@ function onOpen() {
               .addItem('🔗 Añadir vínculo de OneDrive', 'configurarUrlOneDrive')
               .addItem('🧹 Quitar los vínculos', 'quitarUrlsOneDrive')
               .addItem('🧹 Reparar el índice (quitar houses basura)', 'repararIndiceHouse')
+              .addItem('🧹 Quitar 1Z repetidos del índice', 'quitarRepetidosDelIndice')
               .addItem('♻️ Reimportar todos los CSV', 'olvidarArchivosImportados')
               .addSeparator()
               .addItem('Rellenar solo, cada 5 minutos', 'instalarTriggerHouse')

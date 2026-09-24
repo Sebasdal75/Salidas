@@ -4479,5 +4479,58 @@ ok("cada minuto cuesta cinco veces más que cada cinco",
    Math.round(minutosDeCuotaAlDia(10, 1) / minutosDeCuotaAlDia(10, 5)) === 5);
 ok("sin medida no inventa un número", minutosDeCuotaAlDia(0, 5) === 0);
 
+console.log("\n=== 17. 1Z repetidos en el índice ===");
+// NO SE BORRAN TODOS LOS REPETIDOS: solo los que DICEN LO MISMO.
+let repIdx = [
+    ["1ZA2F3380428934294", "A2F338CFPBS", "2026-09-01", "INBOUND"],
+    ["1ZA2F3380428934294", "A2F338CFPBS", "2026-09-02", "INBOUND"],   // igual
+    ["1ZY829R56638756858", "Y829R5FKLCV", "2026-09-01", "INBOUND"]
+];
+let sinRepes = quitarGuiasRepetidas(repIdx);
+ok("el repetido con la misma house se va", sinRepes.quitadas === 1);
+ok("y queda uno solo de esa guía",
+   sinRepes.limpias.filter(f => f[0] === "1ZA2F3380428934294").length === 1);
+ok("la otra guía no se toca", sinRepes.limpias.length === 2);
+ok("sin houses distintas no hay conflicto", sinRepes.conflictos.length === 0);
+
+// DOS HOUSES DISTINTAS NO ES UN DUPLICADO, ES UNA CONTRADICCIÓN. Elegir una en
+// silencio es justo lo que no se puede hacer: una house cambiada sin que nadie
+// lo sepa no se descubre hasta que el bulto está en el lugar equivocado.
+let contra = [
+    ["1ZA2F3380428934294", "A2F338CFPBS", "2026-09-01", "PREALERTA"],
+    ["1ZA2F3380428934294", "A2F338XXXXX", "2026-09-02", "INBOUND"]
+];
+let rContra = quitarGuiasRepetidas(contra);
+ok("se reporta como conflicto", rContra.conflictos.length === 1);
+ok("con las dos houses", rContra.conflictos[0].houses.length === 2);
+
+// SE RESCATA LO QUE LA PRIMERA NO TRAÍA. Quedarse con la primera a secas
+// perdería la fecha o el origen si la repetida sí los tenía, y el origen es lo
+// único que permite investigar después de dónde salió una house que no cuadra.
+let sinDatos = [
+    ["1ZA2F3380428934294", "A2F338CFPBS", "", ""],
+    ["1ZA2F3380428934294", "A2F338CFPBS", "2026-09-02", "INBOUND"]
+];
+let rDatos = quitarGuiasRepetidas(sinDatos);
+ok("se rescata la fecha de la repetida", String(rDatos.limpias[0][2]) === "2026-09-02");
+ok("y el origen", String(rDatos.limpias[0][3]) === "INBOUND");
+
+// Los separadores no cuentan: la misma guía escrita con guiones es la misma.
+let conGuiones = [
+    ["1ZA2F3380428934294", "A2F338CFPBS", "", ""],
+    ["1z-a2f338-0428-934294", "a2f338 cfpbs", "", ""]
+];
+ok("una guía con guiones es la misma guía",
+   quitarGuiasRepetidas(conGuiones).quitadas === 1);
+ok("y la house con espacios es la misma house",
+   quitarGuiasRepetidas(conGuiones).conflictos.length === 0);
+
+ok("sin filas no revienta", quitarGuiasRepetidas([]).quitadas === 0);
+ok("null tampoco", quitarGuiasRepetidas(null).limpias.length === 0);
+// Una fila sin guía no se pierde ni se cuenta como repetida: no se sabe qué es,
+// y tirarla en silencio sería borrar un dato que nadie pidió borrar.
+ok("una fila sin guía se conserva",
+   quitarGuiasRepetidas([["", "A2F338CFPBS", "", ""]]).limpias.length === 1);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
