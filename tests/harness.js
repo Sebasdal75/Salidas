@@ -4571,12 +4571,13 @@ ok("se añade detrás del estado", conAvisoSinInfo("✅ Ok") === "✅ Ok · " + 
 ok("y sin estado va solo", conAvisoSinInfo("") === T_SININFO);
 ok("no se dobla si ya estaba",
    conAvisoSinInfo("✅ Ok · " + T_SININFO) === "✅ Ok · " + T_SININFO);
-// LA COLA DEL RESUMEN ES DEL BLOQUE, NO DE ESTA GUÍA. Pegando el aviso al
-// final quedaría colgando del resumen del pedimento y parecería que es el
-// pedimento el que no tiene información.
-ok("el aviso va ANTES de la cola del resumen",
+// EL AVISO VA AL FINAL DE TODO, detrás del resumen del bloque si lo hay:
+// «✅ Guía ► Bultos: 12 | ✅ TODO SALIÓ · Sin información».
+ok("el aviso va DETRÁS de la cola del resumen",
    conAvisoSinInfo("✅ Ok" + SEP_RESUMEN + "Bultos: 3")
-   === "✅ Ok · " + T_SININFO + SEP_RESUMEN + "Bultos: 3");
+   === "✅ Ok" + SEP_RESUMEN + "Bultos: 3 · " + T_SININFO);
+ok("y ahí también se reconoce",
+   esAvisoSinInfo("✅ Ok" + SEP_RESUMEN + "Bultos: 3 · " + T_SININFO));
 
 // Un marcador de bloque no puede acabar marcado: «SIN PEDIMENTO» sin espacios
 // pasa por guía corta, y si alguien lo pega en la lista marcaría separadores.
@@ -4665,7 +4666,7 @@ ok("y detrás de un estado también se reconoce",
 ok("con la marca de costal delante sigue reconociendose",
    esAvisoSinInfo(accesoTxtCostal() + " · ✅ Ok · " + accesoTxtSinInfo()));
 ok("y arrastrando el resumen del bloque",
-   esAvisoSinInfo(accesoTxtSinInfo() + SEP_RESUMEN + "Bultos: 3"));
+   esAvisoSinInfo("✅ Ok" + SEP_RESUMEN + "Bultos: 3 · " + accesoTxtSinInfo()));
 ok("una retenida SI es un error", !esAvisoSinInfo("🛑 RETENIDA (FEMAD)"));
 ok("un duplicado tambien", !esAvisoSinInfo("⛔ DUPLICADO (En: X Fila 2)"));
 ok("y una celda vacia no es aviso", !esAvisoSinInfo(""));

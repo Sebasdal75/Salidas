@@ -2986,16 +2986,19 @@ const TXT_SIN_INFO = "Sin información";
 const SEP_SIN_INFO = " · ";
 const COLOR_SIN_INFO = '#6f42c1';
 
-// Pega el aviso detrás de la cabeza del estado, ANTES de la cola del resumen.
+// El aviso va AL FINAL DE TODO, detrás del resumen del bloque si lo hay.
 //
-// El orden importa: la cola («► Bultos: 12 | ✅ TODO SALIÓ») es del BLOQUE, no
-// de esta guía. Pegando el aviso al final quedaría colgando del resumen del
-// pedimento y parecería que es el pedimento el que no tiene información.
+//     ✅ Guía   ►   Bultos: 12 | ✅ TODO SALIÓ · Sin información
+//
+// Se intentó ponerlo pegado al estado y delante del resumen, por miedo a que
+// colgando del «Bultos: 12» pareciera que era el PEDIMENTO el que no tiene
+// información. Leído en pantalla no pasa: el aviso está en la fila de la guía,
+// no en la del pedimento, y partir la celda en tres trozos costaba más de leer
+// que el malentendido que evitaba.
 function conAvisoSinInfo(txt) {
-    let cabeza = cabezaEstado(txt);
-    let cola = colaResumen(txt);
-    if (cabeza.indexOf(TXT_SIN_INFO) !== -1) return cabeza + cola;
-    return (cabeza === "" ? TXT_SIN_INFO : cabeza + SEP_SIN_INFO + TXT_SIN_INFO) + cola;
+    let t = String(txt === undefined || txt === null ? "" : txt);
+    if (t.indexOf(TXT_SIN_INFO) !== -1) return t;
+    return t.trim() === "" ? TXT_SIN_INFO : t + SEP_SIN_INFO + TXT_SIN_INFO;
 }
 
 // LOS DOS CASOS DICEN LO MISMO, a propósito. Se probó distinguirlos —«(sin
@@ -3116,8 +3119,8 @@ function prepararHojaSinInformacion() {
                 : "La pestaña «" + hoja.getName() + "» ya existía.\n\n") +
         "Pega ahí las guías en la COLUMNA A, una por renglón. Al escanear " +
         "cualquiera de ellas, en cualquier pestaña, la columna B añadirá «" +
-        TXT_SIN_INFO + "» detrás de su estado normal: «✅ Ok" + SEP_SIN_INFO +
-        TXT_SIN_INFO + "».\n\n" +
+        TXT_SIN_INFO + "» al final de la celda, detrás de su estado y de su " +
+        "resumen: «✅ Ok" + SEP_SIN_INFO + TXT_SIN_INFO + "».\n\n" +
         "El bulto SIGUE CONTANDO. El aviso solo dice que falta averiguar algo " +
         "antes de mandarlo.\n\n" +
         "Lo mismo sale solo, sin apuntar nada aquí, cuando a una guía se le " +
@@ -3138,10 +3141,10 @@ function prepararHojaSinInformacion() {
 // Los dos empiezan igual, así que basta mirar el principio. Se usa para lo
 // contrario de lo que parece: para decir que esta fila NO es un error.
 function esAvisoSinInfo(txt) {
-    // Se busca DENTRO de la cabeza, no al principio: el aviso va detrás del
-    // estado normal. Y solo en la cabeza, porque la cola del resumen es del
-    // bloque entero y podría llevarlo por otra fila.
-    return cabezaEstado(sinMarcaCostal(txt)).indexOf(TXT_SIN_INFO) !== -1;
+    // Se busca en TODO el texto, no solo en la cabeza: el aviso va al final,
+    // detrás del resumen del bloque cuando esa fila lo arrastra.
+    return String(txt === undefined || txt === null ? "" : txt)
+           .indexOf(TXT_SIN_INFO) !== -1;
 }
 
 // Vuelve a poner el aviso después de que el pase de bloques haya escrito encima.
@@ -3169,9 +3172,10 @@ function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ulti
         else if (avisoDeSinHouse(datosMasivos, i, v) !== "") texto = TXT_SIN_HOUSE;
         if (texto === "") continue;
 
-        // Se AÑADE al estado que ya había, no lo sustituye. Lo que estaba es
-        // «✅ Ok» o un duplicado, y eso el operador lo necesita: el aviso dice
-        // que falta averiguar algo, no que la guía esté mal.
+        // Se AÑADE al final de lo que ya había, no lo sustituye. Lo que estaba
+        // es «✅ Ok» y, si es la última guía del bloque, su resumen: las dos
+        // cosas las necesita el operador. El aviso dice que falta averiguar
+        // algo, no que la guía esté mal.
         resultadosB[i][0] = conAvisoSinInfo(resultadosB[i][0]);
         // El color SÍ se pisa. Es lo que hace que se vea desde lejos; con el
         // verde de «✅ Ok» el aviso pasaría inadvertido entre cien renglones.
