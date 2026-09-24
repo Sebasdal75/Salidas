@@ -4459,5 +4459,25 @@ ok("y dice de qué índice salió", desc[0][6] === "INDICE_HOUSE");
 ok("sin filas no revienta", descuadresDeIndice([], "X").length === 0);
 ok("null tampoco", descuadresDeIndice(null, "X").length === 0);
 
+console.log("\n--- 16d. El presupuesto de tiempo del relleno ---");
+// La pasada AUTOMÁTICA se corta a los 30 s para no comerse la cuota de
+// disparadores. Si esa cuota se agota, Google apaga TODOS los disparadores de
+// la cuenta —y el del escaneo es uno de ellos—, así que pasarse aquí no
+// ralentiza las houses: para la operación.
+//
+// La pasada A MANO no gasta esa cuota y tiene seis minutos de reloj, así que
+// puede terminar el archivo entero en vez de cortarse y dejar houses sin poner
+// sin avisar.
+ok("el de a mano es mucho más largo que el automático",
+   accesoSegundosAMano() > accesoSegundosAutomatico() * 4);
+ok("y cabe de sobra en los 6 minutos de Apps Script",
+   accesoSegundosAMano() < 360);
+
+// El coste en cuota, en números, que es lo único que impide volver a poner el
+// disparador cada minuto «a ver si va más rápido».
+ok("cada minuto cuesta cinco veces más que cada cinco",
+   Math.round(minutosDeCuotaAlDia(10, 1) / minutosDeCuotaAlDia(10, 5)) === 5);
+ok("sin medida no inventa un número", minutosDeCuotaAlDia(0, 5) === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

@@ -1844,8 +1844,15 @@ function importarInboundDesdeOneDrive() {
     ui.alert("☁️ OneDrive", resumen, ui.ButtonSet.OK);
 }
 
-function rellenarHousesPendientes(forzar) {
+// `segundosMax` acota lo que puede tardar una pasada. El disparador usa el
+// presupuesto corto de siempre —si se pasa, Google le come la cuota del día y
+// apaga TODOS los disparadores de la cuenta, el del escaneo incluido—. Pero una
+// pasada pedida a mano desde el menú no gasta cuota de disparadores y tiene seis
+// minutos de reloj, así que puede permitirse terminar el archivo entero en vez
+// de cortarse a los treinta segundos y dejar houses sin poner sin avisar.
+function rellenarHousesPendientes(forzar, segundosMax) {
     const ss = obtenerArchivo();
+    const presupuesto = segundosMax || SEGUNDOS_MAX_RELLENO;
 
     // Puede llamarlo el actualizador automático en cada una de sus vueltas; el
     // intervalo lo pone este módulo, no quien lo invoca.
@@ -1867,7 +1874,7 @@ function rellenarHousesPendientes(forzar) {
     // que el disparador se saliera en la primera línea en producción —y sin
     // decir nada, porque un disparador no puede mostrar avisos—. El síntoma era
     // «el automático no rellena» sin ningún error en ningún sitio.
-    if (!moduloActivo(ss)) { anotarRelleno("apagado en este archivo"); return; }
+    if (!moduloActivo(ss)) return anotarRelleno("apagado en este archivo");
 
     // PRIMERO la comprobación barata. El índice no se abre hasta saber que hay
     // algo que rellenar, y casi todas las pasadas no lo hay.
@@ -1881,7 +1888,7 @@ function rellenarHousesPendientes(forzar) {
     let cosechados = [];
     let hojas = ss.getSheets();
     for (let h = 0; h < hojas.length; h++) {
-        if ((Date.now() - arranque) / 1000 > SEGUNDOS_MAX_RELLENO) {
+        if ((Date.now() - arranque) / 1000 > presupuesto) {
             cortadoPorTiempo = true;
             break;
         }
@@ -1919,7 +1926,7 @@ function rellenarHousesPendientes(forzar) {
             }
         });
     }
-    if (pendientes.length === 0) { anotarRelleno("nada que rellenar"); return; }
+    if (pendientes.length === 0) return anotarRelleno("nada que rellenar");
 
     // Borrar las huérfanas NO necesita el índice, así que va primero y ocurre
     // aunque no se haya importado nada todavía. Una house sin guía es un dato
@@ -1941,16 +1948,14 @@ function rellenarHousesPendientes(forzar) {
 
     let faltanTotal = pendientes.reduce((n, p) => n + p.faltan.length, 0);
     if (faltanTotal === 0) {
-        anotarRelleno("houses huérfanas borradas: " + borradas +
+        return anotarRelleno("houses huérfanas borradas: " + borradas +
                       " · houses en caché: " + (enCacheYa || cosechados.length));
-        return;
     }
 
     let indice = leerIndice(ss, HOJA_INDICE_HOUSE);
     if (indice.length === 0) {
-        anotarRelleno("HAY " + faltanTotal + " GUÍAS ESPERANDO PERO EL ÍNDICE ESTÁ " +
+        return anotarRelleno("HAY " + faltanTotal + " GUÍAS ESPERANDO PERO EL ÍNDICE ESTÁ " +
                       "VACÍO: falta importar · huérfanas borradas: " + borradas);
-        return;
     }
     let mapa = mapaDeIndice(indice);
 
@@ -1991,7 +1996,7 @@ function rellenarHousesPendientes(forzar) {
         PropertiesService.getScriptProperties()
             .setProperty(PROP_SEG_RELLENO, segundos.toFixed(1));
     } catch (err) { /* medir nunca puede tumbar el relleno */ }
-    anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
+    return anotarRelleno("houses puestas: " + puestas + " · sin dato: " + sinDato +
                   " · huérfanas borradas: " + borradas +
                   " · corregidas: " + corregidas +
                   " · houses en caché: " + enCache +
@@ -2026,12 +2031,16 @@ function minutosDeCuotaAlDia(segundosPorPasada, minutosEntrePasadas) {
     return (pasadas * segundosPorPasada) / 60;
 }
 
+// Devuelve el mismo texto que anota, para que quien lo llame a mano pueda
+// enseñarlo. El disparador lo ignora, como siempre: es mudo por naturaleza y
+// esta nota es lo único que deja de rastro.
 function anotarRelleno(texto) {
     try {
         PropertiesService.getScriptProperties().setProperty(PROP_ULTIMO_RELLENO,
             Utilities.formatDate(new Date(), Session.getScriptTimeZone(),
                                  "dd/MM HH:mm:ss") + " — " + texto);
     } catch (err) { /* anotar nunca puede tumbar el relleno */ }
+    return texto;
 }
 
 // El coste en cuota, en números, para que no haya que fiarse de nadie.
@@ -2065,6 +2074,71 @@ function estadoDelRelleno() {
         "Última pasada:\n" + (ultimo || "ninguna todavía. Si el disparador está " +
         "instalado, espera un minuto y vuelve a mirar.") + "\n\n" + textoDeCuota(),
         ui.ButtonSet.OK);
+}
+
+// EL BOTÓN: poner AHORA las houses que falten, sin esperar al automático.
+//
+// Es la misma pasada que corre sola cada cinco minutos, no una copia: dos
+// implementaciones del mismo relleno acabarían divergiendo el día que se toque
+// una sola, y esta escribe en la columna que ve el operador.
+//
+// Dos diferencias, y las dos a propósito:
+//
+//   · SE SALTA EL RELOJ. La pasada automática no hace nada si la anterior fue
+//     hace menos de cinco minutos. Aquí eso sería absurdo: si alguien aprieta un
+//     botón es justamente porque quiere que pase AHORA.
+//
+//   · TIENE MÁS TIEMPO. La automática se corta a los treinta segundos para no
+//     comerse la cuota de disparadores —si se agota, Google apaga TODOS los de
+//     la cuenta, y el del escaneo es uno de ellos—. Una pasada de menú no gasta
+//     esa cuota y tiene seis minutos de reloj, así que puede terminar el archivo
+//     entero en vez de dejar houses sin poner sin avisar.
+const SEGUNDOS_MAX_RELLENO_A_MANO = 240;
+
+// Accesores para el banco de pruebas: las constantes con `const` no salen del
+// eval con el que carga este archivo, las funciones sí.
+function accesoSegundosAMano() { return SEGUNDOS_MAX_RELLENO_A_MANO; }
+function accesoSegundosAutomatico() { return SEGUNDOS_MAX_RELLENO; }
+
+function rellenarHousesAhora() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    if (!moduloActivo(ss)) {
+        ui.alert("🏠 Poner las houses que faltan",
+                 "El módulo de houses está apagado en este archivo.", ui.ButtonSet.OK);
+        return;
+    }
+
+    ss.toast('⏳ Buscando las houses que faltan. No cierres el archivo.', 'Houses', 20);
+
+    let resumen = "";
+    try {
+        resumen = rellenarHousesPendientes(true, SEGUNDOS_MAX_RELLENO_A_MANO) || "";
+    } catch (err) {
+        ui.alert("🏠 Poner las houses que faltan", "Falló:\n" + err, ui.ButtonSet.OK);
+        return;
+    }
+
+    // El texto crudo de la pasada ya dice los números. Lo que se añade aquí es
+    // QUÉ HACER con ellos, que es lo que no se deduce solo: «sin dato» no es un
+    // fallo del relleno, son guías que todavía no están en el índice.
+    let msg = resumen === "" ? "No hubo nada que hacer." : resumen;
+    if (resumen.indexOf("sin dato") !== -1 && resumen.indexOf("sin dato: 0") === -1) {
+        msg += "\n\n«Sin dato» son guías que NO están en el índice: llevan «" +
+               TXT_HOUSE_SIN_DATO + "» y no es un fallo del relleno. Importa el " +
+               "inbound del día, o búscalas en el archivo frío con «🏠 Buscar las " +
+               "que faltan».";
+    }
+    if (resumen.indexOf("ÍNDICE ESTÁ VACÍO") !== -1) {
+        msg += "\n\nNo hay nada importado todavía: usa «☁️ Importar inbound desde " +
+               "OneDrive» primero.";
+    }
+    if (resumen.indexOf("CORTADO por tiempo") !== -1) {
+        msg += "\n\nQuedó a medias por tiempo. Vuelve a apretarlo: sigue por donde " +
+               "se quedó.";
+    }
+    ui.alert("🏠 Poner las houses que faltan", msg, ui.ButtonSet.OK);
 }
 
 // Las que quedaron con la marca de «no está»: se buscan en el archivo frío, que
