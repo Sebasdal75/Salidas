@@ -4648,5 +4648,27 @@ ok("la vacía se llena en la automática",
 ok("y no cuenta como reintento",
    !celdasPorLlenar([[G1, "", ""]], { guia: 1, house: 3, desde: 1 }, 1, false)[0].reintento);
 
+console.log("\n--- 18e. El aviso SUMA como bulto ---");
+// Se pidio que estas guias cuenten: el aviso es informativo, el bulto esta ahi.
+ok("el aviso de la lista no es un error", esAvisoSinInfo(accesoTxtSinInfo()));
+ok("el de sin house tampoco", esAvisoSinInfo(T_SINHOUSE));
+ok("con la marca de costal delante sigue reconociendose",
+   esAvisoSinInfo(accesoTxtCostal() + " · " + accesoTxtSinInfo()));
+ok("y arrastrando el resumen del bloque",
+   esAvisoSinInfo(accesoTxtSinInfo() + SEP_RESUMEN + "Bultos: 3"));
+ok("una retenida SI es un error", !esAvisoSinInfo("🛑 RETENIDA (FEMAD)"));
+ok("un duplicado tambien", !esAvisoSinInfo("⛔ DUPLICADO (En: X Fila 2)"));
+ok("y una celda vacia no es aviso", !esAvisoSinInfo(""));
+
+// NO SE CONSERVA NUNCA, y es lo contrario de lo que parece: no es que valga
+// menos, es que se recalcula ENTERO en cada pasada desde la lista y la columna
+// de la house. Conservandolo, quitar una guia de la lista no le quitaria el
+// aviso: la pasada nueva lo calcularia bien y la conservacion lo repondria.
+ok("un aviso viejo NO se conserva sobre un estado nuevo",
+   conservarAlertaGrave(accesoTxtSinInfo(), "✅ Ok") === "✅ Ok");
+// Una retenida vieja SI se conserva: esa no se recalcula desde cero cada vez.
+ok("una retenida vieja si se conserva",
+   conservarAlertaGrave("🛑 RETENIDA (FEMAD)", "✅ Ok").indexOf("RETENIDA") !== -1);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

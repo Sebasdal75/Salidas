@@ -3105,6 +3105,50 @@ function prepararHojaSinInformacion() {
 //
 // Se pregunta por `typeof` porque vive en House.gs, que es opcional: si no está
 // pegado, esto no puede reventar el escaneo de nadie.
+// ¿Este estado es uno de los dos avisos de «sin información»?
+//
+// Los dos empiezan igual, así que basta mirar el principio. Se usa para lo
+// contrario de lo que parece: para decir que esta fila NO es un error.
+function esAvisoSinInfo(txt) {
+    let t = sinMarcaCostal(txt);
+    return t.indexOf(TXT_SIN_INFO) === 0;
+}
+
+// Vuelve a poner el aviso después de que el pase de bloques haya escrito encima.
+//
+// HACE FALTA PORQUE EL AVISO NO CUENTA COMO ERROR. Una fila con error se queda
+// FUERA del bloque —no se le mira la guía, no suma bulto, no se le toca la
+// columna B— y así es como el aviso de retenida sobrevive. Pero este se pidió
+// que SUME, o sea que la fila entra al bloque como cualquier otra, y entonces
+// el pase le escribe «✅ Ok» encima y se lleva el aviso por delante.
+//
+// La salida es la misma que con la marca de costales: dejar que el pase haga
+// lo suyo y volver a escribir el aviso al final, cuando ya nadie va a leer
+// `resultadosB` para decidir nada.
+function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, colGuia) {
+    let c = colGuia || 0;
+    let set = null;
+    try { set = conjuntoSinInfo(cacheInfo); } catch (err) { set = null; }
+
+    let n = 0;
+    for (let i = 0; i < ultimaFila; i++) {
+        let v = String((datosMasivos[i] || [])[c] || "").trim();
+        if (v === "") continue;
+        let texto = "";
+        if (set && set.size > 0 && set.has(v.toUpperCase())) texto = TXT_SIN_INFO;
+        else if (avisoDeSinHouse(datosMasivos, i, v) !== "") texto = TXT_SIN_HOUSE;
+        if (texto === "") continue;
+
+        // La cola del resumen se conserva: si esta fila era la última de su
+        // bloque arrastra un «► Bultos: …» que ahora sí le corresponde, porque
+        // el bulto se cuenta.
+        resultadosB[i][0] = texto + colaResumen(resultadosB[i][0]);
+        coloresB[i][0] = COLOR_SIN_INFO;
+        n++;
+    }
+    return n;
+}
+
 function marcaDeSinHouse() {
     try {
         return (typeof TXT_HOUSE_SIN_DATO === 'string' && TXT_HOUSE_SIN_DATO !== "")
@@ -3855,6 +3899,15 @@ function esAlertaDeDuplicado(texto) {
 // mover», «❌ Va en: …», «❌ Guía Inválida». Esos cambian solos según avanza el
 // trabajo o según lo que haya en la propia celda, y pegarlos estorbaría.
 function mereceConservarse(texto) {
+    // EL AVISO DE «SIN INFORMACIÓN» NO SE CONSERVA NUNCA, y es lo contrario de
+    // lo que parece: no es que valga menos, es que se recalcula ENTERO en cada
+    // pasada a partir de la lista y de la columna de la house.
+    //
+    // Conservarlo tendría un efecto muy feo: quitar una guía de la lista no le
+    // quitaría el aviso. La pasada nueva lo calcularía bien —ya no está en la
+    // lista, no hay aviso— y esta función lo repondría desde la celda anterior.
+    // El operador borra la guía de la lista, mira la hoja, y sigue en rojo.
+    if (esAvisoSinInfo(texto)) return false;
     if (nivelAlerta(texto) >= NIVEL_ALTO) return true;
     return esAlertaDeDuplicado(texto);
 }
@@ -4404,7 +4457,10 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
 
   for (let i = 0; i < ultimaFila; i++) {
       let v = String(datosMasivos[i][0]).trim().toUpperCase(); if (v === "") continue;
-      let esErr = resultadosB[i][0] !== '';
+      // El aviso de «sin información» NO es un error: se pidió que esas
+      // guías SUMEN como bulto. Dejándolo contar como error, la fila se
+      // quedaba fuera del bloque y el pedimento salía con un bulto de menos.
+      let esErr = resultadosB[i][0] !== '' && !esAvisoSinInfo(resultadosB[i][0]);
 
       if (esCabeceraBloque(v)) {
           // "SIN PEDIMENTO" y demás marcadores abren bloque pero no son pedimentos:
@@ -4524,7 +4580,12 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           let origen = guiasEnMS.get(g);
           let pedReal = mapaInversoPreforma.get(g);
 
-          let previa = primeraAparicion.get(g);
+          // Una guía sin información no se empareja con nada. Ahora ENTRA al
+          // bloque —se pidió que sume— así que el duplicado local, que antes no
+          // la veía, pasaría a marcarla. Y ya se decidió que estas no cuentan
+          // como duplicadas: se le pasa el lector varias veces a propósito.
+          let sinInfoFila = esAvisoSinInfo(resultadosB[filaG][0]);
+          let previa = sinInfoFila ? null : primeraAparicion.get(g);
           if (previa) {
               let dupLocal = duplicadoLocal(previa, ped);
               resultadosB[filaG][0] = dupLocal.texto;
@@ -4539,7 +4600,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               if (dupLocal.marcarPrimera) anotarRepeticion(repeticiones, previa.idx, filaG + 1);
           }
           else {
-              primeraAparicion.set(g, { ped: ped, idx: filaG }); escaneadasUnicas.add(g);
+              if (!sinInfoFila) primeraAparicion.set(g, { ped: ped, idx: filaG });
+              escaneadasUnicas.add(g);
               if (origen) origenesReales.add(origen);
 
               if (esRezago) {
@@ -4799,6 +4861,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
   conservarAlertasGraves(datosMasivos, resultadosP, coloresP, ultimaFila, repintarTodo, filasEditadas, 14, 15);
 
+  marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
   marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null, coloresA,
@@ -4928,7 +4991,11 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
 
   for (let i = 0; i < ultimaFila; i++) {
       let v = String(datosMasivos[i][0]).trim().toUpperCase(); if (v === "") continue;
-      let esErr = resultadosB[i][0] !== '' && !esEstadoSalida(resultadosB[i][0]);
+      // El aviso de «sin información» NO es un error: se pidió que esas
+      // guías SUMEN como bulto. Dejándolo contar como error, la fila se
+      // quedaba fuera del bloque y el pedimento salía con un bulto de menos.
+      let esErr = resultadosB[i][0] !== '' && !esEstadoSalida(resultadosB[i][0]) &&
+                  !esAvisoSinInfo(resultadosB[i][0]);
 
       if (esCabeceraBloque(v)) {
           let esPedimento = /^\d{7}$/.test(v);
@@ -5008,7 +5075,12 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
           let movida = esEstadoSalida(statusActual);
           if (movida) { movidas++; totalMovidas++; }
 
-          if (movida && !primeraAparicion.has(g)) {
+          // Misma razón que en la Global: sin información no se empareja.
+          let sinInfoFila = esAvisoSinInfo(statusActual);
+
+          if (sinInfoFila) {
+              guiasUnicas.add(g);
+          } else if (movida && !primeraAparicion.has(g)) {
               primeraAparicion.set(g, { ped: bloque.pedimento, idx: filaG });
               guiasUnicas.add(g);
           } else {
@@ -5151,6 +5223,7 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   // Los colores de la columna A se calculan ANTES de marcar: `colorColumnaA`
   // mira el estado y la marca no le cambia el color a la guía.
   let coloresAMS = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada);
+  marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
   marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
@@ -5298,7 +5371,8 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
 
   for (let i = 0; i < ultimaFila; i++) {
     let valor = String(datosMasivos[i][0]).trim().toUpperCase(); if (valor === "") continue;
-    let esErr = resultadosB[i][0] !== '';
+    // Ver la nota de las otras dos: el aviso de «sin información» suma.
+    let esErr = resultadosB[i][0] !== '' && !esAvisoSinInfo(resultadosB[i][0]);
 
     if (valor.startsWith("IW")) {
       cerrarUbicacion();
@@ -5341,6 +5415,7 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
   conservarAlertasGraves(datosMasivos, resultadosB, coloresB, ultimaFila, repintarTodo, filasEditadas, 0, 1);
 
   let coloresAInv = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada);
+  marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
   marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, null, null,
