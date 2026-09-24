@@ -2972,15 +2972,38 @@ function refrescarRetenidasEnCache(ss) {
 // la deja fuera del índice de duplicados, que solo mira las que acaban en
 // «_FISICO».
 const HEADER_SIN_INFO = "__SININFO";
-const TXT_SIN_INFO = "🛑 GUÍA SIN INFORMACIÓN";
+
+// EL AVISO VA DETRÁS DEL ESTADO NORMAL, NO EN SU LUGAR.
+//
+// Antes lo sustituía: la celda decía «🛑 GUÍA SIN INFORMACIÓN» y se perdía lo
+// único que el operador mira de un vistazo, que es si la guía está bien. Ahora
+// la celda dice las dos cosas y en ese orden: «✅ Ok · Sin información».
+//
+// Y el texto es corto a propósito. La columna B es estrecha y lleva además la
+// cola del resumen del bloque; un aviso largo empuja todo lo demás fuera de la
+// vista, que es la forma más tonta de esconder información.
+const TXT_SIN_INFO = "Sin información";
+const SEP_SIN_INFO = " · ";
 const COLOR_SIN_INFO = '#6f42c1';
 
-// La misma alerta, pero diciendo POR QUÉ. Las dos paran el bulto igual; lo que
-// cambia es qué hay que hacer con él: la de la lista ya está identificada y
-// alguien la puso ahí a mano, la de aquí solo necesita que se le busque la
-// house y se meta al índice. Sin distinguirlas hay que ir a mirar la lista
-// para saber cuál de las dos es.
-const TXT_SIN_HOUSE = TXT_SIN_INFO + " (sin house)";
+// Pega el aviso detrás de la cabeza del estado, ANTES de la cola del resumen.
+//
+// El orden importa: la cola («► Bultos: 12 | ✅ TODO SALIÓ») es del BLOQUE, no
+// de esta guía. Pegando el aviso al final quedaría colgando del resumen del
+// pedimento y parecería que es el pedimento el que no tiene información.
+function conAvisoSinInfo(txt) {
+    let cabeza = cabezaEstado(txt);
+    let cola = colaResumen(txt);
+    if (cabeza.indexOf(TXT_SIN_INFO) !== -1) return cabeza + cola;
+    return (cabeza === "" ? TXT_SIN_INFO : cabeza + SEP_SIN_INFO + TXT_SIN_INFO) + cola;
+}
+
+// LOS DOS CASOS DICEN LO MISMO, a propósito. Se probó distinguirlos —«(sin
+// house)» detrás— y era texto de más para una diferencia que el operador no
+// necesita en el muelle: en los dos casos el bulto está ahí, cuenta, y falta
+// averiguar algo antes de mandarlo. Quién tiene que averiguarlo se sabe
+// mirando la lista, que es donde se resuelve.
+const TXT_SIN_HOUSE = TXT_SIN_INFO;
 
 function accesoTxtSinHouse() { return TXT_SIN_HOUSE; }
 function accesoTxtSinInfo() { return TXT_SIN_INFO; }
@@ -3092,8 +3115,13 @@ function prepararHojaSinInformacion() {
         (creada ? "Pestaña «" + hoja.getName() + "» creada.\n\n"
                 : "La pestaña «" + hoja.getName() + "» ya existía.\n\n") +
         "Pega ahí las guías en la COLUMNA A, una por renglón. Al escanear " +
-        "cualquiera de ellas, en cualquier pestaña, la columna B dirá «" +
+        "cualquiera de ellas, en cualquier pestaña, la columna B añadirá «" +
+        TXT_SIN_INFO + "» detrás de su estado normal: «✅ Ok" + SEP_SIN_INFO +
         TXT_SIN_INFO + "».\n\n" +
+        "El bulto SIGUE CONTANDO. El aviso solo dice que falta averiguar algo " +
+        "antes de mandarlo.\n\n" +
+        "Lo mismo sale solo, sin apuntar nada aquí, cuando a una guía se le " +
+        "buscó la house y no estaba.\n\n" +
         "Ahora mismo hay " + (n < 0 ? "?" : n) + " guías en la lista.\n\n" +
         "Quitar una guía de la lista le quita el aviso: la lista se rehace " +
         "entera cada vez que tocas la columna A.\n\n" +
@@ -3110,8 +3138,10 @@ function prepararHojaSinInformacion() {
 // Los dos empiezan igual, así que basta mirar el principio. Se usa para lo
 // contrario de lo que parece: para decir que esta fila NO es un error.
 function esAvisoSinInfo(txt) {
-    let t = sinMarcaCostal(txt);
-    return t.indexOf(TXT_SIN_INFO) === 0;
+    // Se busca DENTRO de la cabeza, no al principio: el aviso va detrás del
+    // estado normal. Y solo en la cabeza, porque la cola del resumen es del
+    // bloque entero y podría llevarlo por otra fila.
+    return cabezaEstado(sinMarcaCostal(txt)).indexOf(TXT_SIN_INFO) !== -1;
 }
 
 // Vuelve a poner el aviso después de que el pase de bloques haya escrito encima.
@@ -3139,10 +3169,12 @@ function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ulti
         else if (avisoDeSinHouse(datosMasivos, i, v) !== "") texto = TXT_SIN_HOUSE;
         if (texto === "") continue;
 
-        // La cola del resumen se conserva: si esta fila era la última de su
-        // bloque arrastra un «► Bultos: …» que ahora sí le corresponde, porque
-        // el bulto se cuenta.
-        resultadosB[i][0] = texto + colaResumen(resultadosB[i][0]);
+        // Se AÑADE al estado que ya había, no lo sustituye. Lo que estaba es
+        // «✅ Ok» o un duplicado, y eso el operador lo necesita: el aviso dice
+        // que falta averiguar algo, no que la guía esté mal.
+        resultadosB[i][0] = conAvisoSinInfo(resultadosB[i][0]);
+        // El color SÍ se pisa. Es lo que hace que se vea desde lejos; con el
+        // verde de «✅ Ok» el aviso pasaría inadvertido entre cien renglones.
         coloresB[i][0] = COLOR_SIN_INFO;
         n++;
     }
@@ -4422,14 +4454,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // guía retenida acabó embarcándose, eso es exactamente lo que hay que ver,
     // no taparlo con el estado de la salida.
     else if (avisoDeRetenida(cacheInfo, valB) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
-    // SIN INFORMACIÓN va justo después de la retenida y antes que todo lo
-    // demás. Si no hay nada detrás de ese bulto no importa si además está
-    // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
-    // un aviso menos grave es lo que hacía que siguiera dando vueltas.
-    else if (avisoDeSinInfo(cacheInfo, valB) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
-    // Y la misma alerta si se le buscó la house y no estaba. Ver
-    // `avisoDeSinHouse`: la celda VACÍA no cuenta, solo el marcador «—».
-    else if (avisoDeSinHouse(datosMasivos, i, valB) !== "") { fijo = TXT_SIN_HOUSE; color = COLOR_SIN_INFO; }
+    // EL AVISO DE «SIN INFORMACIÓN» YA NO VA AQUÍ. Aquí se decide el estado
+    // que SUSTITUYE a todo lo demás, y este no sustituye: se añade detrás del
+    // estado normal, en `marcarFilasSinInfo`, cuando ya está todo calculado.
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else {
@@ -4961,14 +4988,9 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
     if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
     // RETENIDA manda sobre todo lo demás: ver la nota en la Global.
     else if (!vacia && avisoDeRetenida(cacheInfo, valB) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
-    // SIN INFORMACIÓN va justo después de la retenida y antes que todo lo
-    // demás. Si no hay nada detrás de ese bulto no importa si además está
-    // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
-    // un aviso menos grave es lo que hacía que siguiera dando vueltas.
-    else if (!vacia && avisoDeSinInfo(cacheInfo, valB) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
-    // Y la misma alerta si se le buscó la house y no estaba. Ver
-    // `avisoDeSinHouse`: la celda VACÍA no cuenta, solo el marcador «—».
-    else if (!vacia && avisoDeSinHouse(datosMasivos, i, valB) !== "") { fijo = TXT_SIN_HOUSE; color = COLOR_SIN_INFO; }
+    // EL AVISO DE «SIN INFORMACIÓN» YA NO VA AQUÍ. Aquí se decide el estado
+    // que SUSTITUYE a todo lo demás, y este no sustituye: se añade detrás del
+    // estado normal, en `marcarFilasSinInfo`, cuando ya está todo calculado.
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else {
@@ -5336,14 +5358,9 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
     let color = '#FFFFFF';
     if (esErrEstructura) { fijo = estB; color = '#ffc107'; }
     else if (!vacia && avisoDeRetenida(cacheInfo, valA) !== "") { fijo = TXT_RETENIDA; color = '#dc3545'; }
-    // SIN INFORMACIÓN va justo después de la retenida y antes que todo lo
-    // demás. Si no hay nada detrás de ese bulto no importa si además está
-    // duplicado o si ya salió: no puede viajar de ninguna manera, y taparlo con
-    // un aviso menos grave es lo que hacía que siguiera dando vueltas.
-    else if (!vacia && avisoDeSinInfo(cacheInfo, valA) !== "") { fijo = TXT_SIN_INFO; color = COLOR_SIN_INFO; }
-    // Y la misma alerta si se le buscó la house y no estaba. Ver
-    // `avisoDeSinHouse`: la celda VACÍA no cuenta, solo el marcador «—».
-    else if (!vacia && avisoDeSinHouse(datosMasivos, i, valA) !== "") { fijo = TXT_SIN_HOUSE; color = COLOR_SIN_INFO; }
+    // EL AVISO DE «SIN INFORMACIÓN» YA NO VA AQUÍ. Aquí se decide el estado
+    // que SUSTITUYE a todo lo demás, y este no sustituye: se añade detrás del
+    // estado normal, en `marcarFilasSinInfo`, cuando ya está todo calculado.
     else if (dup) { fijo = dup; color = '#ff9800'; }
 
     resultadosB.push([fijo]);

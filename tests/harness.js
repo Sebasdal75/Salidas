@@ -4563,13 +4563,20 @@ ok("sin esa columna, conjunto vacío",
    sinInfoDelCache([["GLOBAL 1_FISICO"]], ["GLOBAL 1_FISICO"]).size === 0);
 ok("sin caché tampoco revienta", sinInfoDelCache(null, null).size === 0);
 
-// El aviso es de nivel CRÍTICO. No es decoración: `conservarAlertasGraves` solo
-// protege de un pase parcial lo que está por encima de aviso, y si este bajara
-// de nivel una pasada cualquiera lo borraría y el bulto volvería a viajar.
-ok("es una alerta crítica, como la retenida",
-   nivelAlerta(T_SININFO) === nivelAlerta("🛑 RETENIDA (FEMAD)"));
-ok("por encima de un duplicado",
-   nivelAlerta(T_SININFO) > nivelAlerta("⛔ DUPLICADO (En: X Fila 2)"));
+// EL AVISO VA DETRÁS DEL ESTADO NORMAL, NO EN SU LUGAR. Sustituyéndolo se
+// perdía lo único que el operador mira de un vistazo —si la guía está bien— y
+// encima el texto era largo: la columna B es estrecha y lleva además la cola
+// del resumen del bloque.
+ok("se añade detrás del estado", conAvisoSinInfo("✅ Ok") === "✅ Ok · " + T_SININFO);
+ok("y sin estado va solo", conAvisoSinInfo("") === T_SININFO);
+ok("no se dobla si ya estaba",
+   conAvisoSinInfo("✅ Ok · " + T_SININFO) === "✅ Ok · " + T_SININFO);
+// LA COLA DEL RESUMEN ES DEL BLOQUE, NO DE ESTA GUÍA. Pegando el aviso al
+// final quedaría colgando del resumen del pedimento y parecería que es el
+// pedimento el que no tiene información.
+ok("el aviso va ANTES de la cola del resumen",
+   conAvisoSinInfo("✅ Ok" + SEP_RESUMEN + "Bultos: 3")
+   === "✅ Ok · " + T_SININFO + SEP_RESUMEN + "Bultos: 3");
 
 // Un marcador de bloque no puede acabar marcado: «SIN PEDIMENTO» sin espacios
 // pasa por guía corta, y si alguien lo pega en la lista marcaría separadores.
@@ -4626,10 +4633,12 @@ ok("sin datos tampoco", avisoDeSinHouse(null, 0, G1) === "");
 // Es la MISMA alerta, con el motivo detrás: las dos paran el bulto igual, pero
 // lo que hay que hacer cambia. La de la lista ya la puso alguien a mano; esta
 // solo necesita que se le busque la house.
-ok("lleva el mismo texto delante", T_SINHOUSE.indexOf(accesoTxtSinInfo()) === 0);
-ok("y dice por qué", T_SINHOUSE.indexOf("house") !== -1);
-ok("y es igual de grave",
-   nivelAlerta(T_SINHOUSE) === nivelAlerta(accesoTxtSinInfo()));
+// LOS DOS CASOS DICEN LO MISMO, a propósito. Se probó distinguirlos —«(sin
+// house)» detrás— y era texto de más para una diferencia que en el muelle no
+// cambia nada: el bulto está ahí, cuenta, y falta averiguar algo antes de
+// mandarlo. Quién lo averigua se sabe mirando la lista, que es donde se
+// resuelve.
+ok("el de sin house dice lo mismo", T_SINHOUSE === accesoTxtSinInfo());
 
 // EL MARCADOR SOLO SE REINTENTA EN LA PASADA A MANO. En la automática basta
 // UNA guía marcada para que cada pasada cargue el índice entero —cientos de
@@ -4651,9 +4660,10 @@ ok("y no cuenta como reintento",
 console.log("\n--- 18e. El aviso SUMA como bulto ---");
 // Se pidio que estas guias cuenten: el aviso es informativo, el bulto esta ahi.
 ok("el aviso de la lista no es un error", esAvisoSinInfo(accesoTxtSinInfo()));
-ok("el de sin house tampoco", esAvisoSinInfo(T_SINHOUSE));
+ok("y detrás de un estado también se reconoce",
+   esAvisoSinInfo("✅ Ok · " + accesoTxtSinInfo()));
 ok("con la marca de costal delante sigue reconociendose",
-   esAvisoSinInfo(accesoTxtCostal() + " · " + accesoTxtSinInfo()));
+   esAvisoSinInfo(accesoTxtCostal() + " · ✅ Ok · " + accesoTxtSinInfo()));
 ok("y arrastrando el resumen del bloque",
    esAvisoSinInfo(accesoTxtSinInfo() + SEP_RESUMEN + "Bultos: 3"));
 ok("una retenida SI es un error", !esAvisoSinInfo("🛑 RETENIDA (FEMAD)"));
@@ -4665,7 +4675,7 @@ ok("y una celda vacia no es aviso", !esAvisoSinInfo(""));
 // de la house. Conservandolo, quitar una guia de la lista no le quitaria el
 // aviso: la pasada nueva lo calcularia bien y la conservacion lo repondria.
 ok("un aviso viejo NO se conserva sobre un estado nuevo",
-   conservarAlertaGrave(accesoTxtSinInfo(), "✅ Ok") === "✅ Ok");
+   conservarAlertaGrave("✅ Ok · " + accesoTxtSinInfo(), "✅ Ok") === "✅ Ok");
 // Una retenida vieja SI se conserva: esa no se recalcula desde cero cada vez.
 ok("una retenida vieja si se conserva",
    conservarAlertaGrave("🛑 RETENIDA (FEMAD)", "✅ Ok").indexOf("RETENIDA") !== -1);
