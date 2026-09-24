@@ -4746,5 +4746,54 @@ ok("una hoja sin nada da lista vacía",
    filasConAvisoSinInfo([[G1, "✅ Ok"]], "X").length === 0);
 ok("sin datos no revienta", filasConAvisoSinInfo(null, "X").length === 0);
 
+console.log("\n=== 19. Añadir solo las houses nuevas ===");
+// `volcarAlIndice` REESCRIBE el indice entero: lee las dos hojas, fusiona,
+// reparte por antiguedad y las borra y escribe de cero. Con doscientas mil
+// filas eso son minutos cada vez que entra un CSV, aunque traiga cuatro guias.
+//
+// Este camino solo AÑADE al final. Sigue leyendo el indice —hace falta para
+// saber cuales ya estan— pero leer es barato: lo caro es borrar y reescribir.
+let yaEnIndice = new Map();
+yaEnIndice.set(G1, "A2F338CFPBS");
+
+let nuevasCsv = [
+    { guia: G1, house: "A2F338CFPBS", fecha: "", origen: 1 },   // ya estaba, igual
+    { guia: G2, house: "Y829R5FKLCV", fecha: "", origen: 1 },   // nueva
+    { guia: G2, house: "Y829R5FKLCV", fecha: "", origen: 1 },   // repetida en el CSV
+    { guia: "", house: "XXX", fecha: "", origen: 1 }            // sin guia
+];
+let sep = separarLasNuevas(yaEnIndice, nuevasCsv);
+ok("solo entra la que no estaba", sep.filas.length === 1);
+ok("y es la correcta", sep.filas[0][0] === G2);
+ok("la que ya estaba se cuenta", sep.yaEstaban === 1);
+// La repetida DENTRO del propio archivo no cuenta como «ya estaba»: no estaba,
+// acaba de entrar en esta misma pasada.
+ok("la repetida del CSV no se dobla ni se cuenta", sep.yaEstaban === 1);
+ok("sin guia se ignora", !sep.filas.some(f => f[0] === ""));
+ok("sin conflictos no inventa ninguno", sep.conflictos.length === 0);
+
+// LA QUE YA ESTA GANA, pero si dicen cosas distintas hay que DECIRLO: callarlo
+// dejaria al indice con una house que el archivo nuevo contradice, y nadie se
+// enteraria hasta el muelle.
+let sepConf = separarLasNuevas(yaEnIndice,
+    [{ guia: G1, house: "A2F338XXXXX", fecha: "", origen: 1 }]);
+ok("la contradiccion se reporta", sepConf.conflictos.length === 1);
+ok("con las dos houses",
+   sepConf.conflictos[0].viejo === "A2F338CFPBS" &&
+   sepConf.conflictos[0].nuevo === "A2F338XXXXX");
+ok("pero NO se añade nada", sepConf.filas.length === 0);
+
+// Las filas salen con las cuatro columnas del indice, en su orden.
+ok("la fila lleva guia, house, fecha y origen", sep.filas[0].length === 4);
+ok("la guia va normalizada",
+   separarLasNuevas(new Map(), [{ guia: " 1z-a2f338-0428-934294 ", house: "H",
+                                  fecha: "", origen: 1 }]).filas[0][0]
+   === "1ZA2F3380428934294");
+
+ok("sin indice previo entra todo",
+   separarLasNuevas(new Map(), nuevasCsv).filas.length === 2);
+ok("sin nada que añadir no revienta", separarLasNuevas(new Map(), []).filas.length === 0);
+ok("null tampoco", separarLasNuevas(null, null).filas.length === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

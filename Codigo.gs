@@ -5662,7 +5662,8 @@ function onOpen() {
       if (typeof moduloActivo === 'function' &&
           moduloActivo(SpreadsheetApp.getActiveSpreadsheet())) {
           menu.addSubMenu(ui.createMenu('🏠 Houses')
-              .addItem('☁️ Importar inbound desde OneDrive', 'importarInboundDesdeOneDrive')
+              .addItem('⚡ Añadir solo las houses nuevas', 'anexarInboundDesdeOneDrive')
+              .addItem('☁️ Importar inbound desde OneDrive (completo)', 'importarInboundDesdeOneDrive')
               .addItem('🏠 Poner AHORA las houses que faltan', 'rellenarHousesAhora')
               .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
               .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')

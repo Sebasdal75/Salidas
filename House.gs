@@ -1346,6 +1346,119 @@ function importarInboundAlIndice() {
 // Fusiona, reparte entre caliente y frío, escribe, y devuelve el resumen.
 // Lo comparten la importación desde Drive y la de OneDrive: el índice no sabe
 // —ni le importa— de dónde salió el CSV.
+// =========================================================================
+// AÑADIR SOLO LAS NUEVAS
+// =========================================================================
+//
+// `volcarAlIndice` REESCRIBE el índice entero: lee las dos hojas, fusiona,
+// vuelve a repartir por antigüedad y las borra y las escribe de cero. Con
+// doscientas mil filas eso son minutos cada vez que entra un CSV, aunque el CSV
+// traiga cuatro guías nuevas.
+//
+// Este camino solo AÑADE al final. Sigue leyendo el índice —hace falta para
+// saber cuáles ya están— pero leer es barato: lo caro es borrar y reescribir.
+//
+// LO QUE SE PIERDE, Y HAY QUE SABERLO: una guía que YA está no se toca. Con la
+// fusión completa, un inbound podía corregir la house que había puesto una
+// prealerta; aquí no, porque corregirla obliga a reescribir. Las que llegan con
+// otra house se cuentan y se dicen, para poder arreglarlas con el camino largo
+// si hace falta.
+function separarLasNuevas(mapaExistente, nuevas) {
+    let filas = [], yaEstaban = 0, conflictos = [];
+    let vistas = new Set();
+
+    (nuevas || []).forEach(n => {
+        let g = claveGuiaHouse(n.guia);
+        if (g === "") return;
+
+        if (mapaExistente && mapaExistente.has(g)) {
+            yaEstaban++;
+            let previa = String(mapaExistente.get(g)).trim();
+            let ahora = String(n.house === undefined ? "" : n.house).trim();
+            // La que ya está gana, pero si dicen cosas distintas hay que
+            // decirlo: callarlo dejaría al índice con una house que el archivo
+            // nuevo contradice y nadie se enteraría hasta el muelle.
+            if (previa !== ahora) conflictos.push({ guia: g, viejo: previa, nuevo: ahora });
+            return;
+        }
+        // Repetida dentro del propio archivo: la primera manda y la segunda ni
+        // se cuenta como «ya estaba», porque no estaba: acaba de entrar.
+        if (vistas.has(g)) return;
+        vistas.add(g);
+
+        let origen = n.origen === undefined ? ORIGEN_DESCONOCIDO : n.origen;
+        filas.push([g, n.house, n.fecha || "", nombreDeOrigen(origen)]);
+    });
+
+    return { filas: filas, yaEstaban: yaEstaban, conflictos: conflictos };
+}
+
+// Pega filas al FINAL de una hoja de índice, sin tocar lo que ya hay.
+function anexarFilasAlIndice(ss, nombre, filas) {
+    if (!filas || filas.length === 0) return 0;
+    let h = hojaIndice(ss, nombre, true);
+    if (h.getMaxColumns() < 4) h.insertColumnsAfter(h.getMaxColumns(), 4 - h.getMaxColumns());
+
+    // `getLastRow` puede ser 0 en una hoja recién creada: la cabecera la pone
+    // `hojaIndice`, pero si alguien la borró hay que no escribir encima de ella.
+    let desde = Math.max(h.getLastRow(), 1) + 1;
+    asegurarFilas(h, desde + filas.length);
+    // Por tramos: un CSV grande no cabe en un solo setValues.
+    for (let i = 0; i < filas.length; i += FILAS_POR_ESCRITURA) {
+        let tramo = filas.slice(i, i + FILAS_POR_ESCRITURA);
+        h.getRange(desde + i, 1, tramo.length, 4).setValues(tramo);
+    }
+    return filas.length;
+}
+
+function anexarAlIndice(ss, nuevas) {
+    // Se leen LAS DOS. Mirar solo el caliente metería otra vez todo lo que ya
+    // está en el frío, que es justo lo que más pesa.
+    let mapa = new Map();
+    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+        leerIndice(ss, nombre).forEach(f => {
+            let g = claveGuiaHouse(f[0]);
+            if (g !== "" && !mapa.has(g)) mapa.set(g, String(f[1]).trim());
+        });
+    });
+
+    let r = separarLasNuevas(mapa, nuevas);
+    // Todo lo nuevo va al CALIENTE, y no hace falta mirar su fecha: si acaba de
+    // llegar es de ahora. Al frío lo baja el camino largo cuando envejezca.
+    anexarFilasAlIndice(ss, HOJA_INDICE_HOUSE, r.filas);
+
+    let msg = "Guías leídas del archivo: " + (nuevas || []).length + "\n" +
+              "  · añadidas al índice: " + r.filas.length + "\n" +
+              "  · ya estaban: " + r.yaEstaban + "\n" +
+              "Índice: " + (mapa.size + r.filas.length) + " guías en total";
+
+    let tiradas = typeof housesDescartadas === 'function' ? housesDescartadas() : 0;
+    if (tiradas > 0) {
+        msg += "\n\n🚫 " + tiradas + " filas descartadas: lo que traían como house " +
+               "no lo parecía (demasiado largo, con una guía dentro o con una fecha).";
+    }
+
+    let reintentar = limpiarMarcasNoEncontradas(ss);
+    if (reintentar > 0) {
+        msg += "\n\n🔁 " + reintentar + " guías marcadas como «no está» vuelven a la " +
+               "cola: el relleno les buscará house con estos datos nuevos.";
+    }
+
+    if (r.conflictos.length) {
+        msg += "\n\n⚠️ " + r.conflictos.length + " guías llegan con una house " +
+               "DISTINTA de la que ya tenían. Este camino NO las corrige —para eso " +
+               "hay que reescribir el índice—, así que se quedaron como estaban:\n" +
+               r.conflictos.slice(0, 8)
+                   .map(c => "  " + c.guia + ": " + c.viejo + " → " + c.nuevo).join("\n");
+        if (r.conflictos.length > 8) msg += "\n  …y " + (r.conflictos.length - 8) + " más.";
+        msg += "\n\nSi hay que hacerles caso, usa «☁️ Importar inbound desde OneDrive», " +
+               "que sí fusiona.";
+    }
+
+    try { olvidarMapaHouseEnRAM(); } catch (err) { /* puede no existir */ }
+    return msg;
+}
+
 function volcarAlIndice(ss, nuevas) {
     let fusion = fusionarEnIndice(leerIndice(ss, HOJA_INDICE_HOUSE)
                                   .concat(leerIndice(ss, HOJA_INDICE_HOUSE_FRIO)), nuevas);
@@ -1786,7 +1899,13 @@ function configurarUrlOneDrive() {
              ui.ButtonSet.OK);
 }
 
-function importarInboundDesdeOneDrive() {
+// Los dos botones bajan y leen EXACTAMENTE igual; lo único que cambia es qué
+// se hace con lo leído. Duplicar el cuerpo habría sido garantizar que un día se
+// arregle un fallo de descarga en uno y no en el otro.
+function importarInboundDesdeOneDrive() { bajarInboundDeOneDrive(false); }
+function anexarInboundDesdeOneDrive()   { bajarInboundDeOneDrive(true); }
+
+function bajarInboundDeOneDrive(soloNuevas) {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
     if (!exigirModoPrueba(ss)) return;
@@ -1856,13 +1975,18 @@ function importarInboundDesdeOneDrive() {
         return;
     }
 
-    let resumen = volcarAlIndice(ss, nuevas);
+    let resumen = soloNuevas ? anexarAlIndice(ss, nuevas) : volcarAlIndice(ss, nuevas);
     resumen = "Archivos leídos: " + (lista.length - problemas.length) + " de " +
               lista.length + "\n\n" + resumen;
-    if (sinFecha.length) resumen += "\n\n" + AVISO_SIN_FECHA + "\n\nSin fecha: " +
-                                    sinFecha.join(", ");
+    // El aviso de las fechas solo pinta en el camino largo: es el que reparte
+    // entre caliente y frío según la fecha. El corto lo mete todo en caliente
+    // porque acaba de llegar, así que la fecha ahí no decide nada.
+    if (!soloNuevas && sinFecha.length) {
+        resumen += "\n\n" + AVISO_SIN_FECHA + "\n\nSin fecha: " + sinFecha.join(", ");
+    }
     if (problemas.length) resumen += "\n\n❌ Con problemas:\n" + problemas.join("\n");
-    ui.alert("☁️ OneDrive", resumen, ui.ButtonSet.OK);
+    ui.alert(soloNuevas ? "⚡ Añadir solo las nuevas" : "☁️ OneDrive",
+             resumen, ui.ButtonSet.OK);
 }
 
 // `segundosMax` acota lo que puede tardar una pasada. El disparador usa el
