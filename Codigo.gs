@@ -6559,6 +6559,36 @@ function diagnosticarGuia() {
           let esperadasMS = datosMS.registroMS.get(pedBloque);
           L.push("   La M-S le da a ese pedimento: " +
                  (esperadasMS ? esperadasMS.size + " guías" : "ninguna (no está en M-S)"));
+
+          // LA OTRA MITAD DE LA CUENTA, que es la que contesta «¿por qué no me
+          // dice cuántos bultos faltan?». Con solo «la M-S le da N» no se sabe
+          // si el problema es que la M-S no le da nada o que esta hoja ya las
+          // tiene todas.
+          if (esperadasMS && esperadasMS.size > 0) {
+              let aqui = new Set();
+              for (let i = 0; i < colA.length; i++) {
+                  let v = String(colA[i][0]).trim().toUpperCase();
+                  if (esperadasMS.has(v)) aqui.add(v);
+              }
+              let faltan = esperadasMS.size - aqui.size;
+              L.push("   De esas, en esta pestaña hay " + aqui.size +
+                     " → faltan " + faltan);
+              if (faltan > 0) {
+                  L.push("   El resumen del pedimento DEBERÍA decir «❌ Faltan " +
+                         faltan + "». Si no lo dice, esta pestaña no se ha");
+                  L.push("   recalculado desde que se escribió el pedimento en la");
+                  L.push("   M-S: dale a «🔄 Forzar Actualización» aquí.");
+              }
+          } else {
+              // Sin guías en la M-S el resumen NO PUEDE decir cuántas faltan:
+              // no tiene contra qué comparar. Y eso se ve igual que «ya está
+              // todo», que es lo que confunde.
+              L.push("   Sin guías en la M-S para ese pedimento, el resumen de");
+              L.push("   esta hoja no puede decir cuántas faltan: no tiene contra");
+              L.push("   qué compararlas. En una M-S SALIDAS el pedimento va");
+              L.push("   DEBAJO de sus guías, así que hasta que no se escriba ese");
+              L.push("   número nadie sabe de quién son.");
+          }
           if (esperadasMS && esperadasMS.has(guia)) {
               L.push("   ✅ Esta guía SÍ está en esa lista → debería salir «✅ Ok».");
           } else if (pedEnMS !== "" && pedEnMS !== pedBloque) {

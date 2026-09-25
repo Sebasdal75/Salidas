@@ -4909,5 +4909,48 @@ ok("cuenta por mes", accMes.porMes["2026-09"] === 1 && accMes.porMes["2026-08"] 
 ok("y el informe lo enseña",
    informeDeFechasDeSalidas(accMes, 45).indexOf("Mes a mes") !== -1);
 
+console.log("\n=== 21. La Global cuenta contra el registro de la M-S ===");
+// LA PREGUNTA: la M-S SALIDAS dice «Bultos: 17 | Faltan 14 por mover» y la
+// Global, para ese mismo pedimento, dice solo «Bultos: 3». ¿Por que no dice
+// cuantos faltan?
+//
+// El mecanismo existe: el registro de las M-S se mete en las «esperadas» de la
+// Global aunque esa Global no tenga preforma. Lo que falla es OTRA cosa —que la
+// Global no se haya recalculado desde que se escribio el pedimento— y para
+// distinguirlo hay que poder ver el registro.
+//
+// EN UNA M-S SALIDAS EL PEDIMENTO VA DEBAJO de sus guias y las cierra. Leerla
+// como una M-S normal le daria a cada guia el pedimento del bloque ANTERIOR.
+const cabsMS = ["M-S SALIDAS_FISICO", "GLOBAL_FISICO"];
+let colMS = [];
+[G1, G2, G3].forEach(g => colMS.push(g));
+colMS.push("6112746");                       // cierra las tres de arriba
+let guiasSegundo = [];
+for (let i = 0; i < 5; i++) {
+    let g = "1ZR1H0146" + (730000000 + i);
+    guiasSegundo.push(g);
+    colMS.push(g);
+}
+colMS.push("6112757");                       // cierra las cinco de arriba
+
+let dataMS = [cabsMS];
+colMS.forEach(v => dataMS.push([v, ""]));
+
+let regMS = obtenerRegistroMSDesdeCache({ headers: cabsMS, data: dataMS }, "GLOBAL");
+ok("el primer pedimento recoge las de ARRIBA",
+   regMS.registroMS.get("6112746").size === 3);
+ok("y el segundo las suyas, no las del anterior",
+   regMS.registroMS.get("6112757").size === 5);
+ok("ninguna guia se cuela en los dos",
+   !regMS.registroMS.get("6112757").has(G1));
+// El origen de cada guia tambien sale: es lo que pone «(Escaneado en M-S …)».
+ok("y se sabe de que M-S viene cada una", regMS.guiasOrigen.has(G1));
+
+// La hoja ACTUAL no se cuenta a si misma: si no, cada guia de la M-S saldria
+// esperandose a si misma.
+let regPropio = obtenerRegistroMSDesdeCache({ headers: cabsMS, data: dataMS },
+                                            "M-S SALIDAS");
+ok("la propia pestaña no se cuenta", regPropio.registroMS.size === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
