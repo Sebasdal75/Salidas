@@ -194,6 +194,24 @@ function fechasDelArchivoDeSalidas(texto, cols, corte) {
     return acc || { total: 0, sinFecha: 0, dentro: 0, fuera: 0, min: null, max: null };
 }
 
+// La fecha más vieja y la más nueva que hay DENTRO del índice.
+//
+// Es el otro lado del espejo. «Probar el archivo» dice qué hay disponible en el
+// CSV; esto dice qué acabó entrando de verdad. Con los dos números juntos la
+// pregunta «le puse 45 días y solo me trae lo del mes» se contesta sola: si el
+// archivo llega a agosto y el índice empieza en septiembre, la importación no
+// se ha vuelto a correr desde que se cambió la ventana.
+function rangoDelIndiceSalidas(filas) {
+    let min = null, max = null, sinFecha = 0;
+    (filas || []).forEach(f => {
+        let d = aFechaInbound((f || [])[1]);
+        if (d === null) { sinFecha++; return; }
+        if (min === null || d < min) min = d;
+        if (max === null || d > max) max = d;
+    });
+    return { min: min, max: max, sinFecha: sinFecha };
+}
+
 // El informe, en palabras y con el diagnóstico hecho.
 function informeDeFechasDeSalidas(r, dias) {
     if (!r || r.total === 0) return "No hay renglones que mirar.";
@@ -904,7 +922,32 @@ function medirIndiceDeSalidas() {
     L.push("Guías: " + calientes.length.toLocaleString());
     L.push("  · con pedimento: " + conPedimento.toLocaleString());
     L.push("Pedimentos distintos: " + pedsUnicos.toLocaleString());
-    L.push("Ventana: " + diasDeImportacionSalidas() + " días");
+    let dias = diasDeImportacionSalidas();
+    L.push("Ventana: " + dias + " días");
+
+    // LO QUE HAY DENTRO, no lo que debería haber. Un índice con la ventana en
+    // 45 pero que empieza el día 1 del mes significa que no se ha vuelto a
+    // importar desde que se cambió el número: la ventana se aplica AL IMPORTAR,
+    // no sobre lo ya guardado.
+    let rango = rangoDelIndiceSalidas(calientes);
+    if (rango.min && rango.max) {
+        L.push("Va del " + textoFechaSalida(rango.min) + " al " +
+               textoFechaSalida(rango.max));
+        let esperado = corteDeImportacion(new Date(), dias);
+        // Un día de margen: el corte es una hora exacta y las fechas del
+        // archivo son días sueltos, así que la más vieja cae casi siempre unas
+        // horas después del corte sin que eso signifique nada.
+        if (esperado && rango.min.getTime() - esperado.getTime() > 2 * 86400000) {
+            L.push("⚠️ Debería empezar el " + textoFechaSalida(esperado) +
+                   " y empieza " + Math.round((rango.min - esperado) / 86400000) +
+                   " días después. Vuelve a importar: la ventana se aplica AL " +
+                   "IMPORTAR, no sobre lo que ya está guardado.");
+        }
+    }
+    if (rango.sinFecha > 0) {
+        L.push("  · " + rango.sinFecha.toLocaleString() + " sin fecha que se entienda " +
+               "(se quedan siempre: no se pueden podar)");
+    }
     L.push("Leer el índice: " + msLectura + " ms   ·   armar el Map: " + msMapa + " ms");
     L.push("");
     L.push("── LA LISTA RÁPIDA (lo que consulta el escaneo) ──");

@@ -4844,5 +4844,26 @@ ok("sin renglones no inventa nada",
    informeDeFechasDeSalidas({ total: 0 }, 45).indexOf("No hay renglones") !== -1);
 ok("null tampoco revienta", informeDeFechasDeSalidas(null, 45).length > 0);
 
+console.log("\n--- 20b. Que fechas hay DENTRO del indice ---");
+// Es el otro lado del espejo. «Probar el archivo» dice que hay disponible en el
+// CSV; esto dice que acabo entrando de verdad. Con los dos juntos, «le puse 45
+// dias y solo me trae lo del mes» se contesta solo: si el archivo llega a
+// agosto y el indice empieza en septiembre, no se ha vuelto a importar desde
+// que se cambio la ventana.
+let filasIdxSal = [
+    [G1, "20/09/2026", "6102253", "SALIDAS"],
+    [G2, "15/08/2026", "", "SALIDAS"],
+    [G3, "no es fecha", "", "SALIDAS"]
+];
+let rangoIdx = rangoDelIndiceSalidas(filasIdxSal);
+ok("la mas vieja es la de agosto", rangoIdx.min.getMonth() === 7);
+ok("la mas nueva la de septiembre", rangoIdx.max.getMonth() === 8);
+// Las que no se entienden se cuentan aparte: se quedan siempre, porque no se
+// pueden podar, y eso hay que poder verlo.
+ok("y las que no se entienden se cuentan", rangoIdx.sinFecha === 1);
+ok("un indice vacio no inventa fechas",
+   rangoDelIndiceSalidas([]).min === null);
+ok("null tampoco revienta", rangoDelIndiceSalidas(null).sinFecha === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
