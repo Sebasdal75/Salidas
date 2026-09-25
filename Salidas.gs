@@ -147,6 +147,89 @@ function filasDeSalidas(datos, cols, origen, corte) {
     return salida;
 }
 
+// =========================================================================
+// ¿HASTA DÓNDE LLEGA EL ARCHIVO?
+// =========================================================================
+//
+// LA PREGUNTA QUE ESTO CONTESTA: «le puse 45 días y solo me trae lo del mes,
+// ¿por qué?». Sin esto no hay forma de saberlo, porque las dos causas posibles
+// se ven EXACTAMENTE IGUAL desde fuera:
+//
+//   · el archivo solo trae lo del mes, y entonces ninguna ventana traerá más;
+//   · el archivo trae más, pero sus fechas no se entienden y se descartan.
+//
+// La segunda es la mala y la que hay que poder ver: una fecha que no se
+// entiende no da error, simplemente no cuenta.
+//
+// Acumula, no guarda: un histórico de 677.000 renglones no cabe en memoria.
+function acumularFechasDeSalidas(datos, cols, corte, acc) {
+    let a = acc || { total: 0, sinFecha: 0, dentro: 0, fuera: 0, min: null, max: null };
+    if (!datos || !cols || cols.fecha === -1) {
+        a.total += Math.max(0, (datos || []).length - 1);
+        a.sinFecha = a.total;
+        return a;
+    }
+    for (let i = 1; i < datos.length; i++) {
+        let fila = datos[i];
+        if (!fila) continue;
+        a.total++;
+        let f = aFechaInbound(fila[cols.fecha]);
+        if (f === null) { a.sinFecha++; continue; }
+        if (a.min === null || f < a.min) a.min = f;
+        if (a.max === null || f > a.max) a.max = f;
+        if (corte && f < corte) a.fuera++; else a.dentro++;
+    }
+    return a;
+}
+
+// El mismo recorrido por bloques que usa la importación: es lo que permite
+// leer decenas de MB sin montar un array de un millón de celdas.
+function fechasDelArchivoDeSalidas(texto, cols, corte) {
+    let cabecera = String(texto).split("\n")[0] || "";
+    let sep = separadorCsv(cabecera);
+    let acc = null;
+    bloquesDeLineas(texto, LINEAS_POR_BLOQUE, cabecera).forEach(bloque => {
+        acc = acumularFechasDeSalidas(Utilities.parseCsv(bloque, sep), cols, corte, acc);
+    });
+    return acc || { total: 0, sinFecha: 0, dentro: 0, fuera: 0, min: null, max: null };
+}
+
+// El informe, en palabras y con el diagnóstico hecho.
+function informeDeFechasDeSalidas(r, dias) {
+    if (!r || r.total === 0) return "No hay renglones que mirar.";
+
+    let L = [];
+    L.push("── LAS FECHAS DEL ARCHIVO ──");
+    L.push("Renglones: " + r.total.toLocaleString());
+    if (r.min && r.max) {
+        L.push("Van del " + textoFechaSalida(r.min) + " al " + textoFechaSalida(r.max));
+    }
+    L.push("Dentro de tus " + dias + " días: " + r.dentro.toLocaleString());
+    L.push("Más viejos que eso: " + r.fuera.toLocaleString());
+    L.push("Con fecha que NO se entiende: " + r.sinFecha.toLocaleString());
+
+    // El diagnóstico va después de los números y dice qué hacer, que es lo que
+    // no se deduce solo.
+    if (r.sinFecha > r.total / 4) {
+        L.push("");
+        L.push("⚠️ Hay demasiadas fechas que no se entienden. Esas NO se descartan " +
+               "—entran igual— pero tampoco se pueden podar ni contar, así que la " +
+               "ventana deja de significar nada. Suele ser que la columna no está " +
+               "formateada como fecha en Excel: dale formato de fecha y vuelve a " +
+               "exportar.");
+    } else if (r.fuera === 0 && r.min && r.max) {
+        L.push("");
+        L.push("✅ El archivo NO tiene nada más viejo que tu ventana. Si esperabas " +
+               "más días, el recorte está en el ARCHIVO, no aquí: exporta el " +
+               "histórico con más días y vuelve a importar.");
+    } else {
+        L.push("");
+        L.push("Lo de «más viejos» se queda fuera a propósito: es tu ventana de " +
+               dias + " días la que lo decide.");
+    }
+    return L.join("\n");
+}
+
 // -------------------------------------------------------------------------
 // LA VENTANA: hasta dónde atrás se importa
 //
@@ -975,6 +1058,14 @@ function probarArchivoDeSalidas() {
                     d += "  (" + salidasDescartadas() + " de esas 5 sin guía válida)";
                 }
             }
+
+            // Y el archivo ENTERO, no una muestra. Es lo único que contesta
+            // «le puse 45 días y solo me trae lo del mes»: dice si el recorte
+            // está en el archivo o en las fechas que no se entienden.
+            let dias = diasDeImportacionSalidas();
+            let corte = corteDeImportacion(new Date(), dias);
+            d += "\n\n" + informeDeFechasDeSalidas(
+                fechasDelArchivoDeSalidas(r.texto, cols, corte), dias);
         }
         partes.push(d);
     }

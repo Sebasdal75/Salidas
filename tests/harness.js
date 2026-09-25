@@ -4795,5 +4795,54 @@ ok("sin indice previo entra todo",
 ok("sin nada que añadir no revienta", separarLasNuevas(new Map(), []).filas.length === 0);
 ok("null tampoco", separarLasNuevas(null, null).filas.length === 0);
 
+console.log("\n=== 20. Hasta donde llega el archivo de salidas ===");
+// LA PREGUNTA QUE ESTO CONTESTA: «le puse 45 dias y solo me trae lo del mes».
+// Sin esto no hay forma de saberlo, porque las dos causas se ven IGUAL desde
+// fuera: o el archivo solo trae el mes, o sus fechas no se entienden. La
+// segunda es la mala, y una fecha que no se entiende NO da error.
+const COLS_SAL = { guia: 0, fecha: 1, pedimento: -1 };
+let hoyT = new Date(2026, 8, 25);              // 25/09/2026
+let corteT = corteDeImportacion(hoyT, 45);     // 11/08/2026
+
+let csvSal = [
+    ["GUIA", "FECHA"],
+    [G1, "20/09/2026"],   // dentro
+    [G2, "15/08/2026"],   // dentro (45 dias llegan al 11/08)
+    [G3, "02/07/2026"],   // fuera
+    [G1, "no es fecha"]   // no se entiende
+];
+let acc = acumularFechasDeSalidas(csvSal, COLS_SAL, corteT, null);
+ok("cuenta todos los renglones", acc.total === 4);
+ok("las de dentro de la ventana", acc.dentro === 2);
+ok("las mas viejas", acc.fuera === 1);
+ok("y las que no se entienden", acc.sinFecha === 1);
+ok("la mas antigua es de julio", acc.min.getMonth() === 6);
+ok("y la mas nueva de septiembre", acc.max.getMonth() === 8);
+
+// Acumula entre bloques: un historico de 677.000 renglones no cabe en memoria,
+// asi que se lee por tramos y cada tramo suma sobre el anterior.
+let acc2 = acumularFechasDeSalidas(csvSal, COLS_SAL, corteT, acc);
+ok("los bloques se suman, no se pisan", acc2.total === 8);
+
+// SIN COLUMNA DE FECHA todo cuenta como «no se entiende». No se puede afirmar
+// que algo esta dentro de la ventana cuando no hay con que comprobarlo.
+let sinCol = acumularFechasDeSalidas(csvSal, { guia: 0, fecha: -1 }, corteT, null);
+ok("sin columna de fecha, nada se da por bueno", sinCol.sinFecha === sinCol.total);
+
+// EL INFORME DICE QUE HACER, que es lo que no se deduce de los numeros.
+let sinNadaViejo = { total: 100, sinFecha: 0, dentro: 100, fuera: 0,
+                     min: new Date(2026, 8, 1), max: new Date(2026, 8, 25) };
+ok("si no hay nada mas viejo, señala al archivo de origen",
+   informeDeFechasDeSalidas(sinNadaViejo, 45).indexOf("el recorte está en el ARCHIVO") !== -1);
+let muchasSinFecha = { total: 100, sinFecha: 90, dentro: 10, fuera: 0,
+                       min: new Date(2026, 8, 1), max: new Date(2026, 8, 25) };
+ok("con muchas fechas rotas, avisa del formato",
+   informeDeFechasDeSalidas(muchasSinFecha, 45).indexOf("formato de fecha") !== -1);
+ok("y no confunde los dos casos",
+   informeDeFechasDeSalidas(muchasSinFecha, 45).indexOf("el recorte está en el ARCHIVO") === -1);
+ok("sin renglones no inventa nada",
+   informeDeFechasDeSalidas({ total: 0 }, 45).indexOf("No hay renglones") !== -1);
+ok("null tampoco revienta", informeDeFechasDeSalidas(null, 45).length > 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
