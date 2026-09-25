@@ -163,7 +163,9 @@ function filasDeSalidas(datos, cols, origen, corte) {
 //
 // Acumula, no guarda: un histórico de 677.000 renglones no cabe en memoria.
 function acumularFechasDeSalidas(datos, cols, corte, acc) {
-    let a = acc || { total: 0, sinFecha: 0, dentro: 0, fuera: 0, min: null, max: null };
+    let a = acc || { total: 0, sinFecha: 0, dentro: 0, fuera: 0, min: null, max: null,
+                     porMes: {} };
+    if (!a.porMes) a.porMes = {};
     if (!datos || !cols || cols.fecha === -1) {
         a.total += Math.max(0, (datos || []).length - 1);
         a.sinFecha = a.total;
@@ -178,6 +180,13 @@ function acumularFechasDeSalidas(datos, cols, corte, acc) {
         if (a.min === null || f < a.min) a.min = f;
         if (a.max === null || f > a.max) a.max = f;
         if (corte && f < corte) a.fuera++; else a.dentro++;
+
+        // EL DESGLOSE POR MES ES LO QUE DESTAPA UN HUECO. Con solo el «va del X
+        // al Y» un archivo al que le falta media quincena se ve idéntico a uno
+        // completo, y entonces la ventana parece que no funciona cuando lo que
+        // pasa es que esos días no están en el archivo.
+        let clave = f.getFullYear() + "-" + ("0" + (f.getMonth() + 1)).slice(-2);
+        a.porMes[clave] = (a.porMes[clave] || 0) + 1;
     }
     return a;
 }
@@ -212,6 +221,28 @@ function rangoDelIndiceSalidas(filas) {
     return { min: min, max: max, sinFecha: sinFecha };
 }
 
+// ¿Hay algún mes casi vacío entre otros llenos?
+//
+// «Casi vacío» y no «vacío»: un mes que falta del todo no aparece como clave, y
+// uno al que le falta media quincena sí aparece, con una décima parte de lo que
+// le toca. El segundo es el caso que engaña, porque el «va del X al Y» lo tapa.
+function huecoEnLosMeses(porMes) {
+    let meses = Object.keys(porMes || {}).sort();
+    if (meses.length < 3) return false;   // sin tres meses no hay «entre otros»
+    let valores = meses.map(m => porMes[m]);
+    // Se compara contra la MEDIANA, no contra la media: un mes gigante arrastra
+    // la media hacia arriba y haría parecer huecos a los meses normales.
+    let orden = valores.slice().sort((a, b) => a - b);
+    let mediana = orden[Math.floor(orden.length / 2)];
+    if (!mediana) return false;
+    // Los extremos se saltan: el primer y el último mes están cortados por la
+    // fecha de corte del propio archivo y es normal que traigan menos.
+    for (let i = 1; i < valores.length - 1; i++) {
+        if (valores[i] < mediana / 5) return true;
+    }
+    return false;
+}
+
 // El informe, en palabras y con el diagnóstico hecho.
 function informeDeFechasDeSalidas(r, dias) {
     if (!r || r.total === 0) return "No hay renglones que mirar.";
@@ -226,6 +257,16 @@ function informeDeFechasDeSalidas(r, dias) {
     L.push("Más viejos que eso: " + r.fuera.toLocaleString());
     L.push("Con fecha que NO se entiende: " + r.sinFecha.toLocaleString());
 
+    // Mes a mes. Un mes con cuatro renglones donde los demás tienen decenas de
+    // miles es un hueco, y un hueco explica por qué la ventana «no trae» esos
+    // días: no es que los descarte, es que no están.
+    let meses = Object.keys(r.porMes || {}).sort();
+    if (meses.length > 1) {
+        L.push("");
+        L.push("Mes a mes:");
+        meses.forEach(m => L.push("  " + m + ": " + r.porMes[m].toLocaleString()));
+    }
+
     // El diagnóstico va después de los números y dice qué hacer, que es lo que
     // no se deduce solo.
     if (r.sinFecha > r.total / 4) {
@@ -235,6 +276,12 @@ function informeDeFechasDeSalidas(r, dias) {
                "ventana deja de significar nada. Suele ser que la columna no está " +
                "formateada como fecha en Excel: dale formato de fecha y vuelve a " +
                "exportar.");
+    } else if (huecoEnLosMeses(r.porMes)) {
+        L.push("");
+        L.push("⚠️ Hay un MES CASI VACÍO entre otros llenos. Eso es un hueco en el " +
+               "archivo, no un fallo de la ventana: esos días no se descartan, es " +
+               "que no están. Si la ventana «no trae» esas fechas, es por esto. " +
+               "Vuelve a exportar el histórico completo.");
     } else if (r.fuera === 0 && r.min && r.max) {
         L.push("");
         L.push("✅ El archivo NO tiene nada más viejo que tu ventana. Si esperabas " +

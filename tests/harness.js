@@ -4865,5 +4865,49 @@ ok("un indice vacio no inventa fechas",
    rangoDelIndiceSalidas([]).min === null);
 ok("null tampoco revienta", rangoDelIndiceSalidas(null).sinFecha === 0);
 
+console.log("\n--- 20c. El hueco en el archivo ---");
+// EL CASO REAL QUE LO MOTIVO: el archivo iba del 27/05 al 24/09 y la ventana de
+// 45 dias decia «70.217 dentro», pero el indice empezaba el 01/09. No era un
+// fallo de la ventana: al archivo le faltaba la primera quincena de agosto, asi
+// que esos dias no se descartaban, es que NO ESTABAN.
+//
+// Con solo el «va del X al Y» los dos casos se ven identicos. El desglose por
+// mes es lo unico que los separa.
+ok("un mes casi vacio entre llenos es un hueco",
+   huecoEnLosMeses({ "2026-06": 30000, "2026-07": 31000, "2026-08": 200,
+                     "2026-09": 29000 }) === true);
+ok("meses parejos no son hueco",
+   huecoEnLosMeses({ "2026-06": 30000, "2026-07": 31000, "2026-08": 29000,
+                     "2026-09": 28000 }) === false);
+
+// LOS EXTREMOS SE SALTAN: el primer y el ultimo mes estan cortados por la fecha
+// de corte del propio archivo y es normal que traigan menos. Marcarlos daria el
+// aviso en todos los archivos y dejaria de leerse.
+ok("un primer mes corto no es hueco",
+   huecoEnLosMeses({ "2026-06": 500, "2026-07": 31000, "2026-08": 29000,
+                     "2026-09": 28000 }) === false);
+ok("ni un ultimo mes corto",
+   huecoEnLosMeses({ "2026-06": 30000, "2026-07": 31000, "2026-08": 29000,
+                     "2026-09": 400 }) === false);
+
+// SE COMPARA CONTRA LA MEDIANA, no contra la media: un mes gigante arrastra la
+// media hacia arriba y haria parecer huecos a los meses normales.
+ok("un mes gigante no convierte a los normales en huecos",
+   huecoEnLosMeses({ "2026-06": 20000, "2026-07": 500000, "2026-08": 20000,
+                     "2026-09": 20000 }) === false);
+
+ok("con menos de tres meses no se opina",
+   huecoEnLosMeses({ "2026-08": 30000, "2026-09": 100 }) === false);
+ok("sin meses tampoco", huecoEnLosMeses({}) === false);
+ok("null no revienta", huecoEnLosMeses(null) === false);
+
+// El desglose sale en el informe, que es donde se mira.
+let accMes = acumularFechasDeSalidas(
+    [["G", "F"], [G1, "20/09/2026"], [G2, "15/08/2026"], [G3, "02/07/2026"]],
+    COLS_SAL, null, null);
+ok("cuenta por mes", accMes.porMes["2026-09"] === 1 && accMes.porMes["2026-08"] === 1);
+ok("y el informe lo enseña",
+   informeDeFechasDeSalidas(accMes, 45).indexOf("Mes a mes") !== -1);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
