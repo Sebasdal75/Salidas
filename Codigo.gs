@@ -5733,6 +5733,15 @@ function onOpen() {
       // de todas las M-S cubre el día a día; esta es para cuando hay que
       // limpiar una GLOBAL o una de rezago, que el barrido no toca.
       .addItem('🧹 Limpiar lo ya salido de SOLO esta pestaña', 'limpiarGuiasMovidas')
+      // Vuelve al menú a petición del usuario. Se habia quitado creyendo que el
+      // inventario ya no vivía en este archivo; sigue usándose.
+      //
+      // Va en Mantenimiento y no arriba porque lo que produce es un INFORME de
+      // solo lectura, no operación: la hoja «CONSOLIDADO INVENTARIO» está
+      // marcada como interna justamente para que el motor no la tome por una
+      // pestaña de escaneo y saque cada guía copiada como duplicada de su
+      // original.
+      .addItem('📚 Unir pestañas INVENTARIO en una', 'unirInventarios')
       .addSeparator()
       .addItem('⚙️ Poner el trigger de escaneo (6 min)', 'instalarTriggerAvanzado')
       // VUELVEN AL MENÚ. Se habían quitado cuando el disparador de la noche
