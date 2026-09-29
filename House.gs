@@ -2889,6 +2889,128 @@ function quitarRepetidosDelIndice() {
     ui.alert("🧹 1Z repetidos", msg, ui.ButtonSet.OK);
 }
 
+// =========================================================================
+// DAR DE BAJA LAS QUE YA SALIERON
+// =========================================================================
+//
+// El índice de houses solo crece. Cada prealerta que entra se queda para
+// siempre, aunque ese bulto se embarcara hace dos meses y no vaya a volver a
+// escanearse nunca. Y el índice CALIENTE se lee entero en cada relleno, así que
+// lo que pesa ahí se paga cada cinco minutos.
+//
+// Una guía que ya salió no necesita su house en el caliente: nadie va a
+// escanearla. El histórico de salidas dice cuáles son, y con eso se pueden
+// apartar.
+//
+// POR QUÉ SE ARCHIVAN Y NO SE BORRAN, salvo que se pida lo contrario: una
+// devolución existe. Si un bulto vuelve y su house se tiró, hay que reimportar
+// el CSV de aquel día —si es que todavía está—. En el frío sigue a un botón de
+// distancia y no cuesta nada tenerlo ahí, porque el frío no se abre en
+// automático nunca.
+function guiasQueYaSalieron() {
+    let set = new Set();
+    try {
+        if (typeof leerIndiceSalidas !== 'function') return set;
+        leerIndiceSalidas(HOJA_INDICE_SALIDAS).forEach(f => {
+            let g = claveGuiaHouse((f || [])[0]);
+            if (g !== "") set.add(g);
+        });
+    } catch (err) { /* Salidas.gs puede no estar pegado */ }
+    return set;
+}
+
+// Parte las filas del índice en las que se quedan y las que se van.
+//
+// Puro, para poder probarlo: decidir mal aquí no da error, deja el índice sin
+// houses que hacían falta y eso solo se ve cuando un bulto llega sin house.
+function partirPorSalidas(filas, yaSalieron) {
+    let quedan = [], salen = [];
+    (filas || []).forEach(f => {
+        let g = claveGuiaHouse((f || [])[0]);
+        // Sin guía no se decide: no se sabe qué es y tirarlo sería borrar un
+        // dato que nadie pidió borrar.
+        if (g === "" || !yaSalieron || !yaSalieron.has(g)) quedan.push(f);
+        else salen.push(f);
+    });
+    return { quedan: quedan, salen: salen };
+}
+
+function darDeBajaLasQueYaSalieron() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let yaSalieron = guiasQueYaSalieron();
+    if (yaSalieron.size === 0) {
+        ui.alert("🗄️ Dar de baja las que ya salieron",
+            "El histórico de salidas está vacío, así que no sé cuáles salieron.\n\n" +
+            "Importa el histórico primero: 📤 Salidas → «Importar lo que salió ayer».",
+            ui.ButtonSet.OK);
+        return;
+    }
+
+    let calientes = leerIndice(ss, HOJA_INDICE_HOUSE);
+    if (calientes.length === 0) {
+        ui.alert("🗄️ Dar de baja las que ya salieron",
+                 "El índice caliente está vacío.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let r = partirPorSalidas(calientes, yaSalieron);
+    if (r.salen.length === 0) {
+        ui.alert("🗄️ Dar de baja las que ya salieron",
+            "Ninguna de las " + calientes.length.toLocaleString() + " guías del " +
+            "índice caliente aparece en el histórico de salidas (" +
+            yaSalieron.size.toLocaleString() + " guías).\n\n" +
+            "No hay nada que dar de baja.", ui.ButtonSet.OK);
+        return;
+    }
+
+    // SÍ = archivar en el frío · NO = borrarlas · CANCELAR = no hacer nada.
+    let resp = ui.alert("🗄️ Dar de baja las que ya salieron",
+        r.salen.length.toLocaleString() + " de las " + calientes.length.toLocaleString() +
+        " guías del índice caliente YA SALIERON según el histórico.\n\n" +
+        "Quitarlas del caliente lo deja en " + r.quedan.length.toLocaleString() +
+        ", y el caliente es el que se lee entero en cada relleno.\n\n" +
+        "SÍ = las paso al índice FRÍO. Siguen ahí por si un bulto vuelve " +
+        "(devolución): se recuperan con «🏠 Buscar las que faltan».\n\n" +
+        "NO = las BORRO. Más ligero, pero si un bulto vuelve hay que reimportar " +
+        "el CSV de aquel día, si es que todavía existe.",
+        ui.ButtonSet.YES_NO_CANCEL);
+    if (resp === ui.Button.CANCEL || resp === ui.Button.CLOSE) return;
+
+    let archivadas = 0;
+    if (resp === ui.Button.YES) {
+        // Sin repetir lo que el frío ya tenga: este botón se puede apretar
+        // todos los días y el frío no puede crecer con copias.
+        let enFrio = new Set();
+        leerIndice(ss, HOJA_INDICE_HOUSE_FRIO).forEach(f => {
+            let g = claveGuiaHouse((f || [])[0]);
+            if (g !== "") enFrio.add(g);
+        });
+        let aArchivar = r.salen.filter(f => !enFrio.has(claveGuiaHouse((f || [])[0])));
+        archivadas = anexarFilasAlIndice(ss, HOJA_INDICE_HOUSE_FRIO, aArchivar);
+    }
+
+    // El caliente se reescribe UNA vez, al final: si se escribiera antes de
+    // archivar y el archivado fallara, las filas se habrían perdido.
+    escribirIndice(ss, HOJA_INDICE_HOUSE, r.quedan);
+    try { olvidarMapaHouseEnRAM(); } catch (err) { /* puede no existir */ }
+
+    ui.alert("🗄️ Dar de baja las que ya salieron",
+        "Listo.\n\n" +
+        "   · " + r.salen.length.toLocaleString() + " dadas de baja del caliente\n" +
+        "   · quedan " + r.quedan.length.toLocaleString() + "\n" +
+        (resp === ui.Button.YES
+            ? "   · " + archivadas.toLocaleString() + " archivadas en el frío" +
+              (archivadas < r.salen.length
+                ? " (" + (r.salen.length - archivadas).toLocaleString() +
+                  " ya estaban ahí)" : "")
+            : "   · BORRADAS, no archivadas") + "\n\n" +
+        "Las houses que ya están escritas en las hojas NO se tocan: el relleno " +
+        "solo corrige una celda cuando el índice dice otra cosa, y para estas " +
+        "ya no dice nada.", ui.ButtonSet.OK);
+}
+
 function repararIndiceHouse() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();

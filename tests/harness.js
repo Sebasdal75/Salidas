@@ -4952,5 +4952,36 @@ let regPropio = obtenerRegistroMSDesdeCache({ headers: cabsMS, data: dataMS },
                                             "M-S SALIDAS");
 ok("la propia pestaña no se cuenta", regPropio.registroMS.size === 0);
 
+console.log("\n=== 22. Dar de baja las houses que ya salieron ===");
+// El indice de houses solo crece: cada prealerta que entra se queda para
+// siempre, aunque ese bulto se embarcara hace dos meses. Y el CALIENTE se lee
+// entero en cada relleno, asi que lo que pesa ahi se paga cada cinco minutos.
+let idxCaliente = [
+    [G1, "A2F338CFPBS", "2026-09-01", "INBOUND"],
+    [G2, "Y829R5FKLCV", "2026-09-01", "INBOUND"],
+    [G3, "Y68V48HK3XR", "2026-09-01", "INBOUND"],
+    ["",  "HUERFANA",   "",           ""]
+];
+let salieron = new Set([G1, G3]);
+let bajaIdx = partirPorSalidas(idxCaliente, salieron);
+ok("las que ya salieron se apartan", bajaIdx.salen.length === 2);
+ok("y las que no, se quedan", bajaIdx.quedan.some(f => f[0] === G2));
+// SIN GUIA NO SE DECIDE: no se sabe que es, y tirarlo seria borrar un dato que
+// nadie pidio borrar.
+ok("una fila sin guia se queda", bajaIdx.quedan.some(f => f[1] === "HUERFANA"));
+ok("no se pierde ninguna fila",
+   bajaIdx.quedan.length + bajaIdx.salen.length === idxCaliente.length);
+
+// Los separadores no cuentan: la misma guia escrita con guiones es la misma.
+ok("una guia con guiones tambien se reconoce",
+   partirPorSalidas([["1z-a2f338-0428-934294", "H", "", ""]],
+                    new Set(["1ZA2F3380428934294"])).salen.length === 1);
+
+ok("sin histórico de salidas no se da de baja nada",
+   partirPorSalidas(idxCaliente, new Set()).salen.length === 0);
+ok("y sin conjunto tampoco", partirPorSalidas(idxCaliente, null).salen.length === 0);
+ok("sin filas no revienta", partirPorSalidas([], salieron).quedan.length === 0);
+ok("null tampoco", partirPorSalidas(null, salieron).salen.length === 0);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
