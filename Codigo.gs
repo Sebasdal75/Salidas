@@ -5759,8 +5759,11 @@ function onOpen() {
               // para refrescar el aviso de la columna B sin pagar el recorrido
               // de todas las pestañas, que es lo caro de la confronta.
               .addItem('🔎 Confrontar con los pedimentos (trae y cruza)', 'confrontarPedimentosConEscaneos')
-              .addItem('📥 Solo traer el archivo (sin cruzar)', 'importarPedimentos')
+              .addItem('📥 Solo traer las guías (sin cruzar)', 'importarPedimentos')
               .addSeparator()
+              // Los dos orígenes. Manda la carpeta si está configurada; el
+              // vínculo al archivo se queda para poder volver atrás.
+              .addItem('📁 Vincular la carpeta de las guías', 'vincularCarpetaDeGuias')
               .addItem('🔗 Vincular el archivo de pedimentos', 'vincularArchivoDePedimentos'));
       }
   } catch (err) { /* Pedimentos.gs puede no estar pegado */ }

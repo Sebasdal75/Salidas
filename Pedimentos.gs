@@ -523,10 +523,34 @@ function resumenDeImportacionPedimentos(r) {
     let piezas = 0;
     r.porReferencia.forEach(lista => { piezas += lista.length; });
 
-    let msg = "Del archivo «" + r.nombreHoja + "» de " + r.libro.getName() + ":\n" +
+    let msg = (r.deCarpeta
+        ? "De la carpeta «" + r.nombreHoja + "»:\n" +
+          "   · " + (r.archivos.length ? r.archivos.length + " archivo" +
+                     (r.archivos.length === 1 ? "" : "s") + " nuevo" +
+                     (r.archivos.length === 1 ? "" : "s") + ": " + r.archivos.join(", ")
+                   : "ningún archivo nuevo") + "\n" +
+          "   · " + r.piezasNuevas.toLocaleString() + " claves nuevas" +
+          (r.antes ? " (ya había " + r.antes.toLocaleString() + ")" : "") + "\n"
+        : "Del archivo «" + r.nombreHoja + "» de " + r.libro.getName() + ":\n") +
               "   · " + r.porReferencia.size.toLocaleString() + " referencias\n" +
               "   · " + piezas.toLocaleString() + " piezas\n" +
               "   · " + r.entradas.length.toLocaleString() + " claves (1Z + house)";
+
+    if (r.deCarpeta && r.quedan) {
+        msg += "\n\n⏳ Quedan más archivos por leer: vuelve a apretar el botón. " +
+               "Se leen " + MAX_ARCHIVOS_GUIAS + " por pasada para no agotar los " +
+               "seis minutos que Google da por ejecución.";
+    }
+    if (r.deCarpeta && r.problemas && r.problemas.length) {
+        msg += "\n\n⚠️ " + r.problemas.length + " archivo" +
+               (r.problemas.length === 1 ? "" : "s") + " que no pude leer:\n   · " +
+               r.problemas.slice(0, 6).join("\n   · ");
+        if (r.problemas.length > 6) {
+            msg += "\n   …y " + (r.problemas.length - 6) + " más.";
+        }
+        msg += "\n\nEsos NO quedan apuntados: se corrigen y entran solos en la " +
+               "siguiente pasada.";
+    }
 
     if (r.contradicciones.length) {
         msg += "\n\n⚠️ " + r.contradicciones.length + " guías salen en DOS " +
@@ -548,7 +572,7 @@ function importarPedimentos() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
 
-    let r = traerPedimentosDelArchivo(ss);
+    let r = traerLasGuias(ss);
     if (!r.ok) { ui.alert("📥 Importar los pedimentos", r.error, ui.ButtonSet.OK); return; }
 
     ui.alert("📥 Importar los pedimentos",
@@ -558,6 +582,360 @@ function importarPedimentos() {
         "referencia se aprende de los escaneos, y eso lo hace «🔎 Confrontar " +
         "con los pedimentos».",
         ui.ButtonSet.OK);
+}
+
+// =========================================================================
+// LEER LAS GUÍAS DIRECTAMENTE DE LA CARPETA DE DRIVE
+// =========================================================================
+//
+// QUÉ SE QUITA DE EN MEDIO. Hasta ahora el Excel de guías pasaba por otro
+// archivo —el de los pedimentos, con su OCR— y de ahí se jalaba aquí. Ese paso
+// ya no hace falta: de todo lo que produce aquel archivo, esto solo necesita
+// QUÉ 1Z FORMAN CADA REFERENCIA, y eso está en el propio Excel. El pedimento no
+// se le pide a nadie, se aprende de los escaneos.
+//
+// LO QUE NO SE TRAE, Y ES A PROPÓSITO: el OCR de las fotos de pedimentos. La
+// cuota de tiempo de disparadores es POR CUENTA, no por archivo, y al agotarse
+// Google apaga TODOS los disparadores de esa cuenta —el del escaneo también—.
+// Este archivo ya gasta unas dos horas y media al día solo con el relleno de
+// houses cada cinco minutos. Un OCR encima dejaría al muelle sin escanear a
+// media tarde, y el síntoma sería «dejó de funcionar» sin ningún error.
+//
+// SE ACUMULA, NO SE REEMPLAZA. Cada archivo se lee UNA vez: su ID queda
+// apuntado y no se vuelve a mirar. Reemplazar la lista entera con el último
+// Excel borraría las referencias de los días anteriores, que siguen vivas en el
+// muelle mientras no salgan.
+// =========================================================================
+
+const PROP_CARPETA_GUIAS = 'PEDIMENTOS_CARPETA_PENDIENTES';
+const PROP_CARPETA_GUIAS_HECHAS = 'PEDIMENTOS_CARPETA_PROCESADOS';
+
+// Dónde se apunta qué archivos ya se leyeron. Es lo que hace que pasar dos
+// veces el mismo Excel no cueste nada y no duplique nada.
+const HOJA_ARCHIVOS_GUIAS = "GUIAS_LEIDAS";
+
+// Cuántos archivos por pasada. Cada uno que no sea nativo hay que convertirlo, y
+// una conversión tarda segundos: sin tope, una carpeta con cien Excel agotaría
+// los seis minutos de ejecución y no se guardaría nada de nada.
+const MAX_ARCHIVOS_GUIAS = 20;
+
+function tiposDeArchivoDeGuias() {
+    return ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            'application/vnd.ms-excel',
+            'application/vnd.google-apps.spreadsheet',
+            'text/csv'];
+}
+
+// El id de una carpeta de Drive a partir de su URL. Es otro formato que el de
+// una hoja de cálculo —«/folders/» en vez de «/d/»— así que no sirve el
+// recortador de siempre.
+function idDeCarpetaDesdeUrl(texto) {
+    let t = String(texto === undefined || texto === null ? "" : texto).trim();
+    if (t === "") return "";
+    let m = t.match(/\/folders\/([a-zA-Z0-9_-]{10,})/);
+    if (m) return m[1];
+    m = t.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
+    if (m) return m[1];
+    // Pegado a pelo, sin URL alrededor.
+    if (/^[a-zA-Z0-9_-]{10,}$/.test(t)) return t;
+    return "";
+}
+
+function idCarpetaDeGuias() {
+    try {
+        return PropertiesService.getScriptProperties()
+               .getProperty(PROP_CARPETA_GUIAS) || "";
+    } catch (err) { return ""; }
+}
+
+function idCarpetaDeGuiasHechas() {
+    try {
+        return PropertiesService.getScriptProperties()
+               .getProperty(PROP_CARPETA_GUIAS_HECHAS) || "";
+    } catch (err) { return ""; }
+}
+
+// Los IDs van a Script Properties y NUNCA al código. Este repositorio está en
+// git, y el id de una carpeta es por sí solo la llave para abrirla.
+function vincularCarpetaDeGuias() {
+    const ui = SpreadsheetApp.getUi();
+
+    let r = ui.prompt("📁 Carpeta de las guías",
+        (idCarpetaDeGuias() === "" ? "No hay ninguna carpeta configurada."
+                                   : "Ahora mismo:\n" + idCarpetaDeGuias()) + "\n\n" +
+        "Pega la URL de la carpeta «POR PROCESAR», donde dejas el Excel de " +
+        "guías (House / Tracking 1Z / Referencia):",
+        ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return;
+
+    let id = idDeCarpetaDesdeUrl(r.getResponseText());
+    if (id === "") {
+        ui.alert("📁 Carpeta de las guías",
+                 "Eso no parece una carpeta de Drive.", ui.ButtonSet.OK);
+        return;
+    }
+    // Se comprueba AQUÍ que se puede abrir, no el día que alguien importa en el
+    // muelle. Un vínculo que no sirve tiene que fallar al guardarlo.
+    let nombre = "";
+    try { nombre = DriveApp.getFolderById(id).getName(); }
+    catch (err) {
+        ui.alert("📁 Carpeta de las guías",
+            "No pude abrirla:\n" + err + "\n\n" +
+            "Comprueba que esta cuenta tenga acceso a esa carpeta.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let r2 = ui.prompt("📁 Carpeta de las guías",
+        "Carpeta de entrada: " + nombre + "\n\n" +
+        "Ahora pega la URL de la carpeta «PROCESADOS», adonde se moverán los " +
+        "archivos ya leídos.\n\nDéjalo VACÍO si prefieres que no se mueva nada: " +
+        "cada archivo se lee una sola vez igual, porque su id queda apuntado.",
+        ui.ButtonSet.OK_CANCEL);
+    if (r2.getSelectedButton() !== ui.Button.OK) return;
+
+    let idHechas = idDeCarpetaDesdeUrl(r2.getResponseText());
+    let nombreHechas = "";
+    if (idHechas !== "") {
+        try { nombreHechas = DriveApp.getFolderById(idHechas).getName(); }
+        catch (err) {
+            ui.alert("📁 Carpeta de las guías",
+                "La de PROCESADOS no pude abrirla:\n" + err, ui.ButtonSet.OK);
+            return;
+        }
+    }
+
+    let props = PropertiesService.getScriptProperties();
+    props.setProperty(PROP_CARPETA_GUIAS, id);
+    props.setProperty(PROP_CARPETA_GUIAS_HECHAS, idHechas);
+
+    ui.alert("📁 Carpeta de las guías",
+        "Listo.\n\n   · Entrada: " + nombre + "\n" +
+        "   · Procesados: " + (nombreHechas === "" ? "(no se mueve nada)" : nombreHechas) +
+        "\n\nDeja ahí el Excel de guías y aprieta «🔎 Confrontar con los " +
+        "pedimentos». Cada archivo se lee UNA vez: pasarlo dos veces no " +
+        "duplica nada.\n\n" +
+        "Si el Excel es .xlsx hace falta activar el servicio «Drive API» en el " +
+        "editor de Apps Script (Servicios +). Con CSV o con hojas de Google no " +
+        "hace falta.",
+        ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// QUÉ ARCHIVOS YA SE LEYERON
+// -------------------------------------------------------------------------
+
+function archivosYaLeidos(ss) {
+    let set = new Set();
+    let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, false);
+    if (!h) return set;
+    let lr = h.getLastRow();
+    if (lr < 1) return set;
+    h.getRange(1, 1, lr, 1).getValues().forEach(f => {
+        let v = String(f[0] === undefined ? "" : f[0]).trim();
+        if (v !== "") set.add(v);
+    });
+    return set;
+}
+
+function apuntarArchivosLeidos(ss, ids) {
+    if (!ids || ids.length === 0) return 0;
+    let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, true);
+    let desde = h.getLastRow() + 1;
+    asegurarFilas(h, desde + ids.length);
+    // SE AÑADE AL FINAL, no se reescribe la columna entera: es el mismo
+    // invariante que protege la columna A de los escaneos. Entre leer y
+    // escribir cabe otra ejecución, y devolver la copia leída la borraría.
+    h.getRange(desde, 1, ids.length, 1).setValues(ids.map(x => [x]));
+    return ids.length;
+}
+
+// -------------------------------------------------------------------------
+// LEER UN ARCHIVO
+// -------------------------------------------------------------------------
+
+// Un .xlsx hay que convertirlo, y convertir necesita el servicio avanzado de
+// Drive. Un CSV se lee a pelo y una hoja de Google se abre directamente: esos
+// dos caminos funcionan aunque nadie haya activado nada, y por eso se intentan
+// antes de pedir el servicio.
+function filasDeArchivoDeGuias(archivo) {
+    let tipo = archivo.getMimeType();
+
+    if (tipo === 'text/csv') {
+        let texto = archivo.getBlob().getDataAsString();
+        return { rejillas: [Utilities.parseCsv(texto)], temporal: "" };
+    }
+    if (tipo === 'application/vnd.google-apps.spreadsheet') {
+        let libro = SpreadsheetApp.openById(archivo.getId());
+        return { rejillas: libro.getSheets().map(h => h.getDataRange().getValues()),
+                 temporal: "" };
+    }
+
+    if (typeof Drive === 'undefined' || !Drive.Files || !Drive.Files.create) {
+        throw new Error("para leer un .xlsx hay que activar el servicio «Drive " +
+                        "API» en el editor de Apps Script (Servicios +)");
+    }
+    let conv = Drive.Files.create(
+        { name: 'tmp_guias_' + archivo.getName(),
+          mimeType: 'application/vnd.google-apps.spreadsheet' },
+        archivo.getBlob());
+    let libro = SpreadsheetApp.openById(conv.id);
+    return { rejillas: libro.getSheets().map(h => h.getDataRange().getValues()),
+             temporal: conv.id };
+}
+
+// LA CABECERA NO SIEMPRE ESTÁ EN LA FILA 1. Un archivo exportado a mano suele
+// traer un título encima, y exigir la primera fila haría fallar la lectura sin
+// decir por qué. Se buscan las columnas en las primeras filas.
+const FILAS_A_MIRAR_CABECERA = 10;
+
+function cabeceraDeGuiasEn(rejilla) {
+    for (let i = 0; i < Math.min(FILAS_A_MIRAR_CABECERA, (rejilla || []).length); i++) {
+        let c = detectarColumnasPedimentos(rejilla[i]);
+        if (c.referencia !== -1 && (c.guia !== -1 || c.house !== -1)) {
+            return { fila: i, cols: c };
+        }
+    }
+    return null;
+}
+
+// De un archivo a la lista de piezas. Puro salvo por la lectura, para poder
+// probar la parte que decide.
+function piezasDeRejillaDeGuias(rejilla) {
+    let cab = cabeceraDeGuiasEn(rejilla);
+    if (!cab) return null;
+    // `referenciasDelArchivo` salta la primera fila, así que se le pasa la
+    // rejilla recortada desde la cabecera.
+    return referenciasDelArchivo(rejilla.slice(cab.fila), cab.cols);
+}
+
+// -------------------------------------------------------------------------
+// EL NÚCLEO
+// -------------------------------------------------------------------------
+
+// Lee los archivos nuevos de la carpeta y los SUMA a lo que ya había.
+//
+// Devuelve la misma forma que `traerPedimentosDelArchivo`, para que la
+// confronta no tenga que saber de dónde salieron los datos.
+function traerGuiasDeLaCarpeta(ss) {
+    let idCarpeta = idCarpetaDeGuias();
+    if (idCarpeta === "") {
+        return { ok: false, error: "No hay ninguna carpeta configurada.\n\nUsa " +
+                 "«📁 Vincular la carpeta de las guías» primero." };
+    }
+
+    let carpeta;
+    try { carpeta = DriveApp.getFolderById(idCarpeta); }
+    catch (err) { return { ok: false, error: "No pude abrir la carpeta:\n" + err }; }
+
+    let hechas = null;
+    let idHechas = idCarpetaDeGuiasHechas();
+    if (idHechas !== "") {
+        try { hechas = DriveApp.getFolderById(idHechas); } catch (err) { hechas = null; }
+    }
+
+    // LO QUE YA HABÍA. Se parte de ahí y se suma: un Excel nuevo trae el
+    // embarque de hoy, no el de ayer, y reemplazar borraría las referencias que
+    // siguen vivas en el muelle.
+    let acumulado = mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
+    let antes = acumulado.size;
+    let yaLeidos = archivosYaLeidos(ss);
+
+    let tipos = tiposDeArchivoDeGuias();
+    let mirados = [], nuevosIds = [], problemas = [];
+    let quedan = false, piezasNuevas = 0, invalidas = 0;
+
+    let it = carpeta.getFiles();
+    while (it.hasNext()) {
+        let archivo = it.next();
+        if (tipos.indexOf(archivo.getMimeType()) === -1) continue;
+        if (yaLeidos.has(archivo.getId())) continue;
+        if (mirados.length >= MAX_ARCHIVOS_GUIAS) { quedan = true; break; }
+
+        let temporal = "";
+        try {
+            let leido = filasDeArchivoDeGuias(archivo);
+            temporal = leido.temporal;
+
+            let encontro = false;
+            leido.rejillas.forEach(rejilla => {
+                let r = piezasDeRejillaDeGuias(rejilla);
+                if (!r || r.entradas.length === 0) return;
+                encontro = true;
+                invalidas += r.contradicciones.length;
+                r.entradas.forEach(e => {
+                    if (acumulado.has(e.clave)) return;
+                    acumulado.set(e.clave, e.referencia);
+                    piezasNuevas++;
+                });
+            });
+
+            if (!encontro) {
+                problemas.push(archivo.getName() + ": no encontré las columnas " +
+                               "«Referencia» y «Tracking 1Z»");
+            } else {
+                mirados.push(archivo.getName());
+                nuevosIds.push(archivo.getId());
+                // SE APUNTA Y DESPUÉS SE MUEVE, en ese orden. Si mover falla
+                // —permisos, carpeta borrada— el archivo se queda donde está
+                // pero ya no se vuelve a leer, así que nada se duplica.
+                if (hechas) { try { archivo.moveTo(hechas); } catch (err) { /* da igual */ } }
+            }
+        } catch (err) {
+            // UN ARCHIVO MALO NO PARA LOS DEMÁS, y tampoco se apunta como
+            // leído: se corrige y en la siguiente pasada entra solo.
+            problemas.push(archivo.getName() + ": " + err.message);
+        } finally {
+            if (temporal !== "") {
+                try { DriveApp.getFileById(temporal).setTrashed(true); } catch (err) { /* limpieza */ }
+            }
+        }
+    }
+
+    if (acumulado.size === 0) {
+        return { ok: false, error:
+            "No hay ninguna guía cargada todavía.\n\n" +
+            "En la carpeta «" + carpeta.getName() + "» no encontré ningún Excel " +
+            "o CSV con las columnas «Referencia» y «Tracking 1Z»." +
+            (problemas.length ? "\n\nLo que pasó:\n   · " + problemas.join("\n   · ") : "") };
+    }
+
+    let entradas = [];
+    acumulado.forEach((ref, clave) => entradas.push({ clave: clave, referencia: ref }));
+    let celdas = guardarBlobReferencias(ss, entradas);
+    apuntarArchivosLeidos(ss, nuevosIds);
+    olvidarBlobPedimentosDeHouseEnRAM();
+
+    return { ok: true, entradas: entradas,
+             porReferencia: referenciasDesdeMapa(acumulado),
+             contradicciones: [],
+             celdas: celdas, cols: null,
+             nombreHoja: carpeta.getName(), libro: null,
+             deCarpeta: true, archivos: mirados, problemas: problemas,
+             quedan: quedan, piezasNuevas: piezasNuevas, antes: antes };
+}
+
+// referencia → sus 1Z, sacado del mapa acumulado.
+//
+// SOLO LOS 1Z, no las houses. El mapa lleva las dos cosas —hacen falta las dos
+// para encontrar la referencia de una fila— pero la LISTA de la referencia es
+// de bultos, y una house cubre varios: contándolas saldrían menos piezas de las
+// que hay y el «faltan tres» sería mentira.
+function referenciasDesdeMapa(mapa) {
+    let out = new Map();
+    (mapa || new Map()).forEach((ref, clave) => {
+        if (!/^1Z[A-Z0-9]{16}$/.test(clave)) return;
+        if (!out.has(ref)) out.set(ref, []);
+        out.get(ref).push(clave);
+    });
+    return out;
+}
+
+// De dónde se traen las guías: de la carpeta si hay una configurada, y si no
+// del archivo vinculado. Los dos caminos siguen vivos a propósito, para poder
+// cambiarse sin perder nada y volver atrás si algo sale mal.
+function traerLasGuias(ss) {
+    if (idCarpetaDeGuias() !== "") return traerGuiasDeLaCarpeta(ss);
+    return traerPedimentosDelArchivo(ss);
 }
 
 // -------------------------------------------------------------------------
@@ -764,8 +1142,8 @@ function confrontarPedimentosConEscaneos() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
 
-    ss.toast('⏳ Trayendo el archivo de pedimentos…', 'Confronta', 10);
-    let imp = traerPedimentosDelArchivo(ss);
+    ss.toast('⏳ Trayendo las guías…', 'Confronta', 10);
+    let imp = traerLasGuias(ss);
     if (!imp.ok) {
         ui.alert("🔎 Confrontar con los pedimentos", imp.error, ui.ButtonSet.OK);
         return;

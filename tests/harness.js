@@ -5327,7 +5327,98 @@ ok("sin nada no revienta",
 ok("null tampoco", confrontarHouses(null, null, null, null).lineas.length === 0);
 ok("el cuadro sin nada queda vacio", cuadroDeReferencias(null, null).length === 0);
 
-console.log("\n--- 23e. El aviso solo en las de salidas ---");
+console.log("\n--- 23e. Leer las guias de la carpeta de Drive ---");
+// SE QUITA DE EN MEDIO EL OTRO ARCHIVO. De todo lo que produce aquel -OCR de
+// fotos, houses, verificacion- esto solo necesita QUE 1Z FORMAN CADA
+// REFERENCIA, y eso esta en el propio Excel que se deja en la carpeta. El
+// pedimento no se le pide a nadie: se aprende de los escaneos.
+
+// El id de una carpeta es otro formato que el de una hoja: «/folders/» en vez
+// de «/d/», asi que no sirve el recortador de siempre.
+ok("saca el id de una URL de carpeta",
+   idDeCarpetaDesdeUrl("https://drive.google.com/drive/folders/1GBAE3Loe_nysf_e3lS_WcQahsBT7UAdh")
+   === "1GBAE3Loe_nysf_e3lS_WcQahsBT7UAdh");
+ok("y con parametros detras",
+   idDeCarpetaDesdeUrl("https://drive.google.com/drive/folders/1GBAE3Loe_nysf_e3lS_WcQahsBT7UAdh?usp=sharing")
+   === "1GBAE3Loe_nysf_e3lS_WcQahsBT7UAdh");
+ok("acepta el id pegado a pelo",
+   idDeCarpetaDesdeUrl("1GBAE3Loe_nysf_e3lS_WcQahsBT7UAdh")
+   === "1GBAE3Loe_nysf_e3lS_WcQahsBT7UAdh");
+// Una URL de HOJA no es una carpeta: confundirlas haria que el boton guardara
+// un vinculo que nunca va a abrir nada.
+ok("una URL de hoja no cuela",
+   idDeCarpetaDesdeUrl("https://docs.google.com/spreadsheets/d/1nyrHXfMS2Rpjh/edit") === "");
+ok("texto suelto tampoco", idDeCarpetaDesdeUrl("carpeta de guias") === "");
+ok("vacio no revienta", idDeCarpetaDesdeUrl("") === "");
+ok("null tampoco", idDeCarpetaDesdeUrl(null) === "");
+
+// LA CABECERA NO SIEMPRE ESTA EN LA FILA 1. Un archivo exportado a mano suele
+// traer un titulo encima, y exigir la primera fila haria fallar la lectura sin
+// decir por que.
+let conTitulo = [
+    ["REPORTE DE GUIAS - 30/09/2026", "", "", "", ""],
+    ["", "", "", "", ""],
+    CAB_REF,
+    [H1Z_A, G1Z_A, REF_A, "30/9/2026", "Book2.xlsx"],
+    [H1Z_B, G1Z_B, REF_A, "30/9/2026", "Book2.xlsx"]
+];
+let cabTitulo = cabeceraDeGuiasEn(conTitulo);
+ok("encuentra la cabecera aunque este abajo", cabTitulo !== null && cabTitulo.fila === 2);
+let piezasTitulo = piezasDeRejillaDeGuias(conTitulo);
+ok("y lee las piezas de debajo", piezasTitulo.porReferencia.get(REF_A).length === 2);
+ok("sin perder ninguna", piezasTitulo.entradas.length === 4);
+// La fila del titulo NO puede colarse como una pieza.
+ok("el titulo no entra",
+   !piezasTitulo.entradas.some(e => e.clave.indexOf("REPORTE") !== -1));
+
+ok("en la fila 1 tambien vale", cabeceraDeGuiasEn(rejillaRef).fila === 0);
+ok("una hoja sin las columnas no tiene cabecera",
+   cabeceraDeGuiasEn([["Fecha", "Importe"], ["1/1/2026", 10]]) === null);
+ok("y entonces no da piezas",
+   piezasDeRejillaDeGuias([["Fecha", "Importe"], ["1/1/2026", 10]]) === null);
+ok("una hoja vacia no revienta", cabeceraDeGuiasEn([]) === null);
+ok("null tampoco", cabeceraDeGuiasEn(null) === null);
+// Solo se miran las primeras filas: una hoja de cien mil renglones sin
+// cabecera no puede costar cien mil comprobaciones.
+let muyAbajo = [];
+for (let i = 0; i < 40; i++) muyAbajo.push(["", "", ""]);
+muyAbajo.push(CAB_REF);
+ok("una cabecera enterrada no se busca sin fin", cabeceraDeGuiasEn(muyAbajo) === null);
+
+// SOLO LOS 1Z ENTRAN EN LA LISTA DE LA REFERENCIA. El mapa lleva tambien las
+// houses -hacen falta para encontrar la referencia de una fila- pero la lista
+// es de BULTOS, y una house cubre varios: contandolas saldrian menos piezas de
+// las que hay y el «faltan tres» seria mentira.
+let mapaMezclado = new Map([
+    [G1Z_A, REF_A], [H1Z_A, REF_A],
+    [G1Z_B, REF_A], [H1Z_B, REF_A],
+    [G1Z_C, REF_B], [H1Z_C, REF_B]
+]);
+let desdeMapa = referenciasDesdeMapa(mapaMezclado);
+ok("la referencia cuenta sus 1Z", desdeMapa.get(REF_A).length === 2);
+ok("no sus houses", desdeMapa.get(REF_A).indexOf(H1Z_A) === -1);
+ok("y la otra tambien", desdeMapa.get(REF_B).length === 1);
+ok("sin mapa no revienta", referenciasDesdeMapa(null).size === 0);
+// Una house de once caracteres no puede parecer un 1Z.
+ok("una house nunca pasa por 1Z",
+   referenciasDesdeMapa(new Map([[H1Z_A, REF_A]])).size === 0);
+
+// SE ACUMULA, NO SE REEMPLAZA. Un Excel nuevo trae el embarque de hoy, no el
+// de ayer, y reemplazar la lista borraria las referencias que siguen vivas en
+// el muelle mientras no salgan. Es el mismo mapa el que acumula, asi que basta
+// comprobar que sumar no pierde lo anterior.
+let acumula = mapaDesdeBlobPedimentos(
+    empaquetarClaveReferencia([{ clave: G1Z_A, referencia: REF_A }]).map(t => t[0]).join(""));
+ok("parte de lo que habia", acumula.get(G1Z_A) === REF_A);
+acumula.set(G1Z_C, REF_B);
+let trasSumar = mapaDesdeBlobPedimentos(
+    empaquetarClaveReferencia([...acumula].map(([k, v]) => ({ clave: k, referencia: v })))
+    .map(t => t[0]).join(""));
+ok("lo viejo sigue ahi", trasSumar.get(G1Z_A) === REF_A);
+ok("y lo nuevo entra", trasSumar.get(G1Z_C) === REF_B);
+ok("sin duplicar", trasSumar.size === 2);
+
+console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El
 // error de meter un bulto en el pedimento equivocado se comete al CARGAR.
