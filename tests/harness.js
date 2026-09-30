@@ -5461,6 +5461,38 @@ ok("el acceso directo manda sobre el ya leido",
    motivoDeSaltarse("x.xlsx", "application/vnd.google-apps.shortcut", true)
    .indexOf("ACCESO DIRECTO") !== -1);
 
+// CONVERTIR EL .XLSX SIN PEDIR PERMISOS NUEVOS.
+//
+// Activar el servicio avanzado «Drive API» cambia los permisos del proyecto y
+// obliga a VOLVER A AUTORIZAR. Mientras no se autorice, los disparadores
+// instalados se quedan parados -y uno de ellos es el del escaneo-. En un
+// archivo con siete operadores en el muelle eso es una parada de trabajo a
+// cambio de un convertidor. Los dos permisos que hacen falta ya los tiene este
+// proyecto: UrlFetchApp lo usa House.gs y DriveApp con escritura lo usan
+// Salidas.gs y House.gs.
+const FUENTE_PED = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+ok("convierte llamando a la API de Drive a pelo",
+   FUENTE_PED.indexOf("https://www.googleapis.com/drive/v3/files/") !== -1);
+ok("con el token del propio script",
+   FUENTE_PED.indexOf("ScriptApp.getOAuthToken()") !== -1);
+// SE USA `copy` Y NO `create`: copiar pidiendo otro tipo convierte por el
+// camino y es un POST con tres lineas de JSON. Subir el contenido obliga a
+// armar a mano un cuerpo multipart con sus fronteras, que es de las cosas que
+// se rompen en silencio.
+ok("por copia, que convierte de paso", FUENTE_PED.indexOf("/copy?supportsAllDrives") !== -1);
+ok("sin armar un multipart a mano", FUENTE_PED.indexOf("multipart/related") === -1);
+// Y NO se le pide a nadie que active el servicio avanzado.
+ok("ya no manda a activar el Drive API",
+   FUENTE_PED.indexOf("Servicios ➕ → Drive API") === -1);
+// muteHttpExceptions: sin el, un 403 sale como excepcion de Google y el
+// mensaje no dice nada de permisos.
+ok("los errores de Drive se leen, no se dejan reventar",
+   FUENTE_PED.indexOf("muteHttpExceptions") !== -1);
+// El temporal SIEMPRE se borra, salga bien o mal: si no, cada pasada deja una
+// hoja de basura en el Drive del dueño.
+ok("el temporal se borra en un finally",
+   /finally\s*\{[\s\S]{0,200}setTrashed\(true\)/.test(FUENTE_PED));
+
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El

@@ -743,9 +743,8 @@ function vincularCarpetaDeGuias() {
         "\n\nDeja ahí el Excel de guías y aprieta «🔎 Confrontar con los " +
         "pedimentos». Cada archivo se lee UNA vez: pasarlo dos veces no " +
         "duplica nada.\n\n" +
-        "Si el Excel es .xlsx hace falta activar el servicio «Drive API» en el " +
-        "editor de Apps Script (Servicios +). Con CSV o con hojas de Google no " +
-        "hace falta.",
+        "Vale un .xlsx, un .csv o una hoja de Google. No hay que activar nada: " +
+        "el Excel se convierte con los permisos que este archivo ya tiene.",
         ui.ButtonSet.OK);
 }
 
@@ -807,29 +806,86 @@ function filasDeArchivoDeGuias(archivo) {
                  temporal: "" };
     }
 
-    // UN EXCEL HAY QUE CONVERTIRLO, y convertir necesita el servicio avanzado
-    // de Drive. El mensaje dice los clics exactos: «actívalo» a secas manda a
-    // buscar por un menú que no se usa nunca.
-    if (typeof Drive === 'undefined' || !Drive.Files || !Drive.Files.create) {
-        throw new Error("es un Excel (" + tipo + ") y para convertirlo hace " +
-            "falta el servicio «Drive API». En el editor de Apps Script: " +
-            "Servicios ➕ → Drive API → Añadir. " +
-            "Si prefieres no tocar nada, guárdalo como CSV: eso se lee sin " +
-            "activar nada.");
-    }
-    let conv;
-    try {
-        conv = Drive.Files.create(
-            { name: 'tmp_guias_' + nombre,
-              mimeType: 'application/vnd.google-apps.spreadsheet' },
-            archivo.getBlob());
-    } catch (err) {
-        throw new Error("no pude convertirlo a hoja de cálculo (" + err.message +
-            "). Si el archivo es muy grande o está protegido, guárdalo como CSV.");
-    }
-    let libro = SpreadsheetApp.openById(conv.id);
+    // UN EXCEL HAY QUE CONVERTIRLO. Ver `convertirAHojaDeCalculo`.
+    let idTemporal = convertirAHojaDeCalculo(archivo);
+    let libro = SpreadsheetApp.openById(idTemporal);
     return { rejillas: libro.getSheets().map(h => h.getDataRange().getValues()),
-             temporal: conv.id };
+             temporal: idTemporal };
+}
+
+// Convierte un .xlsx en una hoja de cálculo temporal y devuelve su id.
+//
+// POR QUÉ NO SE PIDE ACTIVAR EL «DRIVE API». Activar un servicio avanzado
+// cambia los permisos del proyecto, y eso obliga a VOLVER A AUTORIZAR. Mientras
+// no se autorice, los disparadores instalados se quedan parados —y uno de ellos
+// es el del escaneo—. En un archivo con siete operadores en el muelle, eso es
+// una parada de trabajo a cambio de un convertidor.
+//
+// Y no hace falta: convertir es una llamada a la API de Drive, y los DOS
+// permisos que necesita ya los tiene este proyecto desde antes. `UrlFetchApp`
+// lo usa House.gs para bajar el inbound, y el permiso de Drive con escritura lo
+// usan Salidas.gs y House.gs con `DriveApp`. O sea que se puede llamar a la API
+// a pelo, con el token del propio script, sin añadir ni un permiso nuevo.
+//
+// SE USA `copy` Y NO `create`, y es lo que lo hace simple: copiar un archivo
+// pidiendo otro tipo lo convierte por el camino, y es un POST con tres líneas
+// de JSON. Subir el contenido con `create` obliga a armar a mano un cuerpo
+// multipart con sus fronteras, que es de las cosas que se rompen en silencio.
+//
+// Si el servicio avanzado SÍ está puesto se usa ese, que es una llamada menos.
+function convertirAHojaDeCalculo(archivo) {
+    const TIPO_HOJA = 'application/vnd.google-apps.spreadsheet';
+    let nombre = 'tmp_guias_' + archivo.getName();
+
+    if (typeof Drive !== 'undefined' && Drive.Files && Drive.Files.copy) {
+        try {
+            let c = Drive.Files.copy({ name: nombre, mimeType: TIPO_HOJA },
+                                     archivo.getId());
+            if (c && c.id) return c.id;
+        } catch (err) {
+            // Que el servicio avanzado falle no puede cerrar el camino: se
+            // sigue por la API a pelo, que es la que funciona siempre.
+        }
+    }
+
+    let url = "https://www.googleapis.com/drive/v3/files/" + archivo.getId() +
+              "/copy?supportsAllDrives=true&fields=id";
+    let r;
+    try {
+        r = UrlFetchApp.fetch(url, {
+            method: 'post',
+            contentType: 'application/json',
+            headers: { Authorization: 'Bearer ' + ScriptApp.getOAuthToken() },
+            payload: JSON.stringify({ name: nombre, mimeType: TIPO_HOJA }),
+            muteHttpExceptions: true
+        });
+    } catch (err) {
+        throw new Error("no pude llamar a Drive para convertirlo (" +
+            err.message + "). Guárdalo como CSV y se lee sin convertir nada.");
+    }
+
+    let codigo = r.getResponseCode();
+    if (codigo >= 300) {
+        let detalle = String(r.getContentText()).substring(0, 300);
+        // El 403 y el 401 son de permisos; los demás son del archivo. Se separan
+        // porque lo que hay que hacer es distinto y confundirlos cuesta una
+        // tarde.
+        throw new Error("Drive no dejó convertirlo (HTTP " + codigo + "). " +
+            (codigo === 401 || codigo === 403
+                ? "Es un problema de permisos: abre el editor de Apps Script y " +
+                  "ejecuta cualquier función una vez para volver a autorizar. " +
+                  "O guárdalo como CSV, que no necesita convertirse."
+                : "Guárdalo como CSV y se lee sin convertir nada.") +
+            "\n      Drive dijo: " + detalle);
+    }
+
+    let id = "";
+    try { id = JSON.parse(r.getContentText()).id || ""; } catch (err) { id = ""; }
+    if (id === "") {
+        throw new Error("Drive contestó que sí pero sin decir qué archivo creó. " +
+                        "Guárdalo como CSV.");
+    }
+    return id;
 }
 
 // LA CABECERA NO SIEMPRE ESTÁ EN LA FILA 1. Un archivo exportado a mano suele
