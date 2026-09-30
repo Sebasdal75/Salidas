@@ -5520,6 +5520,37 @@ ok("el error lo lleva delante",
 ok("el resumen tambien",
    FUENTE_ORIGEN.indexOf("encabezadoDeOrigen(r.origen) + (r.deCarpeta") !== -1);
 
+// LOS SALTADOS SE ENSEÑAN TAMBIEN CUANDO SALE BIEN, y es lo que faltaba.
+//
+// El inventario solo aparecia cuando no se sacaba NADA. Asi que el dia que la
+// carpeta traia cuatro archivos buenos y uno saltado, el saltado desaparecia
+// sin dejar rastro: se veia «listo» y faltaba un embarque entero. Lo que NO
+// entro importa mas que lo que entro.
+const FUENTE_INV = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+ok("el inventario viaja en el resultado bueno",
+   FUENTE_INV.indexOf("inventario: inventario,") !== -1);
+ok("y el resumen lo enseña",
+   FUENTE_INV.indexOf("r.inventario && r.inventario.length") !== -1);
+// El recorte a 30 tiene que DECIR que hay mas: cortar en silencio es la misma
+// clase de fallo que se acaba de arreglar.
+ok("si hay mas de 30 lo dice", FUENTE_INV.indexOf('"\\u2026y m\\u00e1s"') !== -1 ||
+   FUENTE_INV.indexOf("y más") !== -1);
+
+// LA SALIDA DE EMERGENCIA. Cada archivo se lee una vez y su id queda apuntado.
+// Eso deja una trampa sin salida: un archivo leido a medias, o corregido y
+// vuelto a subir SOBRE EL MISMO archivo de Drive, ya no entra nunca. Sin este
+// boton la unica salida era borrar a mano una pestaña oculta.
+ok("hay un boton para volver a leer",
+   FUENTE_INV.indexOf("function olvidarArchivosLeidos()") !== -1);
+ok("solo vacia la lista de leidos, no las guias",
+   FUENTE_INV.indexOf("h.clearContents();") !== -1);
+// Y avisa del efecto que nadie ve venir: si se movieron a PROCESADOS, en la
+// carpeta de entrada ya no estan.
+ok("avisa de los que ya se movieron",
+   FUENTE_INV.indexOf("Muévelos de vuelta") !== -1);
+const FUENTE_MENU = require('fs').readFileSync('Codigo.gs', 'utf8');
+ok("y esta en el menu", FUENTE_MENU.indexOf("'olvidarArchivosLeidos'") !== -1);
+
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El

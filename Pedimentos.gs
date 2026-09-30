@@ -541,6 +541,15 @@ function resumenDeImportacionPedimentos(r) {
                "Se leen " + MAX_ARCHIVOS_GUIAS + " por pasada para no agotar los " +
                "seis minutos que Google da por ejecución.";
     }
+    // LOS SALTADOS SE ENSEÑAN TAMBIÉN CUANDO SALE BIEN, y es lo que faltaba.
+    // El inventario solo aparecía cuando no se sacaba NADA, así que el día que
+    // la carpeta traía cuatro archivos buenos y uno saltado, el saltado
+    // desaparecía sin dejar rastro: se veía «listo» y faltaba un embarque
+    // entero. Lo que no entró importa más que lo que entró.
+    if (r.deCarpeta && r.inventario && r.inventario.length) {
+        msg += "\n\nLO QUE HAY EN LA CARPETA Y ME SALTÉ:\n   · " +
+               r.inventario.join("\n   · ");
+    }
     if (r.deCarpeta && r.problemas && r.problemas.length) {
         msg += "\n\n⚠️ " + r.problemas.length + " archivo" +
                (r.problemas.length === 1 ? "" : "s") + " que no pude leer:\n   · " +
@@ -777,6 +786,48 @@ function apuntarArchivosLeidos(ss, ids) {
     return ids.length;
 }
 
+// LA SALIDA DE EMERGENCIA.
+//
+// Cada archivo se lee una vez y su id queda apuntado. Eso es lo correcto casi
+// siempre, pero deja una trampa sin salida: si un archivo se leyó a medias, o
+// se corrigió y se volvió a subir CON EL MISMO ARCHIVO de Drive, ya no hay
+// manera de que vuelva a entrar. Sin este botón la única salida era borrar a
+// mano una pestaña oculta que nadie sabe que existe.
+//
+// NO BORRA NINGUNA GUÍA: solo olvida qué archivos se leyeron. Lo ya cargado
+// sigue donde estaba, y volver a pasar el mismo Excel no duplica nada, porque
+// lo que manda es la clave —el 1Z—, no el archivo de donde salió.
+function olvidarArchivosLeidos() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, false);
+    let cuantos = (h && h.getLastRow() > 0) ? h.getLastRow() : 0;
+    if (cuantos === 0) {
+        ui.alert("🧹 Volver a leer los archivos",
+                 "No hay ningún archivo apuntado como leído.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let r = ui.alert("🧹 Volver a leer los archivos",
+        "Hay " + cuantos + " archivo(s) apuntados como ya leídos, y por eso no " +
+        "se vuelven a mirar.\n\n" +
+        "¿Olvido esa lista para que se lean otra vez?\n\n" +
+        "NO se borra ninguna guía de las que ya están cargadas, y volver a " +
+        "pasar el mismo Excel no duplica nada: lo que manda es el 1Z, no el " +
+        "archivo de donde salió.",
+        ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    h.clearContents();
+    ui.alert("🧹 Volver a leer los archivos",
+        "Listo: " + cuantos + " olvidados.\n\n" +
+        "Ojo: si configuraste la carpeta de PROCESADOS, los archivos ya se " +
+        "movieron allí y en la de entrada no quedan. Muévelos de vuelta a " +
+        "«POR PROCESAR» antes de apretar «🔎 Confrontar con los pedimentos».",
+        ui.ButtonSet.OK);
+}
+
 // -------------------------------------------------------------------------
 // LEER UN ARCHIVO
 // -------------------------------------------------------------------------
@@ -955,9 +1006,8 @@ function traerGuiasDeLaCarpeta(ss) {
         let tipo = archivo.getMimeType();
         let motivo = motivoDeSaltarse(nombre, tipo, yaLeidos.has(archivo.getId()));
         if (motivo !== "") {
-            if (inventario.length < 30) {
-                inventario.push(nombre + "  —  " + motivo);
-            }
+            if (inventario.length < 30) inventario.push(nombre + "  \u2014  " + motivo);
+            else if (inventario.length === 30) inventario.push("\u2026y m\u00e1s");
             continue;
         }
         if (mirados.length >= MAX_ARCHIVOS_GUIAS) { quedan = true; break; }
@@ -1036,6 +1086,7 @@ function traerGuiasDeLaCarpeta(ss) {
              celdas: celdas, cols: null,
              nombreHoja: carpeta.getName(), libro: null,
              deCarpeta: true, archivos: mirados, problemas: problemas,
+             inventario: inventario,
              quedan: quedan, piezasNuevas: piezasNuevas, antes: antes };
 }
 

@@ -5764,6 +5764,7 @@ function onOpen() {
               // Los dos orígenes. Manda la carpeta si está configurada; el
               // vínculo al archivo se queda para poder volver atrás.
               .addItem('📁 Vincular la carpeta de las guías', 'vincularCarpetaDeGuias')
+              .addItem('🧹 Volver a leer los archivos de la carpeta', 'olvidarArchivosLeidos')
               .addItem('🔗 Vincular el archivo de pedimentos', 'vincularArchivoDePedimentos'));
       }
   } catch (err) { /* Pedimentos.gs puede no estar pegado */ }
