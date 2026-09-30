@@ -3157,9 +3157,20 @@ const MAX_LISTADO_SIN_INFO = 2000;
 // hace útil: aquí sale lo que el operador está viendo de verdad en la hoja, con
 // su pestaña y su fila. Reconstruirlo desde el caché diría lo que DEBERÍA estar
 // marcado, que es justo lo que no se quiere comprobar.
+// Cada renglón sale [guía, pedimento, pestaña, fila, estado].
+//
+// EL PEDIMENTO SE SACA DEL BLOQUE, no de la fila: en la columna A solo lo lleva
+// la cabecera y debajo van las guías sueltas. `pedimentosPorFila` arrastra el
+// último pedimento visto hacia abajo, que es exactamente cómo lee el bloque un
+// operador. Sin él, el listado decía qué guías están pendientes pero no a qué
+// embarque pertenecen, y averiguarlo era ir pestaña por pestaña buscando la
+// fila —que es justo el trabajo que este listado existe para ahorrar—.
 function filasConAvisoSinInfo(datos, nombreHoja) {
     let salida = [];
-    for (let i = 0; i < (datos || []).length; i++) {
+    let n = (datos || []).length;
+    let peds = [];
+    try { peds = pedimentosPorFila(datos || [], n, 0, false); } catch (err) { peds = []; }
+    for (let i = 0; i < n; i++) {
         let fila = datos[i] || [];
         let guia = String(fila[0] === undefined ? "" : fila[0]).trim();
         // Un pedimento o un marcador de bloque nunca son la guía que falta.
@@ -3168,8 +3179,38 @@ function filasConAvisoSinInfo(datos, nombreHoja) {
         if (!esAvisoSinInfo(estado)) continue;
         // La CABEZA del estado, sin el resumen del bloque: ese resumen es del
         // pedimento entero y en una columna estrecha tapa lo único que importa.
-        salida.push([guia, nombreHoja, i + 1, cabezaEstado(estado)]);
+        salida.push([guia, peds[i] || "", nombreHoja, i + 1, cabezaEstado(estado)]);
     }
+    return salida;
+}
+
+// Una guía, un renglón.
+//
+// La misma guía sale marcada en la M-S y otra vez en la de salidas, y a veces
+// en las dos M-S de un trasbordo: sin esto el listado enseñaba tres renglones
+// de la misma guía y parecía que faltaban tres cosas por resolver cuando falta
+// una. Se resuelve una vez y se cae de las tres.
+//
+// GANA LA QUE TRAE PEDIMENTO, no la primera que aparezca. La de salidas suele
+// estar suelta, sin cabecera arriba, y quedarse con ella dejaba la columna del
+// pedimento vacía teniendo el dato a dos pestañas.
+function sinRepetirGuias(filas) {
+    let salida = [];
+    let donde = new Map();
+    (filas || []).forEach(f => {
+        if (!f) return;
+        let clave = String(f[0] === undefined ? "" : f[0]).trim().toUpperCase();
+        if (clave === "") return;
+        if (!donde.has(clave)) {
+            donde.set(clave, salida.length);
+            salida.push(f);
+            return;
+        }
+        let pos = donde.get(clave);
+        let teniaPed = String(salida[pos][1] === undefined ? "" : salida[pos][1]).trim() !== "";
+        let traePed = String(f[1] === undefined ? "" : f[1]).trim() !== "";
+        if (!teniaPed && traePed) salida[pos] = f;
+    });
     return salida;
 }
 
@@ -3184,21 +3225,27 @@ function guiasConAvisoSinInfo(ss) {
         let datos = hoja.getRange(1, 1, lr, 2).getValues();
         filasConAvisoSinInfo(datos, hoja.getName()).forEach(f => salida.push(f));
     });
-    return salida;
+    return sinRepetirGuias(salida);
 }
 
-// Escribe el listado en la columna I de la pestaña.
+// Cuántas columnas ocupa el listado. Está en una constante porque el borrado
+// del listado anterior tiene que cubrir exactamente lo mismo que se escribe:
+// cuando eran cuatro y pasaron a cinco, borrar cuatro dejaba una columna de
+// basura del listado viejo pegada al nuevo.
+const ANCHO_LISTADO_SIN_INFO = 5;
+
+// Escribe el listado a partir de la columna I de la pestaña.
 function escribirListadoSinInfo(hoja, filas) {
     let maxFilas = hoja.getMaxRows();
     // Se borra el listado ANTERIOR entero. Es una foto de ahora: dejar dentro
     // las que ya se resolvieron es peor que no tener listado, porque nadie
     // sabría cuáles siguen vivas.
     if (maxFilas > 0) {
-        hoja.getRange(1, COL_LISTADO_SIN_INFO, maxFilas, 4).clearContent();
+        hoja.getRange(1, COL_LISTADO_SIN_INFO, maxFilas, ANCHO_LISTADO_SIN_INFO).clearContent();
     }
 
-    hoja.getRange(1, COL_LISTADO_SIN_INFO, 1, 4)
-        .setValues([["MARCADAS AHORA", "EN LA PESTAÑA", "FILA", "ESTADO"]])
+    hoja.getRange(1, COL_LISTADO_SIN_INFO, 1, ANCHO_LISTADO_SIN_INFO)
+        .setValues([["MARCADAS AHORA", "PEDIMENTO", "EN LA PESTAÑA", "FILA", "ESTADO"]])
         .setFontWeight("bold");
 
     let recortado = filas.length > MAX_LISTADO_SIN_INFO;
@@ -3206,7 +3253,8 @@ function escribirListadoSinInfo(hoja, filas) {
     if (aEscribir.length === 0) return recortado;
 
     asegurarFilas(hoja, aEscribir.length + 2);
-    hoja.getRange(2, COL_LISTADO_SIN_INFO, aEscribir.length, 4).setValues(aEscribir);
+    hoja.getRange(2, COL_LISTADO_SIN_INFO, aEscribir.length, ANCHO_LISTADO_SIN_INFO)
+        .setValues(aEscribir);
     return recortado;
 }
 
@@ -3257,13 +3305,17 @@ function prepararHojaSinInformacion() {
         "El bulto SIGUE CONTANDO. El aviso solo dice que falta averiguar algo " +
         "antes de mandarlo.\n\n" +
         "Lo mismo sale solo, sin apuntar nada aquí, cuando a una guía se le " +
-        "buscó la house y no estaba.\n\n" +
+        "buscó la house y no estaba. Y en cuanto se sabe en UNA pestaña, sale " +
+        "al instante en las demás: si en la M-S ya quedó marcada, al " +
+        "escanearla en la de salidas el aviso aparece enseguida.\n\n" +
         "Ahora mismo hay " + (n < 0 ? "?" : n) + " guías en la lista.\n\n" +
         "Quitar una guía de la lista le quita el aviso: la lista se rehace " +
         "entera cada vez que tocas la columna A.\n\n" +
         "En la COLUMNA I tienes las que están marcadas AHORA MISMO en las " +
         "hojas" + (marcadas === null ? " (no se pudo leer)"
-                 : ": " + marcadas.length + ", con su pestaña y su fila") +
+                 : ": " + marcadas.length + ", con el PEDIMENTO en el que van, " +
+                   "su pestaña y su fila. Cada guía sale UNA vez, aunque esté " +
+                   "marcada en varias pestañas") +
         (recortado ? ". Se listaron las primeras " + MAX_LISTADO_SIN_INFO : "") +
         ".\n\nEsa columna es un ESPEJO, no la lista: borrar ahí no desmarca " +
         "nada. Para desmarcar, quita la guía de la columna A.\n\n" +
@@ -3309,6 +3361,12 @@ function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ulti
         let texto = "";
         if (set && set.size > 0 && set.has(v.toUpperCase())) texto = TXT_SIN_INFO;
         else if (avisoDeSinHouse(datosMasivos, i, v) !== "") texto = TXT_SIN_HOUSE;
+        // Y el tercer camino: en ESTA fila la house todavía está vacía, pero a
+        // esta guía ya se le buscó en otra pestaña —la M-S, normalmente— y no
+        // estaba. El aviso sale al instante en la de salidas en vez de esperar
+        // a que el relleno de cada cinco minutos llegue a este renglón, que es
+        // tarde: para entonces el bulto ya va en el camión.
+        else if (avisoDeSinHouseYaSabida(cacheInfo, v) !== "") texto = TXT_SIN_HOUSE;
         if (texto === "") continue;
 
         // Se AÑADE al final de lo que ya había, no lo sustituye. Lo que estaba
@@ -3348,6 +3406,20 @@ function avisoDeSinHouse(datosMasivos, i, valor) {
     let h = String(fila[2] === undefined || fila[2] === null ? "" : fila[2]).trim();
     if (h === "") return "";
     return h === marcaDeSinHouse() ? TXT_SIN_HOUSE : "";
+}
+
+// ¿A esta guía se le buscó la house EN OTRA PESTAÑA y no estaba?
+//
+// Se pregunta al caché, que el escaneo ya tiene cargado: cero llamadas. Vive en
+// House.gs, que es opcional, así que se pregunta por `typeof` y si no está
+// pegado esto devuelve "" y todo sigue funcionando como antes.
+function avisoDeSinHouseYaSabida(cacheInfo, valor) {
+    let v = String(valor === undefined || valor === null ? "" : valor).trim();
+    if (v === "" || esMarcadorEstructural(v) || /^\d{7}$/.test(v)) return "";
+    try {
+        if (typeof guiaSinHouseConocida !== 'function') return "";
+        return guiaSinHouseConocida(cacheInfo, v) ? TXT_SIN_HOUSE : "";
+    } catch (err) { return ""; }
 }
 
 function avisoDeSinInfo(cacheInfo, valor) {

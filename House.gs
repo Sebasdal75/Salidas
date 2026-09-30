@@ -1135,6 +1135,37 @@ function paresGuiaHouseEnHoja(datos, par, filaInicial) {
     return salida;
 }
 
+// La otra mitad de la cosecha: las que YA se buscaron y NO estaban.
+//
+// `paresGuiaHouseEnHoja` las tira a propósito —no hay house que guardar—, pero
+// que no la haya ES un dato, y es justo el que faltaba. Hasta ahora el aviso de
+// «sin información» por falta de house salía mirando la columna C de ESA fila,
+// así que una guía identificada en la M-S no decía nada al escanearla en la de
+// salidas hasta que el relleno pasara por su renglón: hasta cinco minutos
+// después, y para entonces el bulto ya iba en el camión.
+//
+// Guardando aquí las guías marcadas, el aviso sale AL INSTANTE en cualquier
+// pestaña, porque el caché se lee entero en cada escaneo de todas formas.
+function guiasSinHouseEnHoja(datos, par, filaInicial) {
+    let colGuia = (par && par.guia ? par.guia : 1) - 1;
+    let idx = (par && par.house ? par.house : COL_HOUSE) - 1;
+    let base = filaInicial || 1;
+    let salida = [];
+    for (let i = 0; i < (datos || []).length; i++) {
+        let fila = datos[i];
+        if (!fila) continue;
+        if (!filaAdmiteHouse(par, base + i)) continue;
+        let house = String(fila[idx] === undefined ? "" : fila[idx]).trim();
+        // SOLO el marcador. La celda vacía es «todavía no se ha mirado», y
+        // tomarla por «no tiene house» marcaría cada guía recién escaneada.
+        if (house !== TXT_HOUSE_SIN_DATO) continue;
+        let guia = esGuiaParaHouse(fila[colGuia]);
+        if (guia === "") continue;
+        salida.push(guia);
+    }
+    return salida;
+}
+
 // Agrupa filas consecutivas para escribir por tramos en vez de celda a celda.
 //
 // Se escriben SOLO las celdas que se llenan, nunca un rango leído y devuelto
@@ -2031,6 +2062,7 @@ function rellenarHousesPendientes(forzar, segundosMax) {
     let cortadoPorTiempo = false;
     let pendientes = [];
     let cosechados = [];
+    let sinDatoVistas = [];
     let hojas = ss.getSheets();
     for (let h = 0; h < hojas.length; h++) {
         if ((Date.now() - arranque) / 1000 > presupuesto) {
@@ -2062,6 +2094,7 @@ function rellenarHousesPendientes(forzar, segundosMax) {
             // Se cosecha SIEMPRE, tenga o no pendientes: las hojas que ya están
             // completas son precisamente las que tienen houses que guardar.
             paresGuiaHouseEnHoja(datos, par, desde).forEach(p => cosechados.push(p));
+            guiasSinHouseEnHoja(datos, par, desde).forEach(g => sinDatoVistas.push(g));
 
             let faltan = celdasPorLlenar(datos, par, desde, !!forzar);
             let sobran = celdasPorBorrar(datos, par, desde);
@@ -2090,6 +2123,7 @@ function rellenarHousesPendientes(forzar, segundosMax) {
     // que hace que el próximo escaneo de esas guías tenga la house al instante.
     let enCacheYa = 0;
     try { enCacheYa = guardarHousesEnCache(ss, cosechados); } catch (err) { enCacheYa = 0; }
+    try { guardarSinHouseEnCache(ss, sinDatoVistas); } catch (err) { /* nunca tumba el relleno */ }
 
     let faltanTotal = pendientes.reduce((n, p) => n + p.faltan.length, 0);
     if (faltanTotal === 0) {
@@ -2140,6 +2174,15 @@ function rellenarHousesPendientes(forzar, segundosMax) {
     }));
     let enCache = 0;
     try { enCache = guardarHousesEnCache(ss, paraCache); } catch (err) { enCache = 0; }
+
+    // Y las que se acaban de marcar con «—»: es EN ESTA PASADA cuando se sabe
+    // que no tienen house, y es la lista que hace que el aviso salga al instante
+    // en las hojas de salida sin esperar a que el relleno llegue a su renglón.
+    let sinDatoAhora = sinDatoVistas.slice();
+    pendientes.forEach(p => p.faltan.forEach(f => {
+        if (!mapa.get(f.guia)) sinDatoAhora.push(f.guia);
+    }));
+    try { guardarSinHouseEnCache(ss, sinDatoAhora); } catch (err) { /* nunca tumba el relleno */ }
 
     let segundos = (Date.now() - arranque) / 1000;
     try {
@@ -2396,9 +2439,21 @@ function limpiarMarcasNoEncontradas(ss) {
 const HEADER_HOUSE_GUIA = "__HOUSE_GUIA";
 const HEADER_HOUSE_VALOR = "__HOUSE_VALOR";
 
+// Y una tercera, con las guías a las que se les buscó la house y NO ESTABA.
+//
+// Va aparte del mapa y no dentro de él con un valor especial, y la razón es
+// concreta: `mapaHouseParaEscaneo` sirve para RELLENAR la columna C. Si el
+// marcador viviera dentro del mapa, el escaneo escribiría «—» como si fuera la
+// house buena y el relleno ya no volvería a buscarla nunca, porque para él la
+// celda estaría llena. Son dos preguntas distintas —«¿cuál es su house?» y
+// «¿ya se buscó y no había?»— y mezclarlas rompe la segunda pasada.
+const HEADER_HOUSE_SINDATO = "__HOUSE_SINDATO";
+
 function encabezadosDelMapaHouse() {
-    return [HEADER_HOUSE_GUIA, HEADER_HOUSE_VALOR];
+    return [HEADER_HOUSE_GUIA, HEADER_HOUSE_VALOR, HEADER_HOUSE_SINDATO];
 }
+
+function accesoHeaderHouseSinDato() { return HEADER_HOUSE_SINDATO; }
 
 // Lee el mapa que ya viene dentro del caché. Cero llamadas: `cacheInfo` es lo
 // que el escaneo acaba de cargar de todas formas.
@@ -2438,6 +2493,91 @@ function mapaHouseParaEscaneo(cacheInfo) {
 // así que tiene que caducar con él o serviría houses de la edición anterior.
 function olvidarMapaHouseEnRAM() {
     globalMapaHouseCache = null;
+    globalSinHouseCache = null;
+}
+
+// -------------------------------------------------------------------------
+// LAS QUE SE BUSCARON Y NO ESTABAN
+// -------------------------------------------------------------------------
+
+// Puro, para poder probarlo sin hablar con Sheets.
+function sinHouseDelCache(data, headers) {
+    let set = new Set();
+    if (!data || !headers) return set;
+    let c = headers.indexOf(HEADER_HOUSE_SINDATO);
+    if (c === -1) return set;
+    for (let r = 1; r < data.length; r++) {
+        let fila = data[r];
+        if (!fila) continue;
+        let g = claveGuiaHouse(fila[c]);
+        if (g !== "") set.add(g);
+    }
+    return set;
+}
+
+let globalSinHouseCache = null;
+
+function conjuntoSinHouseConocida(cacheInfo) {
+    if (globalSinHouseCache === null) {
+        globalSinHouseCache = sinHouseDelCache(cacheInfo ? cacheInfo.data : null,
+                                               cacheInfo ? cacheInfo.headers : null);
+    }
+    return globalSinHouseCache;
+}
+
+// Lo que pregunta el escaneo. Normaliza aquí dentro para que quien llame no
+// tenga que saber cómo se escriben las claves de este módulo.
+function guiaSinHouseConocida(cacheInfo, guia) {
+    try {
+        let g = claveGuiaHouse(guia);
+        if (g === "") return false;
+        let set = conjuntoSinHouseConocida(cacheInfo);
+        return !!(set && set.size > 0 && set.has(g));
+    } catch (err) { return false; }
+}
+
+// Se REEMPLAZA entera, igual que el mapa: la lista se rehace en cada pasada del
+// relleno leyendo todas las hojas, así que una guía a la que alguien le puso la
+// house a mano deja de estar marcada sola. Acumulando, el aviso se le quedaría
+// pegado para siempre sin manera de quitárselo.
+function guardarSinHouseEnCache(ss, guias) {
+    let cacheSheet = ss.getSheetByName("CACHE_SISTEMA");
+    if (!cacheSheet) return 0;
+
+    let vistas = new Set();
+    let limpias = [];
+    (guias || []).forEach(v => {
+        let g = claveGuiaHouse(v);
+        if (g === "" || vistas.has(g)) return;
+        vistas.add(g);
+        limpias.push([g]);
+    });
+
+    let headers = cacheSheet.getRange(1, 1, 1, cacheSheet.getMaxColumns()).getValues()[0];
+    let col = columnaDeHeader(cacheSheet, headers, HEADER_HOUSE_SINDATO);
+    if (col === -1) return 0;
+
+    // Comprobar antes de escribir: esta pasada corre cada cinco minutos y casi
+    // siempre encuentra exactamente lo mismo que dejó la anterior.
+    let lr = cacheSheet.getLastRow();
+    if (lr > 1) {
+        let previos = cacheSheet.getRange(2, col, lr - 1, 1).getValues();
+        let habia = new Set();
+        previos.forEach(f => {
+            let g = claveGuiaHouse(f[0]);
+            if (g !== "") habia.add(g);
+        });
+        let iguales = habia.size === vistas.size;
+        if (iguales) vistas.forEach(g => { if (!habia.has(g)) iguales = false; });
+        if (iguales) return limpias.length;
+    }
+
+    let maxFilas = cacheSheet.getMaxRows();
+    if (maxFilas > 1) cacheSheet.getRange(2, col, maxFilas - 1, 1).clearContent();
+    if (limpias.length === 0) return 0;
+    asegurarFilas(cacheSheet, limpias.length + 1);
+    cacheSheet.getRange(2, col, limpias.length, 1).setValues(limpias);
+    return limpias.length;
 }
 
 // Mete en el caché los pares que se acaban de resolver, para que el SIGUIENTE

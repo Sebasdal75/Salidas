@@ -2537,6 +2537,80 @@ ok("una house huerfana no se cosecha", !cosecha.some(c => c.house === "H-HUERFAN
 ok("ni la de un marcador de bloque", !cosecha.some(c => c.house === "H-X"));
 ok("una hoja vacia no da nada", paresGuiaHouseEnHoja([], PAR_A, 4).length === 0);
 
+// LA OTRA MITAD DE LA COSECHA: las que YA se buscaron y NO estaban.
+//
+// Lo que pidio el usuario: «si en las ms ya se identifico que son sin
+// informacion que me lo ponga enseguida en las de salida». Hasta ahora el
+// aviso salia mirando la columna C de ESA fila, asi que una guia identificada
+// en la M-S no decia nada al escanearla en la de salidas hasta que el relleno
+// pasara por su renglon -hasta cinco minutos, y para entonces el bulto ya va
+// en el camion-.
+let sinHouseHoja = guiasSinHouseEnHoja(hojaConHouses, PAR_A, 4);
+ok("sale la que lleva el marcador", sinHouseHoja.length === 1);
+ok("y es la correcta", sinHouseHoja[0] === G4);
+// LA CELDA VACIA NO CUENTA: vacia es «todavia no se ha mirado», y tomarla por
+// «no tiene house» marcaria cada guia recien escaneada.
+ok("la vacia no entra", sinHouseHoja.indexOf(G3) === -1);
+ok("ni la que si tiene house", sinHouseHoja.indexOf(G1) === -1);
+ok("una hoja vacia no da nada", guiasSinHouseEnHoja([], PAR_A, 4).length === 0);
+ok("sin datos tampoco", guiasSinHouseEnHoja(null, PAR_A, 4).length === 0);
+
+// La lista viaja en una columna PROPIA del cache, no dentro del mapa de
+// houses. Si el marcador viviera dentro del mapa, el escaneo escribiria «—»
+// como si fuera la house buena y el relleno no volveria a buscarla nunca,
+// porque para el la celda estaria llena.
+olvidarMapaHouseEnRAM();
+let cacheSinHouse = {
+    headers: ["__HOUSE_GUIA", "__HOUSE_VALOR", accesoHeaderHouseSinDato()],
+    data: [["__HOUSE_GUIA", "__HOUSE_VALOR", accesoHeaderHouseSinDato()],
+           [G1, "H-UNO", G4],
+           ["", "", ""]]
+};
+ok("el marcador NO entra en el mapa de houses",
+   mapaHouseDelCache(cacheSinHouse).get(G4) === undefined);
+ok("y la house buena si", mapaHouseDelCache(cacheSinHouse).get(G1) === "H-UNO");
+ok("la lista de sin house la lee su columna", sinHouseDelCache(cacheSinHouse.data, cacheSinHouse.headers).size === 1);
+ok("con la guia que toca", sinHouseDelCache(cacheSinHouse.data, cacheSinHouse.headers).has(G4));
+ok("sin la columna devuelve vacio",
+   sinHouseDelCache([["OTRA"]], ["OTRA"]).size === 0);
+ok("sin cache no revienta", sinHouseDelCache(null, null).size === 0);
+
+olvidarMapaHouseEnRAM();
+ok("la guia marcada se reconoce", guiaSinHouseConocida(cacheSinHouse, G4));
+ok("una con house no", !guiaSinHouseConocida(cacheSinHouse, G1));
+ok("una vacia tampoco", !guiaSinHouseConocida(cacheSinHouse, ""));
+// Escrita con guiones en una hoja y sin ellos en otra sigue siendo la misma.
+ok("normaliza igual que el escaneo",
+   guiaSinHouseConocida(cacheSinHouse, G4.slice(0, 4) + "-" + G4.slice(4)));
+
+// EL AVISO INSTANTANEO: la fila NO tiene house en su propia columna C -esta
+// vacia, nadie la ha mirado aun- y aun asi avisa, porque la guia ya quedo
+// identificada en otra pestaña.
+olvidarMapaHouseEnRAM();
+ok("avisa aunque su propia C este vacia",
+   avisoDeSinHouseYaSabida(cacheSinHouse, G4) === accesoTxtSinHouse());
+ok("una guia normal no avisa", avisoDeSinHouseYaSabida(cacheSinHouse, G1) === "");
+ok("un pedimento nunca avisa", avisoDeSinHouseYaSabida(cacheSinHouse, "6102253") === "");
+ok("un marcador de bloque tampoco",
+   avisoDeSinHouseYaSabida(cacheSinHouse, "SIN PEDIMENTO") === "");
+olvidarMapaHouseEnRAM();
+ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
+
+// EL MISMO FALLO QUE YA COSTO UNA VEZ: un Set guardado en RAM se queda con la
+// primera foto que ve. Si no caduca con el cache, la limpieza -que vuelve a
+// leer el cache de cero- trabajaria con la lista de la pasada anterior.
+olvidarMapaHouseEnRAM();
+guiaSinHouseConocida(cacheSinHouse, G4);
+let cacheOtro = {
+    headers: [accesoHeaderHouseSinDato()],
+    data: [[accesoHeaderHouseSinDato()], [G2]]
+};
+ok("sin olvidar, sigue la foto vieja", guiaSinHouseConocida(cacheOtro, G4));
+olvidarMapaHouseEnRAM();
+ok("y olvidando, la nueva", !guiaSinHouseConocida(cacheOtro, G4));
+ok("con la guia de la nueva", guiaSinHouseConocida(cacheOtro, G2));
+olvidarMapaHouseEnRAM();
+
 // Tambien por el lado de la preforma.
 let filaPreCosecha = [];
 for (let i = 0; i < 19; i++) filaPreCosecha.push("");
@@ -2562,11 +2636,11 @@ ok("y trae la house", m1.get(G1) === "H-UNO");
 // anterior -y despues de sustituir una guia, eso es la house del bulto que ya
 // no esta-.
 olvidarMapaHouseEnRAM();
-let cacheOtro = {
+let cacheOtraFoto = {
     headers: ["__HOUSE_GUIA", "__HOUSE_VALOR"],
     data: [["__HOUSE_GUIA", "__HOUSE_VALOR"], [G1, "H-NUEVA"]]
 };
-ok("tras olvidarlo, se relee", mapaHouseParaEscaneo(cacheOtro).get(G1) === "H-NUEVA");
+ok("tras olvidarlo, se relee", mapaHouseParaEscaneo(cacheOtraFoto).get(G1) === "H-NUEVA");
 olvidarMapaHouseEnRAM();
 
 console.log("\n--- 5z5. La preforma tambien comprueba el digito verificador ---");
@@ -4735,17 +4809,53 @@ let hojaConAvisos = [
 let listado = filasConAvisoSinInfo(hojaConAvisos, "GLOBAL 1");
 ok("salen solo las marcadas", listado.length === 2);
 ok("con su guía", listado[0][0] === G1);
-ok("con la pestaña", listado[0][1] === "GLOBAL 1");
-ok("y con su fila de verdad", listado[0][2] === 2);
+ok("con la pestaña", listado[0][2] === "GLOBAL 1");
+ok("y con su fila de verdad", listado[0][3] === 2);
 ok("la que arrastra resumen también sale", listado[1][0] === G3);
 // El resumen del bloque es del pedimento entero: en una columna estrecha tapa
 // lo unico que importa.
-ok("pero sin el resumen colgando", listado[1][3].indexOf("Bultos") === -1);
+ok("pero sin el resumen colgando", listado[1][4].indexOf("Bultos") === -1);
 ok("un pedimento nunca sale", !listado.some(f => f[0] === "6102253"));
 ok("ni un marcador de bloque", !listado.some(f => f[0] === "SIN PEDIMENTO"));
 ok("una hoja sin nada da lista vacía",
    filasConAvisoSinInfo([[G1, "✅ Ok"]], "X").length === 0);
 ok("sin datos no revienta", filasConAvisoSinInfo(null, "X").length === 0);
+
+// EL PEDIMENTO DEL BLOQUE, que es lo que pidio el usuario: «que me ponga en
+// que pedimento van». En la columna A solo lo lleva la cabecera, asi que hay
+// que arrastrarlo hacia abajo igual que lo lee un operador.
+ok("la guía trae el pedimento de su bloque", listado[0][1] === "6102253");
+ok("y la de más abajo el mismo", listado[1][1] === "6102253");
+
+// Un marcador de bloque CORTA el arrastre: lo que va debajo de «SIN PEDIMENTO»
+// no pertenece al pedimento de arriba, y heredarlo seria mandar a alguien a
+// buscar el bulto al embarque equivocado.
+let trasMarcador = filasConAvisoSinInfo([
+    ["6102253", "Bultos: 1"],
+    [G1, "✅ Ok · " + accesoTxtSinInfo()],
+    ["SIN PEDIMENTO", ""],
+    [G2, "✅ Ok · " + accesoTxtSinInfo()]
+], "GLOBAL 1");
+ok("dentro del bloque lleva pedimento", trasMarcador[0][1] === "6102253");
+ok("debajo del marcador ya no", trasMarcador[1][1] === "");
+
+// UNA GUIA, UN RENGLON. La misma guia sale marcada en la M-S y otra vez en la
+// de salidas: tres renglones de la misma guia parecen tres cosas por resolver
+// cuando falta una.
+let repes = sinRepetirGuias([
+    [G1, "", "SALIDAS", 5, "✅ Ok"],
+    [G1, "6102253", "M-S GLOBAL 1", 2, "✅ Ok"],
+    [G2, "6102254", "M-S GLOBAL 1", 3, "✅ Ok"],
+    [G2, "", "SALIDAS", 9, "✅ Ok"]
+]);
+ok("cada guía sale una sola vez", repes.length === 2);
+// GANA LA QUE TRAE PEDIMENTO, no la primera: la de salidas suele estar suelta
+// y quedarse con ella dejaba la columna vacia teniendo el dato a dos pestañas.
+ok("y gana la que sí sabe el pedimento", repes[0][1] === "6102253");
+ok("aunque llegara después", repes[0][2] === "M-S GLOBAL 1");
+ok("la que ya traía pedimento se queda", repes[1][1] === "6102254");
+ok("sin filas no revienta", sinRepetirGuias(null).length === 0);
+ok("una fila vacía se ignora", sinRepetirGuias([["", "", "X", 1, ""]]).length === 0);
 
 console.log("\n=== 19. Añadir solo las houses nuevas ===");
 // `volcarAlIndice` REESCRIBE el indice entero: lee las dos hojas, fusiona,
