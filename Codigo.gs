@@ -4694,13 +4694,26 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // con la operación. La M-S es el paso de antes, donde la carga todavía se
     // está juntando y el pedimento puede no estar escrito; el error de meter un
     // bulto en el pedimento equivocado se comete al CARGAR, que es aquí.
-    else if (cruzaHouseConPedimento) {
-        let av = avisoDeHouseContraPedimento(source, datosMasivos[i][2], pedsPorFilaA[i]);
-        if (av !== "") { fijo = av; color = COLOR_HOUSE_OTRO_PED; }
-    }
     else {
-        let ya = avisoDeYaSalio(source, valB, pedsPorFilaA[i]);
-        if (ya !== "") { fijo = ya; color = '#ff9800'; }
+        // Se le pasa el 1Z ADEMÁS de la house. El archivo de pedimentos ya trae
+        // las guías, y el 1Z está en la columna A desde el instante del escaneo
+        // mientras que la house la pone un relleno que tarda hasta cinco
+        // minutos: preguntando solo por la house, un bulto metido en el
+        // pedimento equivocado no decía nada hasta entonces.
+        let av = cruzaHouseConPedimento
+               ? avisoDeHouseContraPedimento(source, datosMasivos[i][2],
+                                             pedsPorFilaA[i], valB)
+               : "";
+        if (av !== "") { fijo = av; color = COLOR_HOUSE_OTRO_PED; }
+        else {
+            // SE CAE AQUÍ AUNQUE LA HOJA CRUCE CONTRA EL ARCHIVO. Antes eran
+            // dos ramas excluyentes, así que en cuanto una pestaña entró en la
+            // confronta dejó de salir «Salió en …» en ella: el aviso de que un
+            // bulto ya se despachó desapareció de las hojas de unidad, que son
+            // justo donde importa, y nada lo dijo.
+            let ya = avisoDeYaSalio(source, valB, pedsPorFilaA[i]);
+            if (ya !== "") { fijo = ya; color = '#ff9800'; }
+        }
     }
 
     resultadosB.push([fijo]);
@@ -5745,7 +5758,7 @@ function onOpen() {
               // El de arriba hace las DOS cosas. El de solo importar se queda
               // para refrescar el aviso de la columna B sin pagar el recorrido
               // de todas las pestañas, que es lo caro de la confronta.
-              .addItem('🔎 Confrontar houses (trae el archivo y cruza)', 'confrontarPedimentosConEscaneos')
+              .addItem('🔎 Confrontar con los pedimentos (trae y cruza)', 'confrontarPedimentosConEscaneos')
               .addItem('📥 Solo traer el archivo (sin cruzar)', 'importarPedimentos')
               .addSeparator()
               .addItem('🔗 Vincular el archivo de pedimentos', 'vincularArchivoDePedimentos'));
