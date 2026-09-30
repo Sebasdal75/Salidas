@@ -5493,6 +5493,33 @@ ok("los errores de Drive se leen, no se dejan reventar",
 ok("el temporal se borra en un finally",
    /finally\s*\{[\s\S]{0,200}setTrashed\(true\)/.test(FUENTE_PED));
 
+// EL ORIGEN SE DICE SIEMPRE, salga bien o salga mal.
+//
+// ESTO COSTO UNA TARDE. El sistema elegia el origen solo -carpeta si estaba
+// configurada, y si no el archivo de siempre- y no lo decia en ningun sitio. El
+// usuario habia dejado su Excel en la carpeta pero nunca llego a vincularla,
+// asi que todo el rato se leyo el archivo viejo y se quejo de el: el mensaje
+// hablaba de pestañas y columnas mientras el miraba una carpeta con su archivo
+// dentro. Un sistema que elige por su cuenta TIENE que decir que eligio, o cada
+// diagnostico empieza por la pregunta equivocada.
+ok("cuando lee de la carpeta lo dice",
+   encabezadoDeOrigen("carpeta").indexOf("CARPETA") !== -1);
+// El del archivo lleva aviso: es el caso en el que el usuario cree una cosa y
+// pasa otra, asi que no basta con nombrarlo.
+ok("cuando lee del archivo AVISA",
+   encabezadoDeOrigen("archivo").indexOf("NO la carpeta") !== -1);
+ok("y dice como cambiarlo",
+   encabezadoDeOrigen("archivo").indexOf("Vincular la carpeta") !== -1);
+ok("sin origen no dice nada", encabezadoDeOrigen("nada") === "");
+
+// Un mensaje de error SIEMPRE lo lleva delante: es lo primero que se lee.
+const FUENTE_ORIGEN = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+ok("el error lo lleva delante",
+   FUENTE_ORIGEN.indexOf("r.error = encabezadoDeOrigen(origen) + r.error") !== -1);
+// Y el resumen de cuando SI funciona tambien, para que nunca haya que adivinar.
+ok("el resumen tambien",
+   FUENTE_ORIGEN.indexOf("encabezadoDeOrigen(r.origen) + (r.deCarpeta") !== -1);
+
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El

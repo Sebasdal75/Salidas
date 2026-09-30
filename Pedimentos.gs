@@ -523,7 +523,7 @@ function resumenDeImportacionPedimentos(r) {
     let piezas = 0;
     r.porReferencia.forEach(lista => { piezas += lista.length; });
 
-    let msg = (r.deCarpeta
+    let msg = encabezadoDeOrigen(r.origen) + (r.deCarpeta
         ? "De la carpeta «" + r.nombreHoja + "»:\n" +
           "   · " + (r.archivos.length ? r.archivos.length + " archivo" +
                      (r.archivos.length === 1 ? "" : "s") + " nuevo" +
@@ -1058,9 +1058,53 @@ function referenciasDesdeMapa(mapa) {
 // De dónde se traen las guías: de la carpeta si hay una configurada, y si no
 // del archivo vinculado. Los dos caminos siguen vivos a propósito, para poder
 // cambiarse sin perder nada y volver atrás si algo sale mal.
+function origenDeLasGuias() {
+    if (idCarpetaDeGuias() !== "") return "carpeta";
+    if (idDelArchivoPedimentos() !== "") return "archivo";
+    return "nada";
+}
+
+// EL ORIGEN SE DICE SIEMPRE, salga bien o salga mal.
+//
+// ESTO COSTÓ UNA TARDE. El sistema elegía el origen solo —carpeta si estaba
+// configurada, y si no el archivo de siempre— y no lo decía en ningún sitio.
+// El usuario había dejado su Excel en la carpeta, pero nunca llegó a vincularla,
+// así que todo el rato se estuvo leyendo el archivo viejo y quejándose de él.
+// El mensaje hablaba de pestañas y columnas mientras él miraba una carpeta con
+// su archivo dentro. Un sistema que elige por su cuenta TIENE que decir qué
+// eligió, o cada diagnóstico empieza por la pregunta equivocada.
+function encabezadoDeOrigen(origen) {
+    if (origen === "carpeta") {
+        return "ORIGEN: la CARPETA de Drive.\n\n";
+    }
+    if (origen === "archivo") {
+        return "⚠️ ORIGEN: el ARCHIVO vinculado, NO la carpeta.\n\n" +
+               "No hay ninguna carpeta configurada, así que se leyó del archivo " +
+               "de siempre. Si querías leer de la carpeta, usa primero " +
+               "«📁 Vincular la carpeta de las guías»: hasta que no la vincules, " +
+               "dejar el Excel ahí no sirve de nada.\n\n";
+    }
+    return "";
+}
+
 function traerLasGuias(ss) {
-    if (idCarpetaDeGuias() !== "") return traerGuiasDeLaCarpeta(ss);
-    return traerPedimentosDelArchivo(ss);
+    let origen = origenDeLasGuias();
+
+    if (origen === "nada") {
+        return { ok: false, origen: origen, error:
+            "No hay de dónde leer las guías.\n\n" +
+            "Elige UNA de las dos:\n" +
+            "   · «📁 Vincular la carpeta de las guías» — dejas el Excel en una " +
+            "carpeta de Drive y se lee de ahí. Es lo recomendado.\n" +
+            "   · «🔗 Vincular el archivo de pedimentos» — se lee de otra hoja " +
+            "de cálculo." };
+    }
+
+    let r = (origen === "carpeta") ? traerGuiasDeLaCarpeta(ss)
+                                   : traerPedimentosDelArchivo(ss);
+    r.origen = origen;
+    if (!r.ok) r.error = encabezadoDeOrigen(origen) + r.error;
+    return r;
 }
 
 // -------------------------------------------------------------------------
