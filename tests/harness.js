@@ -5075,5 +5075,44 @@ ok("el rezago también", !esHojaDeSalidasParaConfronta("REZAGO 1"));
 ok("y las de sistema", !esHojaDeSalidasParaConfronta("MACHO"));
 ok("una de unidad SÍ entra", esHojaDeSalidasParaConfronta("GLOBAL 2 20-AE-3H"));
 
+console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
+// LO QUE ESTO CAZA, Y YA PASO: `globalBlobPedimentos` estaba declarado con
+// `let` en Salidas.gs y en Pedimentos.gs. En Apps Script todos los archivos
+// comparten el MISMO ambito, asi que dos `let` con el mismo nombre no son dos
+// variables: son un ERROR DE SINTAXIS que tumba el proyecto ENTERO al cargar.
+//
+// Y el sintoma no dice nada de eso: desaparece el menu «📦 Opciones Avanzadas»
+// completo, sin ningun error a la vista, como si alguien lo hubiera borrado.
+// Con `function` es aun peor porque NO falla: gana la ultima que cargue y la
+// otra deja de existir en silencio, contestando otra cosa.
+//
+// Se miran las cuatro formas. La primera version de esta comprobacion la hice a
+// mano mirando solo `const` y `function`, y por eso se colo un `let`.
+const fsDup = require('fs');
+const pathDup = require('path');
+const ARCHIVOS_GS = ['Codigo.gs', 'House.gs', 'Salidas.gs', 'Costales.gs',
+                     'UnirInventarios.gs', 'Pedimentos.gs'];
+let declarados = new Map();
+let colisiones = [];
+ARCHIVOS_GS.forEach(f => {
+    let ruta = pathDup.join(__dirname, '..', f);
+    if (!fsDup.existsSync(ruta)) return;
+    let texto = fsDup.readFileSync(ruta, 'utf8');
+    let re = /^(?:const|let|var|function)\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
+    let m;
+    while ((m = re.exec(texto)) !== null) {
+        let nombre = m[1];
+        if (declarados.has(nombre) && declarados.get(nombre) !== f) {
+            colisiones.push(nombre + " (" + declarados.get(nombre) + " y " + f + ")");
+        } else {
+            declarados.set(nombre, f);
+        }
+    }
+});
+ok("ningun nombre de nivel superior se repite entre archivos" +
+   (colisiones.length ? ": " + colisiones.join(", ") : ""),
+   colisiones.length === 0);
+ok("y se revisaron todos los archivos", declarados.size > 200);
+
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

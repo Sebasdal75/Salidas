@@ -188,25 +188,31 @@ function guardarBlobHousePedimento(ss, pares) {
 
 // El texto vive en memoria entre escaneos mientras V8 conserve el proceso. La
 // primera consulta de cada proceso paga una llamada; las siguientes son gratis.
-let globalBlobPedimentos = null;
-function olvidarBlobPedimentosDeHouseEnRAM() { globalBlobPedimentos = null; }
+// OJO CON EL NOMBRE DE ESTA VARIABLE. Se llamaba `globalBlobPedimentos` y
+// Salidas.gs ya tenía una así. En Apps Script todos los archivos comparten el
+// mismo ámbito, así que dos `let` con el mismo nombre no son dos variables: son
+// un ERROR DE SINTAXIS que tumba el proyecto ENTERO al cargar. Y el síntoma no
+// dice nada: desaparece el menú «📦 Opciones Avanzadas» completo, sin ningún
+// error a la vista, como si alguien lo hubiera borrado.
+let globalBlobHousePed = null;
+function olvidarBlobPedimentosDeHouseEnRAM() { globalBlobHousePed = null; }
 
 function leerBlobHousePedimento(ss) {
-    if (globalBlobPedimentos !== null) return globalBlobPedimentos;
-    globalBlobPedimentos = "";
+    if (globalBlobHousePed !== null) return globalBlobHousePed;
+    globalBlobHousePed = "";
     try {
         let h = hojaHousePedimentoRapido(ss, false);
-        if (!h) return globalBlobPedimentos;
+        if (!h) return globalBlobHousePed;
         let lr = h.getLastRow();
-        if (lr < 1) return globalBlobPedimentos;
-        globalBlobPedimentos = h.getRange(1, 1, lr, 1).getValues()
+        if (lr < 1) return globalBlobHousePed;
+        globalBlobHousePed = h.getRange(1, 1, lr, 1).getValues()
             .map(f => String(f[0])).join("");
     } catch (err) {
         // Que esto falle NO puede tumbar un escaneo: sin lista no hay aviso, y
         // el sistema sigue haciendo todo lo demás igual que antes.
-        globalBlobPedimentos = "";
+        globalBlobHousePed = "";
     }
-    return globalBlobPedimentos;
+    return globalBlobHousePed;
 }
 
 // -------------------------------------------------------------------------
