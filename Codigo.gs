@@ -4563,6 +4563,18 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   // En la columna A el pedimento ENCABEZA su bloque: se recorre hacia adelante.
   let pedsPorFilaA = pedimentosPorFila(datosMasivos, ultimaFila, 0, false);
 
+  // ¿Esta pestaña cruza la house contra su pedimento? Se decide UNA vez, no una
+  // por fila: son tres comprobaciones de nombre y la hoja puede tener miles.
+  //
+  // `typeof` porque Pedimentos.gs es opcional: si no está pegado, esto no puede
+  // reventar el escaneo de nadie.
+  let cruzaHouseConPedimento = false;
+  try {
+      cruzaHouseConPedimento = (typeof esHojaDeSalidasParaConfronta === 'function') &&
+                               (typeof avisoDeHouseContraPedimento === 'function') &&
+                               esHojaDeSalidasParaConfronta(nombreHoja);
+  } catch (err) { cruzaHouseConPedimento = false; }
+
   let resultadosB = []; let resultadosHoras = []; let coloresB = [];
 
   // GUÍA YA MOVIDA -> el texto con el que salió («➡ MOVIDO A GLOBAL 1»).
@@ -4602,6 +4614,18 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
     // estado normal, en `marcarFilasSinInfo`, cuando ya está todo calculado.
     else if (dup) { fijo = "⛔ DUPLICADO (En: " + dup.hoja + " Fila " + dup.fila + ")"; color = '#ff9800'; }
     else if (esMovido) { fijo = estB; color = '#e0e0e0'; }
+    // LA HOUSE CONTRA SU PEDIMENTO. Va aquí abajo, después del duplicado y de
+    // la salida: los dos hablan del bulto físico —está dos veces, o ya se fue—
+    // y eso manda sobre a qué papel pertenece.
+    //
+    // Solo en las hojas de unidad, nunca en una M-S: se pidió así, y encaja
+    // con la operación. La M-S es el paso de antes, donde la carga todavía se
+    // está juntando y el pedimento puede no estar escrito; el error de meter un
+    // bulto en el pedimento equivocado se comete al CARGAR, que es aquí.
+    else if (cruzaHouseConPedimento) {
+        let av = avisoDeHouseContraPedimento(source, datosMasivos[i][2], pedsPorFilaA[i]);
+        if (av !== "") { fijo = av; color = COLOR_HOUSE_OTRO_PED; }
+    }
     else {
         let ya = avisoDeYaSalio(source, valB, pedsPorFilaA[i]);
         if (ya !== "") { fijo = ya; color = '#ff9800'; }
@@ -5640,6 +5664,19 @@ function onOpen() {
   // -----------------------------------------------------------------------
   // 📦 COSTALES
   // -----------------------------------------------------------------------
+  // -----------------------------------------------------------------------
+  // 📋 PEDIMENTOS: la house contra el pedimento donde está escaneada
+  // -----------------------------------------------------------------------
+  try {
+      if (typeof importarPedimentos === 'function') {
+          menu.addSubMenu(ui.createMenu('📋 Pedimentos')
+              .addItem('📥 Importar los pedimentos', 'importarPedimentos')
+              .addItem('🔎 Confrontar houses con los escaneos', 'confrontarPedimentosConEscaneos')
+              .addSeparator()
+              .addItem('🔗 Vincular el archivo de pedimentos', 'vincularArchivoDePedimentos'));
+      }
+  } catch (err) { /* Pedimentos.gs puede no estar pegado */ }
+
   try {
       if (typeof traerCostalesDeEstaUnidad === 'function') {
           menu.addSubMenu(ui.createMenu('📦 Costales')

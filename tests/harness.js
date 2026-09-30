@@ -38,6 +38,7 @@ eval(fs.readFileSync(path.join(__dirname, '..', 'House.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Salidas.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'UnirInventarios.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Costales.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'Pedimentos.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -4951,6 +4952,128 @@ ok("y se sabe de que M-S viene cada una", regMS.guiasOrigen.has(G1));
 let regPropio = obtenerRegistroMSDesdeCache({ headers: cabsMS, data: dataMS },
                                             "M-S SALIDAS");
 ok("la propia pestaña no se cuenta", regPropio.registroMS.size === 0);
+
+console.log("\n=== 23. La house contra su pedimento ===");
+// El archivo «PEDIMENTOS» dice que houses le pertenecen a cada pedimento, una
+// fila por house. Con eso se contesta la pregunta que no tenia respuesta: este
+// bulto esta escaneado bajo el 6113854, pero ¿es suyo?
+
+console.log("\n--- 23a. Leer el archivo ---");
+// LAS COLUMNAS SE BUSCAN POR NOMBRE, no por posicion: el archivo lo genera otra
+// herramienta y una columna de mas a la izquierda desplazaria todo sin que nada
+// fallara. Simplemente se leerian los datos equivocados.
+const CAB_PED = ["Fecha proceso", "Pedimento", "House", "Bultos declarados",
+                 "Houses leidas", "Estatus", "Archivo"];
+let colsPed = detectarColumnasPedimentos(CAB_PED);
+ok("encuentra la columna del pedimento", colsPed.pedimento === 1);
+ok("y la de la house", colsPed.house === 2);
+// «HOUSES LEIDAS» ES UN CONTADOR, no una house. Sin excluirlo, la columna de la
+// house podria caer ahi y el cruce compararia houses contra el numero 29.
+ok("no confunde «Houses leidas» con la house", colsPed.house !== 4);
+ok("sin cabeceras no inventa columnas",
+   detectarColumnasPedimentos([]).house === -1);
+
+let rejillaPed = [
+    CAB_PED,
+    ["30/9/2026", "6113854", "030KG9897CH", 29, 29, "OK", "x.pdf"],
+    ["30/9/2026", "6113854", "03KA3949CNK", 29, 29, "OK", "x.pdf"],
+    ["30/9/2026", "6113855", "8V66V73DXL4", 10, 10, "OK", "x.pdf"],
+    ["30/9/2026", "",        "SINPEDIMENTO", 0, 0, "", ""],       // sin pedimento
+    ["30/9/2026", "6113854", "",             0, 0, "", ""]        // sin house
+];
+let leidoPed = paresDeArchivoPedimentos(rejillaPed, colsPed);
+ok("saca un par por fila buena", leidoPed.pares.length === 3);
+ok("las filas incompletas no entran",
+   !leidoPed.pares.some(p => p.house === "SINPEDIMENTO"));
+ok("sin conflictos no inventa ninguno", leidoPed.repetidas.length === 0);
+
+// LA MISMA HOUSE EN DOS PEDIMENTOS es una contradiccion del archivo, no un
+// dato. Gana la primera y se reporta: elegir en silencio es lo que haria que el
+// aviso acusara al bulto bueno.
+let conflicto = paresDeArchivoPedimentos([
+    CAB_PED,
+    ["", "6113854", "030KG9897CH", 0, 0, "", ""],
+    ["", "6113855", "030KG9897CH", 0, 0, "", ""]
+], colsPed);
+ok("la house repetida no se dobla", conflicto.pares.length === 1);
+ok("gana la primera", conflicto.pares[0].pedimento === "6113854");
+ok("y se reporta la contradiccion", conflicto.repetidas.length === 1);
+
+console.log("\n--- 23b. Buscar en el texto empaquetado ---");
+// EL «|» DELANTE Y EL «:» DETRAS son lo que hace exacta la coincidencia. Sin
+// ellos, buscar una house encontraria cualquier otra que la contuviera, y eso
+// acusaria a un bulto bueno de estar en el pedimento equivocado.
+let trozosPed = empaquetarHousePedimento(leidoPed.pares);
+let blobHousePed = trozosPed.map(t => t[0]).join("");
+ok("encuentra su pedimento", pedimentoDeHouseEnBlob(blobHousePed, "030KG9897CH") === "6113854");
+ok("y el de otra", pedimentoDeHouseEnBlob(blobHousePed, "8V66V73DXL4") === "6113855");
+ok("una house que no esta da vacio",
+   pedimentoDeHouseEnBlob(blobHousePed, "ZZZZZZZZZZZ") === "");
+// Un trozo de una house no puede encontrarla: seria acusar a un bulto bueno.
+ok("un trozo de house NO casa", pedimentoDeHouseEnBlob(blobHousePed, "030KG9897") === "");
+ok("los guiones no estorban",
+   pedimentoDeHouseEnBlob(blobHousePed, "030-KG98-97CH") === "6113854");
+ok("sin texto no revienta", pedimentoDeHouseEnBlob("", "030KG9897CH") === "");
+
+console.log("\n--- 23c. La confronta: que falta y que sobra ---");
+const H_A = "030KG9897CH", H_B = "03KA3949CNK", H_C = "8V66V73DXL4";
+let delArchivo = [
+    { house: H_A, pedimento: "6113854" },
+    { house: H_B, pedimento: "6113854" },
+    { house: H_C, pedimento: "6113855" }
+];
+let escaneadoSim = new Map();
+escaneadoSim.set("6113854", new Map([
+    [H_A, { hoja: "GLOBAL 1", fila: 12, guia: "1Z030KG98000000000" }],
+    ["SOBRANTE11", { hoja: "GLOBAL 1", fila: 13, guia: "1ZSOBRA0000000000" }]
+]));
+escaneadoSim.set("6113855", new Map([
+    [H_B, { hoja: "GLOBAL 2", fila: 4, guia: "1Z03KA3940000000000" }]
+]));
+
+let conf = confrontarHouses(delArchivo, escaneadoSim);
+let porEstado = t => conf.lineas.filter(l => l[2].indexOf(t) !== -1);
+ok("la que cuadra sale OK", porEstado("✅ OK").length === 1);
+// «Esta pero en otro pedimento» y «falta» son problemas DISTINTOS y se
+// arreglan distinto. Confundirlos manda a buscar un bulto que esta ahi al lado.
+ok("la escaneada bajo otro pedimento no dice «falta»",
+   porEstado("Escaneada en el pedimento 6113855").length === 1);
+ok("la que no esta en ningun sitio SI dice falta",
+   porEstado("FALTA").length === 1 && porEstado("FALTA")[0][1] === H_C);
+// Lo que sobra es el error simetrico del que falta. Sin decirlo, el conteo
+// cuadraria por casualidad cuando un bulto entra y otro sale.
+//
+// SALEN DOS, y esta bien: la house que se colo en el 6113855 sobra ALLI, y
+// ademas se dice en el 6113854 que esta escaneada en otro sitio. Es el mismo
+// problema visto desde los dos extremos, y hacen falta los dos: desde uno se
+// sabe adonde fue el bulto, desde el otro que no pertenece ahi.
+let sobrantes = porEstado("SOBRA");
+ok("lo que sobra se dice", sobrantes.length === 2);
+ok("la ajena de verdad, con su pestaña y su fila",
+   sobrantes.some(l => l[1] === "SOBRANTE11" && l[3] === "GLOBAL 1" && l[4] === 13));
+ok("y la que se colo de otro pedimento",
+   sobrantes.some(l => l[1] === H_B && l[0] === "6113855"));
+
+// Un pedimento que solo existe en los escaneos: el archivo no lo conoce.
+let soloEscaneado = new Map();
+soloEscaneado.set("9999999", new Map([[H_A, { hoja: "X", fila: 1, guia: "G" }]]));
+let confSolo = confrontarHouses([], soloEscaneado);
+ok("un pedimento que el archivo no tiene se señala",
+   confSolo.lineas.length === 1 &&
+   confSolo.lineas[0][2].indexOf("no está en el archivo") !== -1);
+
+ok("sin nada no revienta", confrontarHouses([], new Map()).lineas.length === 0);
+ok("null tampoco", confrontarHouses(null, null).lineas.length === 0);
+
+console.log("\n--- 23d. El aviso solo en las de salidas ---");
+// Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
+// carga todavia se esta juntando y el pedimento puede no estar escrito. El
+// error de meter un bulto en el pedimento equivocado se comete al CARGAR.
+ok("una M-S queda fuera", !esHojaDeSalidasParaConfronta("M-S T1"));
+ok("una M-S SALIDAS también", !esHojaDeSalidasParaConfronta("M-S SALIDAS"));
+ok("el rezago también", !esHojaDeSalidasParaConfronta("REZAGO 1"));
+ok("y las de sistema", !esHojaDeSalidasParaConfronta("MACHO"));
+ok("una de unidad SÍ entra", esHojaDeSalidasParaConfronta("GLOBAL 2 20-AE-3H"));
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);

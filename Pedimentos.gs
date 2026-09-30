@@ -1,0 +1,544 @@
+// =========================================================================
+// LA HOUSE CONTRA SU PEDIMENTO
+// =========================================================================
+//
+// QUÉ RESUELVE. Hay un archivo aparte —«PEDIMENTOS»— que dice, para cada
+// pedimento, QUÉ HOUSES le pertenecen. Una fila por house:
+//
+//     Fecha proceso | Pedimento | House       | Bultos declarados | …
+//     30/9/2026     | 6113854   | 030KG9897CH | 29                | …
+//
+// Con eso se puede contestar la pregunta que hasta ahora no tenía respuesta:
+// este bulto está escaneado bajo el pedimento 6113854, pero ¿es suyo?
+//
+// El cruce va por HOUSE, no por guía, y eso es lo que lo hace posible: el
+// archivo no trae guías, trae houses. La columna C de cada escaneo ya lleva la
+// house puesta por el módulo de houses, así que las dos partes hablan el mismo
+// idioma sin traducir nada.
+//
+// DÓNDE SALE EL AVISO. Solo en las hojas de SALIDAS —las de unidad—, no en las
+// M-S. Se pidió así, y tiene sentido: la M-S es el paso de antes, donde la
+// carga todavía se está juntando y el pedimento puede no estar escrito. El
+// error de meter un bulto en el pedimento equivocado se comete al cargar, que
+// es donde sale el aviso.
+//
+// -------------------------------------------------------------------------
+// POR QUÉ UN TEXTO EMPAQUETADO Y NO UNA PESTAÑA NORMAL
+// -------------------------------------------------------------------------
+// Esto se consulta DENTRO del escaneo, una vez por fila. Abrir otro archivo
+// ahí cuesta segundos y un escaneo entero dura medio. Meterlo en CACHE_SISTEMA
+// tampoco vale: el caché se lee ENTERO en cada escaneo, así que miles de filas
+// más se pagarían en todos, no solo en los que hacen falta.
+//
+// Se guarda comprimido en texto, en una pestaña oculta del propio archivo de
+// operación, en pocas celdas grandes:
+//
+//     |030KG9897CH:6113854|03KA3949CNK:6113854|…
+//
+// Buscar es un `indexOf` sobre esa cadena, que V8 resuelve en microsegundos, y
+// el texto se queda en memoria entre escaneos. Es la misma técnica que ya usa
+// el índice de salidas, y por las mismas razones.
+// =========================================================================
+
+const HOJA_PEDIMENTOS_RAPIDO = "PEDIMENTOS_RAPIDO";
+const HOJA_CONFRONTA_HOUSE = "CONFRONTA HOUSES";
+const PROP_ID_PEDIMENTOS = 'PEDIMENTOS_ID_ARCHIVO';
+
+// Caracteres por celda. Bajo a propósito, igual que en el índice de salidas: la
+// app móvil de Hojas de cálculo se atraganta con celdas enormes y abre el
+// archivo en solo lectura sin decir por qué.
+const CHARS_POR_CELDA_PED = 5000;
+
+// Hasta dónde se lee el archivo de pedimentos.
+const FILAS_MAX_PEDIMENTOS = 50000;
+
+// El texto del aviso. Se separa para que diga lo mismo en todos los sitios y
+// para que cambiarlo sea un solo sitio.
+const TXT_HOUSE_OTRO_PED = "❌ HOUSE de otro pedimento: ";
+const COLOR_HOUSE_OTRO_PED = '#f5c6cb';
+
+function accesoTxtHouseOtroPed() { return TXT_HOUSE_OTRO_PED; }
+
+// -------------------------------------------------------------------------
+// LEER EL ARCHIVO
+// -------------------------------------------------------------------------
+
+// Qué columna es cuál. Se busca por NOMBRE y no por posición: el archivo lo
+// genera otra herramienta y una columna de más a la izquierda desplazaría todo
+// sin que nada fallara —simplemente se leerían los datos equivocados—.
+function detectarColumnasPedimentos(cabeceras) {
+    let out = { pedimento: -1, house: -1 };
+    (cabeceras || []).forEach((c, i) => {
+        let n = String(c === undefined || c === null ? "" : c)
+                .trim().toUpperCase()
+                .replace(/[ÁÀÄÂ]/g, 'A').replace(/[ÉÈËÊ]/g, 'E')
+                .replace(/[ÍÌÏÎ]/g, 'I').replace(/[ÓÒÖÔ]/g, 'O')
+                .replace(/[ÚÙÜÛ]/g, 'U');
+        if (out.pedimento === -1 && n.indexOf("PEDIMENTO") !== -1) out.pedimento = i;
+        // «HOUSES LEIDAS» es un CONTADOR, no una house. Sin excluirlo, la
+        // columna de la house podría caer en ella y el cruce compararía houses
+        // contra el número 29.
+        else if (out.house === -1 && n.indexOf("HOUSE") !== -1 &&
+                 n.indexOf("LEID") === -1 && n.indexOf("DECLARAD") === -1) {
+            out.house = i;
+        }
+    });
+    return out;
+}
+
+// La misma normalización que usa la columna C de los escaneos, para que una
+// house escrita con guiones en el archivo case con la que puso el relleno.
+function claveHousePed(v) {
+    return String(v === undefined || v === null ? "" : v)
+        .trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
+
+// De la rejilla del archivo a pares {house, pedimento}.
+//
+// Puro, para poder probarlo: decidir mal aquí no da error, da un cruce que
+// acusa de «otro pedimento» a bultos que están bien, y eso solo se ve
+// comparando papeles a mano.
+function paresDeArchivoPedimentos(datos, cols) {
+    let salida = [];
+    let vistas = new Set();
+    let repetidas = [];
+    if (!datos || !cols || cols.house === -1 || cols.pedimento === -1) {
+        return { pares: salida, repetidas: repetidas };
+    }
+
+    for (let i = 1; i < datos.length; i++) {
+        let fila = datos[i];
+        if (!fila) continue;
+        let h = claveHousePed(fila[cols.house]);
+        let p = String(fila[cols.pedimento] === undefined ? "" : fila[cols.pedimento]).trim();
+        if (h === "" || !/^\d{7}$/.test(p)) continue;
+
+        // LA MISMA HOUSE EN DOS PEDIMENTOS es una contradicción del archivo, no
+        // un dato. Gana la primera y se reporta: elegir en silencio es lo que
+        // haría que el aviso acusara al bulto bueno.
+        if (vistas.has(h)) {
+            let previa = salida.find(x => x.house === h);
+            if (previa && previa.pedimento !== p) {
+                repetidas.push({ house: h, primero: previa.pedimento, segundo: p });
+            }
+            continue;
+        }
+        vistas.add(h);
+        salida.push({ house: h, pedimento: p });
+    }
+    return { pares: salida, repetidas: repetidas };
+}
+
+// -------------------------------------------------------------------------
+// EL TEXTO EMPAQUETADO
+// -------------------------------------------------------------------------
+
+function empaquetarHousePedimento(pares) {
+    let trozos = [];
+    let actual = "";
+    (pares || []).forEach(p => {
+        let reg = "|" + p.house + ":" + p.pedimento;
+        // Se corta ANTES de pasarse, nunca a mitad de un registro: uno partido
+        // entre dos celdas se volvería a unir al leer, pero quien mire la
+        // pestaña vería basura y pensaría que está corrupta.
+        if (actual.length + reg.length > CHARS_POR_CELDA_PED) {
+            trozos.push([actual]);
+            actual = "";
+        }
+        actual += reg;
+    });
+    if (actual !== "") trozos.push([actual]);
+    return trozos;
+}
+
+// El pedimento que el archivo le da a esta house, o "" si no la conoce.
+//
+// El «|» delante y el «:» detrás son lo que hace exacta la coincidencia. Sin
+// ellos, buscar una house encontraría cualquier otra que la contuviera, y eso
+// acusaría a un bulto bueno de estar en el pedimento equivocado.
+function pedimentoDeHouseEnBlob(blob, house) {
+    let h = claveHousePed(house);
+    if (h === "" || !blob) return "";
+    let i = blob.indexOf("|" + h + ":");
+    if (i === -1) return "";
+    let desde = i + h.length + 2;
+    let fin = blob.indexOf("|", desde);
+    return blob.substring(desde, fin === -1 ? blob.length : fin);
+}
+
+function hojaHousePedimentoRapido(ss, crear) {
+    let h = ss.getSheetByName(HOJA_PEDIMENTOS_RAPIDO);
+    if (!h && crear) {
+        h = ss.insertSheet(HOJA_PEDIMENTOS_RAPIDO);
+        h.hideSheet();
+    }
+    return h;
+}
+
+function guardarBlobHousePedimento(ss, pares) {
+    let trozos = empaquetarHousePedimento(pares);
+    let h = hojaHousePedimentoRapido(ss, true);
+    let maxAntes = h.getMaxRows();
+    if (maxAntes > 0) h.getRange(1, 1, maxAntes, 1).clearContent();
+    if (trozos.length === 0) return 0;
+    asegurarFilas(h, trozos.length + 1);
+    h.getRange(1, 1, trozos.length, 1).setValues(trozos);
+    return trozos.length;
+}
+
+// El texto vive en memoria entre escaneos mientras V8 conserve el proceso. La
+// primera consulta de cada proceso paga una llamada; las siguientes son gratis.
+let globalBlobPedimentos = null;
+function olvidarBlobPedimentosDeHouseEnRAM() { globalBlobPedimentos = null; }
+
+function leerBlobHousePedimento(ss) {
+    if (globalBlobPedimentos !== null) return globalBlobPedimentos;
+    globalBlobPedimentos = "";
+    try {
+        let h = hojaHousePedimentoRapido(ss, false);
+        if (!h) return globalBlobPedimentos;
+        let lr = h.getLastRow();
+        if (lr < 1) return globalBlobPedimentos;
+        globalBlobPedimentos = h.getRange(1, 1, lr, 1).getValues()
+            .map(f => String(f[0])).join("");
+    } catch (err) {
+        // Que esto falle NO puede tumbar un escaneo: sin lista no hay aviso, y
+        // el sistema sigue haciendo todo lo demás igual que antes.
+        globalBlobPedimentos = "";
+    }
+    return globalBlobPedimentos;
+}
+
+// -------------------------------------------------------------------------
+// EL AVISO
+// -------------------------------------------------------------------------
+
+// ¿Esta house pertenece al pedimento del bloque donde está escaneada?
+//
+// Devuelve "" cuando cuadra O cuando no hay forma de saberlo. Lo que no se
+// puede comprobar no se denuncia: una columna llena de avisos dudosos deja de
+// leerse, y con ella se pierden los que sí eran de verdad.
+function avisoDeHouseContraPedimento(ss, house, pedBloque) {
+    let h = claveHousePed(house);
+    if (h === "") return "";
+    // Sin pedimento en el bloque no hay contra qué comparar. De eso ya avisa
+    // «FALTA EL PEDIMENTO», con su propio texto.
+    let p = String(pedBloque === undefined || pedBloque === null ? "" : pedBloque).trim();
+    if (!/^\d{7}$/.test(p)) return "";
+
+    try {
+        let suyo = pedimentoDeHouseEnBlob(leerBlobHousePedimento(ss), h);
+        // El archivo no conoce esa house: puede ser de otro día o de una
+        // importación que todavía no se ha hecho. Callar es lo correcto.
+        if (suyo === "") return "";
+        return suyo === p ? "" : TXT_HOUSE_OTRO_PED + suyo;
+    } catch (err) { return ""; }
+}
+
+// -------------------------------------------------------------------------
+// EL VÍNCULO Y LA IMPORTACIÓN
+// -------------------------------------------------------------------------
+
+function idDelArchivoPedimentos() {
+    try {
+        return PropertiesService.getScriptProperties()
+               .getProperty(PROP_ID_PEDIMENTOS) || "";
+    } catch (err) { return ""; }
+}
+
+function vincularArchivoDePedimentos() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let actual = idDelArchivoPedimentos();
+    let r = ui.prompt("🔗 Archivo de pedimentos",
+        (actual === "" ? "No hay ninguno vinculado todavía."
+                       : "Vinculado ahora:\n" + actual) + "\n\n" +
+        "Pega la URL del archivo que lleva el pedimento y sus houses:",
+        ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return;
+
+    // Se reutiliza el lector de URLs de costales: el formato de un enlace de
+    // Hojas de cálculo es el mismo y tener dos copias del mismo recortador
+    // garantiza que un día se arregle en una y no en la otra.
+    let id = (typeof idDesdeUrl === 'function') ? idDesdeUrl(r.getResponseText()) : "";
+    if (id === "") {
+        ui.alert("🔗 Archivo de pedimentos",
+                 "Eso no parece una URL de Hojas de cálculo.", ui.ButtonSet.OK);
+        return;
+    }
+
+    // Se comprueba AQUÍ que se puede abrir, no el día que alguien importa en el
+    // muelle. Un vínculo que no sirve tiene que fallar al guardarlo.
+    let nombre = "";
+    try { nombre = SpreadsheetApp.openById(id).getName(); }
+    catch (err) {
+        ui.alert("🔗 Archivo de pedimentos",
+            "No pude abrirlo:\n" + err + "\n\n" +
+            "Comprueba que esta cuenta tenga acceso a ese archivo.", ui.ButtonSet.OK);
+        return;
+    }
+
+    PropertiesService.getScriptProperties().setProperty(PROP_ID_PEDIMENTOS, id);
+    ui.alert("🔗 Archivo de pedimentos",
+             "Vinculado: " + nombre + "\n\nAhora usa «📥 Importar los pedimentos».",
+             ui.ButtonSet.OK);
+}
+
+// Lee el archivo entero y deja el texto listo para consultar en el escaneo.
+function importarPedimentos() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let id = idDelArchivoPedimentos();
+    if (id === "") {
+        ui.alert("📥 Importar los pedimentos",
+                 "No hay ningún archivo vinculado.\n\nUsa «🔗 Vincular el archivo " +
+                 "de pedimentos» primero.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let libro;
+    try { libro = SpreadsheetApp.openById(id); }
+    catch (err) {
+        ui.alert("📥 Importar los pedimentos", "No pude abrirlo:\n" + err, ui.ButtonSet.OK);
+        return;
+    }
+
+    // La primera pestaña que tenga las dos columnas. Un archivo generado por
+    // otra herramienta suele traer una hoja vacía delante, y exigir la primera
+    // haría fallar la importación sin decir por qué.
+    let cols = null, datos = null, nombreHoja = "";
+    let hojasMiradas = [];
+    libro.getSheets().forEach(h => {
+        if (cols) return;
+        let lr = Math.min(Math.max(h.getLastRow(), 1), FILAS_MAX_PEDIMENTOS);
+        let lc = Math.max(h.getLastColumn(), 1);
+        if (lr < 2) { hojasMiradas.push(h.getName() + " (vacía)"); return; }
+        let rejilla = h.getRange(1, 1, lr, lc).getValues();
+        let c = detectarColumnasPedimentos(rejilla[0]);
+        hojasMiradas.push(h.getName() + (c.house !== -1 && c.pedimento !== -1 ? " ✅" : " (sin las columnas)"));
+        if (c.house === -1 || c.pedimento === -1) return;
+        cols = c; datos = rejilla; nombreHoja = h.getName();
+    });
+
+    if (!cols) {
+        ui.alert("📥 Importar los pedimentos",
+            "No encontré una pestaña con las columnas «Pedimento» y «House» en " +
+            libro.getName() + ".\n\nMiré:\n" + hojasMiradas.join("\n"),
+            ui.ButtonSet.OK);
+        return;
+    }
+
+    let r = paresDeArchivoPedimentos(datos, cols);
+    if (r.pares.length === 0) {
+        ui.alert("📥 Importar los pedimentos",
+            "La pestaña «" + nombreHoja + "» tiene las columnas pero ninguna fila " +
+            "con una house y un pedimento de 7 dígitos.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let celdas = guardarBlobHousePedimento(ss, r.pares);
+    olvidarBlobPedimentosDeHouseEnRAM();
+
+    let peds = new Set(r.pares.map(p => p.pedimento));
+    let msg = "Listo, desde «" + nombreHoja + "» de " + libro.getName() + ".\n\n" +
+              "   · " + r.pares.length.toLocaleString() + " houses\n" +
+              "   · " + peds.size.toLocaleString() + " pedimentos distintos\n" +
+              "   · " + celdas + " celdas de lista rápida\n\n" +
+              "A partir de ahora, al escanear en una hoja de SALIDAS, si la house " +
+              "de un bulto pertenece a otro pedimento la columna B lo dirá.";
+    if (r.repetidas.length) {
+        msg += "\n\n⚠️ " + r.repetidas.length + " houses salen en DOS pedimentos " +
+               "distintos en el archivo. Se quedó la primera de cada una:\n" +
+               r.repetidas.slice(0, 8)
+                   .map(c => "   · " + c.house + ": " + c.primero + " / " + c.segundo)
+                   .join("\n");
+        if (r.repetidas.length > 8) msg += "\n   …y " + (r.repetidas.length - 8) + " más.";
+        msg += "\n\nEso es una contradicción del archivo, no del escaneo: hay que " +
+               "mirarlas ahí.";
+    }
+    ui.alert("📥 Importar los pedimentos", msg, ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// LA CONFRONTA: QUÉ FALTA Y QUÉ SOBRA
+// -------------------------------------------------------------------------
+
+// Lo que hay escaneado, por pedimento y por house.
+//
+// Se lee la columna A —para saber de qué bloque es cada fila— y la C, que es
+// donde vive la house. Solo de las hojas de SALIDAS: las M-S son el paso de
+// antes y ahí la carga todavía se está juntando.
+function housesEscaneadasPorPedimento(ss) {
+    let porPedimento = new Map();   // pedimento -> Map(house -> {hoja, fila})
+    ss.getSheets().forEach(hoja => {
+        let n = claveHoja(hoja.getName());
+        if (!esHojaDeSalidasParaConfronta(n)) return;
+        let lr = hoja.getLastRow();
+        if (lr < 1) return;
+
+        let datos = hoja.getRange(1, 1, lr, 3).getValues();
+        let pedActual = "";
+        for (let i = 0; i < datos.length; i++) {
+            let a = String(datos[i][0]).trim().toUpperCase();
+            if (/^\d{7}$/.test(a)) { pedActual = a; continue; }
+            if (esMarcadorEstructural(a)) { pedActual = ""; continue; }
+            if (a === "" || pedActual === "") continue;
+
+            let h = claveHousePed(datos[i][2]);
+            if (h === "") continue;
+            if (!porPedimento.has(pedActual)) porPedimento.set(pedActual, new Map());
+            let m = porPedimento.get(pedActual);
+            if (!m.has(h)) m.set(h, { hoja: hoja.getName(), fila: i + 1, guia: a });
+        }
+    });
+    return porPedimento;
+}
+
+// Qué pestañas entran en la confronta.
+//
+// Las de unidad, que es donde se carga. Fuera las M-S —se pidió así—, fuera los
+// inventarios y fuera el rezago, que lleva su propio ritmo y su propia columna O.
+function esHojaDeSalidasParaConfronta(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    if (esHojaSistema(n) || esHojaInterna(n)) return false;
+    if (esHojaMS(n) || esHojaInventario(n)) return false;
+    if (n.indexOf("REZAGO") !== -1) return false;
+    return esHojaPrincipal(n);
+}
+
+// El cruce, puro. `delArchivo` son los pares {house, pedimento}; `escaneado` es
+// el Map de arriba.
+//
+// Devuelve una lista de líneas listas para escribir, con el estado de cada
+// house. Se separa de lo que habla con Sheets porque es la parte que, si se
+// equivoca, no falla: da un informe que acusa a bultos buenos o absuelve a los
+// malos, y eso solo se ve comparando papeles a mano.
+function confrontarHouses(delArchivo, escaneado) {
+    let lineas = [];
+    let resumen = new Map();   // pedimento -> {declaradas, escaneadas, faltan, sobran}
+
+    let porPedArchivo = new Map();
+    (delArchivo || []).forEach(p => {
+        if (!porPedArchivo.has(p.pedimento)) porPedArchivo.set(p.pedimento, new Set());
+        porPedArchivo.get(p.pedimento).add(p.house);
+    });
+
+    // Dónde está escaneada cada house, mire el pedimento que mire. Es lo que
+    // permite decir «está, pero en el pedimento 6113855» en vez de «falta», que
+    // son dos problemas distintos y se arreglan de forma distinta.
+    let dondeEsta = new Map();
+    (escaneado || new Map()).forEach((mapaHouses, ped) => {
+        mapaHouses.forEach((info, h) => {
+            if (!dondeEsta.has(h)) dondeEsta.set(h, { ped: ped, hoja: info.hoja, fila: info.fila, guia: info.guia });
+        });
+    });
+
+    porPedArchivo.forEach((houses, ped) => {
+        let escaneadasAqui = (escaneado && escaneado.get(ped)) || new Map();
+        let faltan = 0, ok = 0, enOtro = 0;
+
+        houses.forEach(h => {
+            if (escaneadasAqui.has(h)) {
+                ok++;
+                let info = escaneadasAqui.get(h);
+                lineas.push([ped, h, "✅ OK", info.hoja, info.fila, info.guia]);
+                return;
+            }
+            let otro = dondeEsta.get(h);
+            if (otro) {
+                enOtro++;
+                lineas.push([ped, h, "❌ Escaneada en el pedimento " + otro.ped,
+                             otro.hoja, otro.fila, otro.guia]);
+                return;
+            }
+            faltan++;
+            lineas.push([ped, h, "⏳ FALTA (sin escanear)", "", "", ""]);
+        });
+
+        // Y lo que sobra: escaneado bajo este pedimento pero el archivo no se lo
+        // da. Es el error simétrico del que falta, y sin decirlo el conteo
+        // cuadraría por casualidad cuando un bulto entra y otro sale.
+        let sobran = 0;
+        escaneadasAqui.forEach((info, h) => {
+            if (houses.has(h)) return;
+            sobran++;
+            lineas.push([ped, h, "⚠️ SOBRA (el archivo no se la da)",
+                         info.hoja, info.fila, info.guia]);
+        });
+
+        resumen.set(ped, { declaradas: houses.size, ok: ok, faltan: faltan,
+                           enOtro: enOtro, sobran: sobran });
+    });
+
+    // Pedimentos que solo existen en los escaneos: el archivo no los conoce.
+    (escaneado || new Map()).forEach((mapaHouses, ped) => {
+        if (porPedArchivo.has(ped)) return;
+        let sobran = 0;
+        mapaHouses.forEach((info, h) => {
+            sobran++;
+            lineas.push([ped, h, "⚠️ Pedimento que no está en el archivo",
+                         info.hoja, info.fila, info.guia]);
+        });
+        resumen.set(ped, { declaradas: 0, ok: 0, faltan: 0, enOtro: 0, sobran: sobran });
+    });
+
+    return { lineas: lineas, resumen: resumen };
+}
+
+function confrontarPedimentosConEscaneos() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let blob = leerBlobHousePedimento(ss);
+    if (blob === "") {
+        ui.alert("🔎 Confrontar houses",
+                 "No hay pedimentos importados.\n\nUsa «📥 Importar los pedimentos» " +
+                 "primero.", ui.ButtonSet.OK);
+        return;
+    }
+
+    // El blob se vuelve a partir en pares: guardarlo también como lista sería
+    // tener el mismo dato dos veces y garantizar que un día se desincronicen.
+    let pares = [];
+    blob.split("|").forEach(reg => {
+        if (reg === "") return;
+        let i = reg.indexOf(":");
+        if (i === -1) return;
+        pares.push({ house: reg.substring(0, i), pedimento: reg.substring(i + 1) });
+    });
+
+    let escaneado = housesEscaneadasPorPedimento(ss);
+    let r = confrontarHouses(pares, escaneado);
+
+    let hoja = ss.getSheetByName(HOJA_CONFRONTA_HOUSE);
+    if (!hoja) hoja = ss.insertSheet(HOJA_CONFRONTA_HOUSE, ss.getNumSheets());
+    hoja.clear();
+    hoja.getRange(1, 1, 1, 6)
+        .setValues([["PEDIMENTO", "HOUSE", "ESTADO", "PESTAÑA", "FILA", "GUÍA"]])
+        .setFontWeight("bold");
+    if (r.lineas.length > 0) {
+        asegurarFilas(hoja, r.lineas.length + 2);
+        hoja.getRange(2, 1, r.lineas.length, 6).setValues(r.lineas);
+    }
+    hoja.setFrozenRows(1);
+    ss.setActiveSheet(hoja);
+
+    let totFaltan = 0, totSobran = 0, totOtro = 0, totOk = 0;
+    r.resumen.forEach(v => {
+        totFaltan += v.faltan; totSobran += v.sobran;
+        totOtro += v.enOtro; totOk += v.ok;
+    });
+
+    ui.alert("🔎 Confrontar houses",
+        "Listo. Está en la pestaña «" + HOJA_CONFRONTA_HOUSE + "».\n\n" +
+        "   · " + r.resumen.size + " pedimentos\n" +
+        "   · ✅ " + totOk + " houses cuadran\n" +
+        "   · ⏳ " + totFaltan + " faltan por escanear\n" +
+        "   · ❌ " + totOtro + " escaneadas bajo OTRO pedimento\n" +
+        "   · ⚠️ " + totSobran + " sobran\n\n" +
+        "Las que «faltan» no tienen fila donde marcarse: por eso hacen falta " +
+        "aquí y no solo en la columna B.",
+        ui.ButtonSet.OK);
+}
