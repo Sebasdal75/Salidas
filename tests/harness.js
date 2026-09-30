@@ -5063,231 +5063,271 @@ let regPropio = obtenerRegistroMSDesdeCache({ headers: cabsMS, data: dataMS },
                                             "M-S SALIDAS");
 ok("la propia pestaña no se cuenta", regPropio.registroMS.size === 0);
 
-console.log("\n=== 23. El bulto contra su pedimento ===");
-// El archivo «PEDIMENTOS» dice que le pertenece a cada pedimento. Empezo
-// trayendo solo houses; ahora trae ademas el 1Z y la REFERENCIA del embarque,
-// que es lo que pidio el usuario: si un 1Z pertenece a una referencia, esa
-// referencia va en un pedimento y lo que aparezca en otro esta mal.
+console.log("\n=== 23. La referencia contraRef su pedimento ===");
+// EL ARCHIVO NO TRAE EL PEDIMENTO. Trae que guias forman cada embarque:
+//
+//     House | Tracking 1Z | Referencia | Fecha carga | Archivo
+//
+// El pedimento sale del ESCANEO: se lee un 1Z debajo de un pedimento, el
+// archivo dice de que referencia es, y esa referencia va con ese pedimento.
+// Con eso se contestan las dos preguntas que se pidieron: ¿este bulto es de
+// este pedimento?, y ¿esta COMPLETA la referencia?
 
 console.log("\n--- 23a. Leer el archivo ---");
 // LAS COLUMNAS SE BUSCAN POR NOMBRE, no por posicion: el archivo lo genera otra
 // herramienta y una columna de mas a la izquierda desplazaria todo sin que nada
 // fallara. Simplemente se leerian los datos equivocados.
-const CAB_PED = ["Fecha proceso", "Pedimento", "House", "Bultos declarados",
-                 "Houses leidas", "Estatus", "Archivo"];
-let colsPed = detectarColumnasPedimentos(CAB_PED);
-ok("encuentra la columna del pedimento", colsPed.pedimento === 1);
-ok("y la de la house", colsPed.house === 2);
-// «HOUSES LEIDAS» ES UN CONTADOR, no una house. Sin excluirlo, la columna de la
-// house podria caer ahi y el cruce compararia houses contra el numero 29.
-ok("no confunde «Houses leidas» con la house", colsPed.house !== 4);
-ok("sin cabeceras no inventa columnas",
-   detectarColumnasPedimentos([]).house === -1);
-
-// EL ARCHIVO NUEVO. La hoja PEDIMENTO_1Z trae una fila por 1Z, con su pedimento,
-// su house y su referencia. «Shipment» es como titula la house la herramienta
-// que lo genera: sin esa palabra el archivo se leia como «no tiene las
-// columnas» y la importacion fallaba sin decir por que.
-const CAB_1Z = ["Pedimento", "Shipment", "Tracking", "Referencia"];
-let cols1Z = detectarColumnasPedimentos(CAB_1Z);
-ok("encuentra el pedimento", cols1Z.pedimento === 0);
-ok("reconoce «Shipment» como la house", cols1Z.house === 1);
-ok("«Tracking» es el 1Z", cols1Z.guia === 2);
-ok("y la referencia", cols1Z.referencia === 3);
-// El orden de las columnas no puede importar: lo genera otra herramienta.
-let colsAlReves = detectarColumnasPedimentos(["Referencia", "Tracking", "Shipment", "Pedimento"]);
+const CAB_REF = ["House", "Tracking 1Z", "Referencia", "Fecha carga", "Archivo"];
+let colsRef = detectarColumnasPedimentos(CAB_REF);
+ok("encuentra la house", colsRef.house === 0);
+ok("«Tracking 1Z» es el 1Z", colsRef.guia === 1);
+ok("y la referencia", colsRef.referencia === 2);
+ok("no hay pedimento en el archivo", colsRef.pedimento === -1);
+// «Fecha carga» y «Archivo» no son ninguna de las tres.
+ok("no confunde las columnas de control",
+   colsRef.house !== 3 && colsRef.guia !== 4);
+// El orden no puede importar: lo genera otra herramienta.
+let colsAlReves = detectarColumnasPedimentos(["Referencia", "Tracking", "Shipment"]);
 ok("el orden de las columnas da igual",
-   colsAlReves.referencia === 0 && colsAlReves.guia === 1 &&
-   colsAlReves.house === 2 && colsAlReves.pedimento === 3);
+   colsAlReves.referencia === 0 && colsAlReves.guia === 1 && colsAlReves.house === 2);
+ok("«Shipment» tambien es la house", colsAlReves.house === 2);
+ok("sin cabeceras no inventa columnas",
+   detectarColumnasPedimentos([]).referencia === -1);
+// «HOUSES LEIDAS» ES UN CONTADOR, no una house.
+ok("no confunde «Houses leidas» con la house",
+   detectarColumnasPedimentos(["Houses leidas", "House"]).house === 1);
 
-let rejillaPed = [
-    CAB_PED,
-    ["30/9/2026", "6113854", "030KG9897CH", 29, 29, "OK", "x.pdf"],
-    ["30/9/2026", "6113854", "03KA3949CNK", 29, 29, "OK", "x.pdf"],
-    ["30/9/2026", "6113855", "8V66V73DXL4", 10, 10, "OK", "x.pdf"],
-    ["30/9/2026", "",        "SINPEDIMENTO", 0, 0, "", ""],       // sin pedimento
-    ["30/9/2026", "6113854", "",             0, 0, "", ""]        // sin house
-];
-let leidoPed = paresDeArchivoPedimentos(rejillaPed, colsPed);
-ok("saca un par por fila buena", leidoPed.pares.length === 3);
-ok("las filas incompletas no entran",
-   !leidoPed.pares.some(p => p.clave === "SINPEDIMENTO"));
-ok("sin conflictos no inventa ninguno", leidoPed.repetidas.length === 0);
+const G1Z_A = "1Z613V090403478612", H1Z_A = "613V093STND";
+const G1Z_B = "1ZXF00236795297221", H1Z_B = "XF0023TWBBT";
+const G1Z_C = "1ZC80H586706969741", H1Z_C = "C80H584LQ3R";
+const REF_A = "G26A850642", REF_B = "E26A850271";
 
-// LA MISMA CLAVE EN DOS PEDIMENTOS es una contradiccion del archivo, no un
-// dato. Gana la primera y se reporta: elegir en silencio es lo que haria que el
-// aviso acusara al bulto bueno.
-let conflicto = paresDeArchivoPedimentos([
-    CAB_PED,
-    ["", "6113854", "030KG9897CH", 0, 0, "", ""],
-    ["", "6113855", "030KG9897CH", 0, 0, "", ""]
-], colsPed);
-ok("la house repetida no se dobla", conflicto.pares.length === 1);
-ok("gana la primera", conflicto.pares[0].pedimento === "6113854");
-ok("y se reporta la contradiccion", conflicto.repetidas.length === 1);
-
-// EL ARCHIVO CON GUIAS: cada fila mete TRES claves, y las tres apuntan al mismo
-// pedimento. No chocan entre ellas porque no se parecen -un 1Z son dieciocho
-// caracteres y empieza por «1Z», una house once, una referencia diez-.
-const G_1Z_A = "1Z613V090403478612", G_1Z_B = "1ZXF00236795297221";
-const H_1Z_A = "613V093STND",        H_1Z_B = "XF0023TWBBT";
-const REF_A = "G26A850642";
-let rejilla1Z = [
-    CAB_1Z,
-    ["6113854", H_1Z_A, G_1Z_A, REF_A],
-    ["6113854", H_1Z_B, G_1Z_B, REF_A],
+let rejillaRef = [
+    CAB_REF,
+    [H1Z_A, G1Z_A, REF_A, "30/9/2026", "Book2.xlsx"],
+    [H1Z_B, G1Z_B, REF_A, "30/9/2026", "Book2.xlsx"],
+    [H1Z_C, G1Z_C, REF_B, "30/9/2026", "Book2.xlsx"],
     // El encabezado repetido a media hoja: pasa cuando el archivo se arma
-    // pegando exportaciones. «Referencia» no es un pedimento, asi que cae sola.
-    CAB_1Z
+    // pegando exportaciones. «Referencia» no es una referencia.
+    CAB_REF,
+    ["", "", REF_A, "", ""]        // sin guia ni house: no es una pieza
 ];
-let leido1Z = paresDeArchivoPedimentos(rejilla1Z, cols1Z);
-let claves1Z = new Set(leido1Z.pares.map(p => p.clave));
-ok("indexa por el 1Z", claves1Z.has(G_1Z_A) && claves1Z.has(G_1Z_B));
-ok("y por la house", claves1Z.has(H_1Z_A) && claves1Z.has(H_1Z_B));
-ok("y por la referencia", claves1Z.has(REF_A));
-ok("todas apuntan al mismo pedimento",
-   leido1Z.pares.every(p => p.pedimento === "6113854"));
-ok("la referencia no se repite por cada fila",
-   leido1Z.pares.filter(p => p.clave === REF_A).length === 1);
-ok("el encabezado repetido no entra", !claves1Z.has("PEDIMENTO"));
-ok("sin contradicciones", leido1Z.repetidas.length === 0);
+let leidoRef = referenciasDelArchivo(rejillaRef, colsRef);
+ok("dos referencias", leidoRef.porReferencia.size === 2);
+ok("la primera con dos piezas", leidoRef.porReferencia.get(REF_A).length === 2);
+ok("la segunda con una", leidoRef.porReferencia.get(REF_B).length === 1);
+// SE INDEXA POR LAS DOS COSAS: el 1Z esta en la columna A desde el instante del
+// escaneo, la house la pone un relleno que tarda hasta cinco minutos.
+let clavesRef = new Set(leidoRef.entradas.map(e => e.clave));
+ok("indexa por el 1Z", clavesRef.has(G1Z_A) && clavesRef.has(G1Z_C));
+ok("y por la house", clavesRef.has(H1Z_A) && clavesRef.has(H1Z_C));
+ok("son dos claves por fila", leidoRef.entradas.length === 6);
+ok("el encabezado repetido no entra", !clavesRef.has("TRACKING1Z"));
+ok("la fila sin guia ni house tampoco", leidoRef.porReferencia.get(REF_A).length === 2);
+ok("sin contradicciones", leidoRef.contradicciones.length === 0);
+// LA LISTA DE LA REFERENCIA SE LLEVA POR 1Z, que es un bulto. Con la house
+// serian menos piezas de las que hay: una house cubre varias.
+ok("la lista son 1Z", leidoRef.porReferencia.get(REF_A).indexOf(G1Z_A) !== -1);
 
-// UNA REFERENCIA REPARTIDA entre dos pedimentos se BORRA de la lista, no se
-// queda con la primera. Es normal que se reparta, asi que no es un error del
-// archivo; simplemente deja de servir para decidir. Quedandose con la primera,
-// la mitad de los bultos buenos saldria acusada.
-let repartida = paresDeArchivoPedimentos([
-    CAB_1Z,
-    ["6113854", H_1Z_A, G_1Z_A, REF_A],
-    ["6113855", H_1Z_B, G_1Z_B, REF_A]
-], cols1Z);
-let clavesRep = new Set(repartida.pares.map(p => p.clave));
-ok("la referencia repartida sale de la lista", !clavesRep.has(REF_A));
-ok("pero sus 1Z se quedan", clavesRep.has(G_1Z_A) && clavesRep.has(G_1Z_B));
-ok("cada uno con SU pedimento",
-   repartida.pares.find(p => p.clave === G_1Z_A).pedimento === "6113854" &&
-   repartida.pares.find(p => p.clave === G_1Z_B).pedimento === "6113855");
-ok("y eso NO es una contradiccion del archivo", repartida.repetidas.length === 0);
-ok("queda anotada como repartida", repartida.repartidas.has(REF_A));
+// La misma guia en dos referencias es una contradiccion del archivo. Gana la
+// primera y se reporta: elegir en silencio acusaria al bulto bueno.
+let contraRef = referenciasDelArchivo([
+    CAB_REF,
+    [H1Z_A, G1Z_A, REF_A, "", ""],
+    [H1Z_A, G1Z_A, REF_B, "", ""]
+], colsRef);
+ok("la guia repetida no se dobla",
+   contraRef.entradas.filter(e => e.clave === G1Z_A).length === 1);
+ok("gana la primera", contraRef.entradas.find(e => e.clave === G1Z_A).referencia === REF_A);
+ok("y se reporta", contraRef.contradicciones.length > 0);
 
-console.log("\n--- 23b. Buscar en el texto empaquetado ---");
+ok("sin referencia no lee nada",
+   referenciasDelArchivo(rejillaRef, { referencia: -1, guia: 1, house: 0 }).entradas.length === 0);
+ok("sin datos no revienta", referenciasDelArchivo(null, colsRef).entradas.length === 0);
+
+console.log("\n--- 23b. El texto empaquetado y su mapa ---");
 // EL «|» DELANTE Y EL «:» DETRAS son lo que hace exacta la coincidencia. Sin
-// ellos, buscar una house encontraria cualquier otra que la contuviera, y eso
-// acusaria a un bulto bueno de estar en el pedimento equivocado.
-let trozosPed = empaquetarHousePedimento(leidoPed.pares);
-let blobHousePed = trozosPed.map(t => t[0]).join("");
-ok("encuentra su pedimento", pedimentoDeHouseEnBlob(blobHousePed, "030KG9897CH") === "6113854");
-ok("y el de otra", pedimentoDeHouseEnBlob(blobHousePed, "8V66V73DXL4") === "6113855");
-ok("una house que no esta da vacio",
-   pedimentoDeHouseEnBlob(blobHousePed, "ZZZZZZZZZZZ") === "");
-// Un trozo de una house no puede encontrarla: seria acusar a un bulto bueno.
-ok("un trozo de house NO casa", pedimentoDeHouseEnBlob(blobHousePed, "030KG9897") === "");
+// ellos, buscar una house encontraria cualquier otra que la contuviera.
+let blobRef = empaquetarClaveReferencia(leidoRef.entradas).map(t => t[0]).join("");
+ok("encuentra su referencia", pedimentoDeHouseEnBlob(blobRef, G1Z_A) === REF_A);
+ok("por la house tambien", pedimentoDeHouseEnBlob(blobRef, H1Z_C) === REF_B);
+ok("una guia que no esta da vacio",
+   pedimentoDeHouseEnBlob(blobRef, "1ZNOEXISTE00000000") === "");
+// Un trozo de una clave no puede encontrarla: seria acusar a un bulto bueno.
+ok("un trozo NO casa", pedimentoDeHouseEnBlob(blobRef, G1Z_A.slice(0, 10)) === "");
 ok("los guiones no estorban",
-   pedimentoDeHouseEnBlob(blobHousePed, "030-KG98-97CH") === "6113854");
-ok("sin texto no revienta", pedimentoDeHouseEnBlob("", "030KG9897CH") === "");
+   pedimentoDeHouseEnBlob(blobRef, "1Z 613 V09 040 347 8612") === REF_A);
+ok("sin texto no revienta", pedimentoDeHouseEnBlob("", G1Z_A) === "");
 
-// EL MAPA. El archivo paso de traer solo houses a traer tres claves por fila,
-// asi que el texto es tres veces mas largo. Un indexOf sobre megabytes tarda
-// alrededor de un milisegundo, y una hoja de dos mil renglones lo llamaria dos
-// mil veces: dos segundos por recalculo, sobre un escaneo que dura medio.
-let blob1Z = empaquetarClaveValor(leido1Z.pares.map(p => ({ clave: p.clave, valor: p.pedimento })))
-             .map(t => t[0]).join("");
-let mapaPed = mapaDesdeBlobPedimentos(blob1Z);
-ok("el mapa trae las mismas claves que el texto", mapaPed.size === leido1Z.pares.length);
-ok("el 1Z contesta", mapaPed.get(G_1Z_A) === "6113854");
-ok("la house tambien", mapaPed.get(H_1Z_A) === "6113854");
-ok("y la referencia", mapaPed.get(REF_A) === "6113854");
-ok("lo que no esta no contesta", mapaPed.get("NOEXISTE") === undefined);
+// EL MAPA. El archivo trae dos claves por fila, asi que con decenas de miles de
+// guias el texto son megabytes. Un indexOf sobre megabytes tarda alrededor de
+// un milisegundo, y una hoja de dos mil renglones lo llamaria dos mil veces.
+let mapaRef = mapaDesdeBlobPedimentos(blobRef);
+ok("el mapa trae las mismas claves", mapaRef.size === leidoRef.entradas.length);
+ok("el 1Z contesta", mapaRef.get(G1Z_A) === REF_A);
+ok("la house tambien", mapaRef.get(H1Z_A) === REF_A);
+ok("lo que no esta no contesta", mapaRef.get("NOEXISTE") === undefined);
 ok("sin texto da un mapa vacio", mapaDesdeBlobPedimentos("").size === 0);
 ok("null tampoco revienta", mapaDesdeBlobPedimentos(null).size === 0);
 // El mapa tiene que decir EXACTAMENTE lo mismo que el texto: si un dia se
 // separan, el aviso del escaneo y el del informe se contradicen.
-leido1Z.pares.forEach(p => {
-    ok("el mapa y el texto coinciden en " + p.clave,
-       mapaPed.get(p.clave) === pedimentoDeHouseEnBlob(blob1Z, p.clave));
+leidoRef.entradas.forEach(e => {
+    ok("el mapa y el texto coinciden en " + e.clave,
+       mapaRef.get(e.clave) === pedimentoDeHouseEnBlob(blobRef, e.clave));
 });
 
-console.log("\n--- 23c. La confronta: solo lo que esta y esta mal ---");
-// EN EL INFORME SOLO SALE LO QUE ESTA ESCANEADO Y ESTA MAL. Dos cosas: el bulto
-// es de OTRO pedimento segun el archivo, o SOBRA porque el archivo no lo tiene.
-//
-// LO QUE NO SALE, Y ES DELIBERADO: las que cuadran —son la inmensa mayoria y
-// ahogarian a las veinte que importan—, las que faltan por escanear, y los
-// pedimentos que el archivo no conoce.
-const H_A = "030KG9897CH", H_B = "03KA3949CNK", H_C = "8V66V73DXL4";
-const G_CUADRA = "1Z030KG98000000000", G_DEL855 = "1Z8V66V70000000000", G_SOBRA = "1ZSOBRA0000000000";
-let delArchivo = [
-    { clave: H_A, pedimento: "6113854" },
-    { clave: H_B, pedimento: "6113854" },
-    { clave: H_C, pedimento: "6113855" }
-];
-let escaneadoSim = new Map();
-escaneadoSim.set("6113854", new Map([
-    [G_CUADRA, { hoja: "GLOBAL 1", fila: 12, house: H_A }],   // cuadra
-    [G_DEL855, { hoja: "GLOBAL 1", fila: 13, house: H_C }],   // es del 855
-    [G_SOBRA, { hoja: "GLOBAL 1", fila: 14, house: "SOBRANTE11" }]   // ni esta
-]));
-// Un pedimento que el archivo NO conoce: no se puede opinar de el.
-escaneadoSim.set("9999999", new Map([
-    ["1ZOTRA", { hoja: "GLOBAL 2", fila: 4, house: "OTRAHOUSE1" }]
-]));
+// Las ataduras se empaquetan igual, para el camino de vuelta.
+let ataduraDemo = new Map([[REF_A, "6113854"], [REF_B, "6113855"]]);
+let mapaAtadura = mapaDesdeBlobPedimentos(
+    empaquetarAtaduras(ataduraDemo).map(t => t[0]).join(""));
+ok("la atadura viaja entera", mapaAtadura.size === 2);
+ok("y dice el pedimento", mapaAtadura.get(REF_A) === "6113854");
+ok("sin ataduras no revienta", empaquetarAtaduras(null).length === 0);
 
-let conf = confrontarHouses(delArchivo, escaneadoSim);
-ok("solo salen las dos que estan mal", conf.lineas.length === 2);
-ok("la que cuadra NO sale", !conf.lineas.some(l => l[5] === G_CUADRA));
-// «Es del pedimento X» dice ADONDE pertenece, que es lo que hace falta para
-// moverla. «Esta mal» a secas obliga a ir a buscar el papel.
-ok("la de otro pedimento dice cual",
-   conf.lineas.some(l => l[5] === G_DEL855 && l[2].indexOf("6113855") !== -1));
-ok("la que el archivo no tiene sale como sobrante",
-   conf.lineas.some(l => l[5] === G_SOBRA && l[2].indexOf("SOBRA") !== -1));
-ok("con su pestaña y su fila",
-   conf.lineas.every(l => l[3] === "GLOBAL 1" && l[4] > 0));
-ok("y con su house al lado", conf.lineas.some(l => l[1] === H_C));
-
-// SE PREGUNTA POR EL 1Z ANTES QUE POR LA HOUSE. El 1Z es exacto -un bulto-, la
-// house cubre varios, y cuando las dos contestan manda la del 1Z.
-let mandaEl1Z = confrontarHouses(
-    [{ clave: G_CUADRA, pedimento: "6113854" }, { clave: H_A, pedimento: "6113855" }],
-    new Map([["6113854", new Map([[G_CUADRA, { hoja: "X", fila: 1, house: H_A }]])]]));
-ok("el 1Z manda sobre la house", mandaEl1Z.lineas.length === 0);
-
-// UN PEDIMENTO QUE EL ARCHIVO NO CONOCE no entra. Sin el archivo no hay contra
-// que comparar, asi que no se puede decir que este mal: solo que no se sabe.
-// Metiendolo, el informe se llenaria de filas que no son un error sino una
-// falta de datos.
-ok("un pedimento ajeno al archivo no entra",
-   !conf.lineas.some(l => l[0] === "9999999"));
-ok("ni cuenta en el resumen", !conf.resumen.has("9999999"));
-
-// LO QUE FALTA POR ESCANEAR NO SALE. Se pidio quitarlo: el informe es de lo que
-// esta en el muelle, no de lo que todavia no ha llegado.
-ok("lo que falta por escanear no sale",
-   !conf.lineas.some(l => String(l[2]).indexOf("FALTA") !== -1));
-ok("el resumen cuenta lo revisado", conf.resumen.get("6113854").revisadas === 3);
-ok("y separa malas de sobrantes",
-   conf.resumen.get("6113854").malas === 1 && conf.resumen.get("6113854").sobran === 1);
-
-// DOS BULTOS DE LA MISMA HOUSE SON DOS BULTOS. Con la house por clave se
-// contaban como uno solo y el segundo no aparecia en ningun sitio.
-let dosDeLaMisma = confrontarHouses(delArchivo, new Map([
+console.log("\n--- 23c. Atar la referencia a su pedimento ---");
+// LA REGLA QUE SE PIDIO: se lee un 1Z debajo de un pedimento y, como el archivo
+// dice de que referencia es, esa referencia va con ese pedimento.
+let refDeClaveT = new Map(leidoRef.entradas.map(e => [e.clave, e.referencia]));
+let escaneoSimple = new Map([
     ["6113854", new Map([
-        ["1ZUNO", { hoja: "X", fila: 1, house: H_C }],
-        ["1ZDOS", { hoja: "X", fila: 2, house: H_C }]
+        [G1Z_A, { hoja: "GLOBAL 1", fila: 5, house: H1Z_A }],
+        [G1Z_B, { hoja: "GLOBAL 1", fila: 6, house: H1Z_B }]
     ])]
+]);
+let atado1 = atarReferenciasAPedimentos(refDeClaveT, escaneoSimple);
+ok("la referencia queda atada", atado1.atadura.get(REF_A) === "6113854");
+ok("la que no se escaneo no se ata", atado1.atadura.get(REF_B) === undefined);
+ok("y no hay repartidas", atado1.repartidas.length === 0);
+
+// GANA EL PEDIMENTO CON MAS PIEZAS. Quedandose con el primero que se lee, la
+// que mandaria seria la fila mas arriba, que no tiene nada que ver con cual es
+// la buena: si dos estan en un pedimento y una en otro, la una es el error.
+let escaneoPartido = new Map([
+    ["9111111", new Map([[G1Z_B, { hoja: "GLOBAL 1", fila: 2, house: H1Z_B }]])],
+    ["6113854", new Map([
+        [G1Z_A, { hoja: "GLOBAL 2", fila: 5, house: H1Z_A }],
+        ["1ZEXTRA000000000A", { hoja: "GLOBAL 2", fila: 6, house: H1Z_A }]
+    ])]
+]);
+let atado2 = atarReferenciasAPedimentos(refDeClaveT, escaneoPartido);
+ok("gana el que tiene mas piezas", atado2.atadura.get(REF_A) === "6113854");
+ok("aunque el otro se leyera antes", atado2.atadura.get(REF_A) !== "9111111");
+ok("y queda reportada como repartida", atado2.repartidas.length === 1);
+ok("con el detalle de cada pedimento",
+   atado2.repartidas[0].detalle.length === 2 &&
+   atado2.repartidas[0].detalle[0].piezas === 2);
+
+// EL EMPATE NO SE ROMPE. Con la mitad en cada uno no hay forma de saber cual es
+// el bueno, y elegir al azar acusaria a la mitad de los bultos buenos.
+let escaneoEmpate = new Map([
+    ["9111111", new Map([[G1Z_B, { hoja: "X", fila: 2, house: H1Z_B }]])],
+    ["6113854", new Map([[G1Z_A, { hoja: "X", fila: 5, house: H1Z_A }]])]
+]);
+let atado3 = atarReferenciasAPedimentos(refDeClaveT, escaneoEmpate);
+ok("en un empate no se ata nada", atado3.atadura.get(REF_A) === undefined);
+ok("pero se reporta", atado3.repartidas.length === 1);
+ok("y se dice que es empate", atado3.repartidas[0].empate === true);
+
+// Se ata igual por la HOUSE cuando el archivo no conoce el 1Z escaneado.
+let porLaHouse = atarReferenciasAPedimentos(refDeClaveT, new Map([
+    ["6113854", new Map([["1ZDESCONOCIDO00000", { hoja: "X", fila: 1, house: H1Z_C }]])]
 ]));
-ok("los dos bultos se revisan", dosDeLaMisma.resumen.get("6113854").revisadas === 2);
-ok("y los dos salen marcados", dosDeLaMisma.lineas.length === 2);
+ok("la house sirve para atar", porLaHouse.atadura.get(REF_B) === "6113854");
+ok("sin escaneos no ata nada",
+   atarReferenciasAPedimentos(refDeClaveT, new Map()).atadura.size === 0);
+ok("null no revienta", atarReferenciasAPedimentos(null, null).atadura.size === 0);
 
-// Todo bien = informe vacio, que es la respuesta correcta y no un fallo.
-let todoOk = confrontarHouses(delArchivo,
-    new Map([["6113854", new Map([["1ZG", { hoja: "X", fila: 1, house: H_A }]])]]));
-ok("si todo cuadra el informe queda vacio", todoOk.lineas.length === 0);
+console.log("\n--- 23d. La confronta: completa, faltantes y sobrantes ---");
+// «Si la referencia tiene 10 piezas que escaneados en el pedimento tambien sean
+// 10 y sean los mismos 1z». Las dos mitades: lo escaneado tiene que ser de su
+// referencia, y la referencia tiene que estar entera.
+let confCompleta = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
+                                    escaneoSimple, atado1);
+ok("una referencia completa no dice nada", confCompleta.lineas.length === 0);
+let cuadroOk = cuadroDeReferencias(leidoRef.porReferencia, atado1);
+ok("el cuadro trae la referencia atada", cuadroOk.length === 1);
+ok("con sus piezas del archivo", cuadroOk[0][2] === 2);
+ok("y las escaneadas ahi", cuadroOk[0][3] === 2);
+ok("y la marca COMPLETA", cuadroOk[0][5].indexOf("COMPLETA") !== -1);
 
-ok("sin nada no revienta", confrontarHouses([], new Map()).lineas.length === 0);
-ok("null tampoco", confrontarHouses(null, null).lineas.length === 0);
+// FALTA UNA PIEZA: el archivo la tiene y no esta escaneada.
+let escaneoFalta = new Map([
+    ["6113854", new Map([[G1Z_A, { hoja: "GLOBAL 1", fila: 5, house: H1Z_A }]])]
+]);
+let atadoFalta = atarReferenciasAPedimentos(refDeClaveT, escaneoFalta);
+let confFalta = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
+                                 escaneoFalta, atadoFalta);
+ok("la que falta sale", confFalta.lineas.length === 1);
+ok("y dice que falta", confFalta.lineas[0][2].indexOf("FALTA") !== -1);
+ok("con su guia", confFalta.lineas[0][5] === G1Z_B);
+ok("y su pedimento", confFalta.lineas[0][0] === "6113854");
+ok("el resumen la cuenta", confFalta.resumen.get("6113854").faltan === 1);
+let cuadroFalta = cuadroDeReferencias(leidoRef.porReferencia, atadoFalta);
+ok("el cuadro dice cuantas faltan", cuadroFalta[0][5].indexOf("FALTAN 1") !== -1);
 
-console.log("\n--- 23d. El aviso solo en las de salidas ---");
+// UNA PIEZA EN EL PEDIMENTO EQUIVOCADO. Su referencia esta atada a otro.
+let escaneoMala = new Map([
+    ["6113854", new Map([
+        [G1Z_A, { hoja: "GLOBAL 1", fila: 5, house: H1Z_A }],
+        [G1Z_B, { hoja: "GLOBAL 1", fila: 6, house: H1Z_B }],
+        [G1Z_C, { hoja: "GLOBAL 1", fila: 7, house: H1Z_C }]   // es de REF_B
+    ])],
+    ["6113855", new Map([
+        ["1ZOTRA000000000001", { hoja: "GLOBAL 2", fila: 2, house: H1Z_C }],
+        ["1ZOTRA000000000002", { hoja: "GLOBAL 2", fila: 3, house: H1Z_C }]
+    ])]
+]);
+let atadoMala = atarReferenciasAPedimentos(refDeClaveT, escaneoMala);
+ok("REF_B se ata donde hay mas piezas", atadoMala.atadura.get(REF_B) === "6113855");
+let confMala = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
+                                escaneoMala, atadoMala);
+let laMala = confMala.lineas.find(l => l[5] === G1Z_C && l[2].indexOf("❌") === 0);
+ok("la del pedimento equivocado sale", !!laMala);
+// Dice ADONDE pertenece, que es lo que hace falta para moverla. «Esta mal» a
+// secas obliga a ir a buscar el papel.
+ok("y dice a que pedimento va", laMala[2].indexOf("6113855") !== -1);
+ok("con su pestaña y su fila", laMala[3] === "GLOBAL 1" && laMala[4] === 7);
+ok("el resumen la cuenta como mala", confMala.resumen.get("6113854").malas === 1);
+// Y como no esta escaneada en SU pedimento, ademas falta alli.
+ok("y ademas consta como faltante en el suyo",
+   confMala.lineas.some(l => l[5] === G1Z_C && l[2].indexOf("FALTA") !== -1));
+
+// SOBRA: escaneada en un pedimento que SI tiene referencias atadas, pero el
+// archivo no conoce esa guia.
+let escaneoSobra = new Map([
+    ["6113854", new Map([
+        [G1Z_A, { hoja: "GLOBAL 1", fila: 5, house: H1Z_A }],
+        [G1Z_B, { hoja: "GLOBAL 1", fila: 6, house: H1Z_B }],
+        ["1ZINTRUSA000000001", { hoja: "GLOBAL 1", fila: 7, house: "" }]
+    ])]
+]);
+let atadoSobra = atarReferenciasAPedimentos(refDeClaveT, escaneoSobra);
+let confSobra = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
+                                 escaneoSobra, atadoSobra);
+ok("la intrusa sale como sobrante",
+   confSobra.lineas.some(l => l[5] === "1ZINTRUSA000000001" &&
+                              l[2].indexOf("SOBRA") !== -1));
+ok("el resumen la cuenta", confSobra.resumen.get("6113854").sobran === 1);
+
+// UN PEDIMENTO DEL QUE NO SE SABE NADA no entra. Sin ninguna referencia atada
+// no hay contraRef que comparar, y el informe se llenaria de filas que no son un
+// error sino una falta de datos.
+let confAjeno = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
+    new Map([["9999999", new Map([["1ZAJENA00000000001", { hoja: "X", fila: 1, house: "" }]])]]),
+    { atadura: new Map(), repartidas: [] });
+ok("un pedimento sin nada atado no entra", confAjeno.lineas.length === 0);
+
+// De una referencia que todavia no ha llegado NO se puede decir que falte: no
+// se ha empezado. Solo se miran las que tienen al menos un bulto escaneado.
+ok("una referencia sin empezar no genera faltantes",
+   !confCompleta.lineas.some(l => l[1] === REF_B));
+
+ok("sin nada no revienta",
+   confrontarHouses(new Map(), new Map(), new Map(), null).lineas.length === 0);
+ok("null tampoco", confrontarHouses(null, null, null, null).lineas.length === 0);
+ok("el cuadro sin nada queda vacio", cuadroDeReferencias(null, null).length === 0);
+
+console.log("\n--- 23e. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El
 // error de meter un bulto en el pedimento equivocado se comete al CARGAR.
