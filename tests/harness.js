@@ -5015,7 +5015,13 @@ ok("los guiones no estorban",
    pedimentoDeHouseEnBlob(blobHousePed, "030-KG98-97CH") === "6113854");
 ok("sin texto no revienta", pedimentoDeHouseEnBlob("", "030KG9897CH") === "");
 
-console.log("\n--- 23c. La confronta: que falta y que sobra ---");
+console.log("\n--- 23c. La confronta: solo lo que esta y esta mal ---");
+// EN EL INFORME SOLO SALE LO QUE ESTA ESCANEADO Y ESTA MAL. Dos cosas: la house
+// es de OTRO pedimento segun el archivo, o SOBRA porque el archivo no la tiene.
+//
+// LO QUE NO SALE, Y ES DELIBERADO: las que cuadran —son la inmensa mayoria y
+// ahogarian a las veinte que importan—, las que faltan por escanear, y los
+// pedimentos que el archivo no conoce.
 const H_A = "030KG9897CH", H_B = "03KA3949CNK", H_C = "8V66V73DXL4";
 let delArchivo = [
     { house: H_A, pedimento: "6113854" },
@@ -5024,43 +5030,47 @@ let delArchivo = [
 ];
 let escaneadoSim = new Map();
 escaneadoSim.set("6113854", new Map([
-    [H_A, { hoja: "GLOBAL 1", fila: 12, guia: "1Z030KG98000000000" }],
-    ["SOBRANTE11", { hoja: "GLOBAL 1", fila: 13, guia: "1ZSOBRA0000000000" }]
+    [H_A,          { hoja: "GLOBAL 1", fila: 12, guia: "1Z030KG98000000000" }], // cuadra
+    [H_C,          { hoja: "GLOBAL 1", fila: 13, guia: "1Z8V66V70000000000" }], // es del 855
+    ["SOBRANTE11", { hoja: "GLOBAL 1", fila: 14, guia: "1ZSOBRA0000000000" }]   // ni esta
 ]));
-escaneadoSim.set("6113855", new Map([
-    [H_B, { hoja: "GLOBAL 2", fila: 4, guia: "1Z03KA3940000000000" }]
+// Un pedimento que el archivo NO conoce: no se puede opinar de el.
+escaneadoSim.set("9999999", new Map([
+    ["OTRAHOUSE1", { hoja: "GLOBAL 2", fila: 4, guia: "1ZX" }]
 ]));
 
 let conf = confrontarHouses(delArchivo, escaneadoSim);
-let porEstado = t => conf.lineas.filter(l => l[2].indexOf(t) !== -1);
-ok("la que cuadra sale OK", porEstado("✅ OK").length === 1);
-// «Esta pero en otro pedimento» y «falta» son problemas DISTINTOS y se
-// arreglan distinto. Confundirlos manda a buscar un bulto que esta ahi al lado.
-ok("la escaneada bajo otro pedimento no dice «falta»",
-   porEstado("Escaneada en el pedimento 6113855").length === 1);
-ok("la que no esta en ningun sitio SI dice falta",
-   porEstado("FALTA").length === 1 && porEstado("FALTA")[0][1] === H_C);
-// Lo que sobra es el error simetrico del que falta. Sin decirlo, el conteo
-// cuadraria por casualidad cuando un bulto entra y otro sale.
-//
-// SALEN DOS, y esta bien: la house que se colo en el 6113855 sobra ALLI, y
-// ademas se dice en el 6113854 que esta escaneada en otro sitio. Es el mismo
-// problema visto desde los dos extremos, y hacen falta los dos: desde uno se
-// sabe adonde fue el bulto, desde el otro que no pertenece ahi.
-let sobrantes = porEstado("SOBRA");
-ok("lo que sobra se dice", sobrantes.length === 2);
-ok("la ajena de verdad, con su pestaña y su fila",
-   sobrantes.some(l => l[1] === "SOBRANTE11" && l[3] === "GLOBAL 1" && l[4] === 13));
-ok("y la que se colo de otro pedimento",
-   sobrantes.some(l => l[1] === H_B && l[0] === "6113855"));
+ok("solo salen las dos que estan mal", conf.lineas.length === 2);
+ok("la que cuadra NO sale", !conf.lineas.some(l => l[1] === H_A));
+// «Es del pedimento X» dice ADONDE pertenece, que es lo que hace falta para
+// moverla. «Esta mal» a secas obliga a ir a buscar el papel.
+ok("la de otro pedimento dice cual",
+   conf.lineas.some(l => l[1] === H_C && l[2].indexOf("6113855") !== -1));
+ok("la que el archivo no tiene sale como sobrante",
+   conf.lineas.some(l => l[1] === "SOBRANTE11" && l[2].indexOf("SOBRA") !== -1));
+ok("con su pestaña y su fila",
+   conf.lineas.every(l => l[3] === "GLOBAL 1" && l[4] > 0));
 
-// Un pedimento que solo existe en los escaneos: el archivo no lo conoce.
-let soloEscaneado = new Map();
-soloEscaneado.set("9999999", new Map([[H_A, { hoja: "X", fila: 1, guia: "G" }]]));
-let confSolo = confrontarHouses([], soloEscaneado);
-ok("un pedimento que el archivo no tiene se señala",
-   confSolo.lineas.length === 1 &&
-   confSolo.lineas[0][2].indexOf("no está en el archivo") !== -1);
+// UN PEDIMENTO QUE EL ARCHIVO NO CONOCE no entra. Sin el archivo no hay contra
+// que comparar, asi que no se puede decir que este mal: solo que no se sabe.
+// Metiendolo, el informe se llenaria de filas que no son un error sino una
+// falta de datos.
+ok("un pedimento ajeno al archivo no entra",
+   !conf.lineas.some(l => l[0] === "9999999"));
+ok("ni cuenta en el resumen", !conf.resumen.has("9999999"));
+
+// LO QUE FALTA POR ESCANEAR NO SALE. Se pidio quitarlo: el informe es de lo que
+// esta en el muelle, no de lo que todavia no ha llegado.
+ok("lo que falta por escanear no sale",
+   !conf.lineas.some(l => String(l[2]).indexOf("FALTA") !== -1));
+ok("el resumen cuenta lo revisado", conf.resumen.get("6113854").revisadas === 3);
+ok("y separa malas de sobrantes",
+   conf.resumen.get("6113854").malas === 1 && conf.resumen.get("6113854").sobran === 1);
+
+// Todo bien = informe vacio, que es la respuesta correcta y no un fallo.
+let todoOk = confrontarHouses(delArchivo,
+    new Map([["6113854", new Map([[H_A, { hoja: "X", fila: 1, guia: "G" }]])]]));
+ok("si todo cuadra el informe queda vacio", todoOk.lineas.length === 0);
 
 ok("sin nada no revienta", confrontarHouses([], new Map()).lineas.length === 0);
 ok("null tampoco", confrontarHouses(null, null).lineas.length === 0);

@@ -435,88 +435,65 @@ function esHojaDeSalidasParaConfronta(nombreHoja) {
 // El cruce, puro. `delArchivo` son los pares {house, pedimento}; `escaneado` es
 // el Map de arriba.
 //
-// Devuelve una lista de líneas listas para escribir, con el estado de cada
-// house. Se separa de lo que habla con Sheets porque es la parte que, si se
-// equivoca, no falla: da un informe que acusa a bultos buenos o absuelve a los
-// malos, y eso solo se ve comparando papeles a mano.
+// EN EL INFORME SOLO SALE LO QUE ESTÁ ESCANEADO Y ESTÁ MAL. Dos cosas:
+//
+//   · la house es de OTRO pedimento según el archivo;
+//   · la house SOBRA, el archivo no la tiene en ninguno.
+//
+// LO QUE NO SALE, Y ES DELIBERADO:
+//
+//   · las que cuadran. Son la inmensa mayoría y ahogarían a las veinte que
+//     importan; un informe que hay que filtrar para leerlo no se lee.
+//   · las que FALTAN por escanear. Se pidió quitarlas: el informe es de lo que
+//     está en el muelle, no de lo que todavía no ha llegado.
+//   · los pedimentos que el archivo no conoce. Sin el archivo no hay contra qué
+//     comparar, así que no se puede decir que esté mal: solo que no se sabe.
+//
+// Se separa de lo que habla con Sheets porque es la parte que, si se equivoca,
+// no falla: da un informe que acusa a bultos buenos o absuelve a los malos, y
+// eso solo se ve comparando papeles a mano.
 function confrontarHouses(delArchivo, escaneado) {
     let lineas = [];
-    let resumen = new Map();   // pedimento -> {declaradas, escaneadas, faltan, sobran}
+    let resumen = new Map();   // pedimento -> {revisadas, malas, sobran}
 
-    let porPedArchivo = new Map();
+    // house -> su pedimento según el archivo.
+    let pedDeHouse = new Map();
+    let pedimentosDelArchivo = new Set();
     (delArchivo || []).forEach(p => {
-        if (!porPedArchivo.has(p.pedimento)) porPedArchivo.set(p.pedimento, new Set());
-        porPedArchivo.get(p.pedimento).add(p.house);
+        if (!pedDeHouse.has(p.house)) pedDeHouse.set(p.house, p.pedimento);
+        pedimentosDelArchivo.add(p.pedimento);
     });
 
-    // Dónde está escaneada cada house, mire el pedimento que mire. Es lo que
-    // permite decir «está, pero en el pedimento 6113855» en vez de «falta», que
-    // son dos problemas distintos y se arreglan de forma distinta.
-    let dondeEsta = new Map();
     (escaneado || new Map()).forEach((mapaHouses, ped) => {
+        // SOLO LOS PEDIMENTOS QUE ESTÁN EN EL ARCHIVO. De los demás no se puede
+        // opinar, y opinar igualmente llenaría el informe de filas que no son
+        // un error sino una falta de datos.
+        if (!pedimentosDelArchivo.has(ped)) return;
+
+        let malas = 0, sobran = 0, revisadas = 0;
         mapaHouses.forEach((info, h) => {
-            if (!dondeEsta.has(h)) dondeEsta.set(h, { ped: ped, hoja: info.hoja, fila: info.fila, guia: info.guia });
-        });
-    });
+            revisadas++;
+            let suyo = pedDeHouse.get(h);
 
-    porPedArchivo.forEach((houses, ped) => {
-        let escaneadasAqui = (escaneado && escaneado.get(ped)) || new Map();
-        let faltan = 0, ok = 0, enOtro = 0;
+            if (suyo === ped) return;   // cuadra: no se dice nada
 
-        houses.forEach(h => {
-            if (escaneadasAqui.has(h)) {
-                ok++;
-                let info = escaneadasAqui.get(h);
-                lineas.push([ped, h, "✅ OK", info.hoja, info.fila, info.guia]);
-                return;
+            if (suyo) {
+                malas++;
+                lineas.push([ped, h, "❌ Es del pedimento " + suyo,
+                             info.hoja, info.fila, info.guia]);
+            } else {
+                sobran++;
+                lineas.push([ped, h, "⚠️ SOBRA: el archivo no tiene esta house",
+                             info.hoja, info.fila, info.guia]);
             }
-            let otro = dondeEsta.get(h);
-            if (otro) {
-                enOtro++;
-                lineas.push([ped, h, "❌ Escaneada en el pedimento " + otro.ped,
-                             otro.hoja, otro.fila, otro.guia]);
-                return;
-            }
-            faltan++;
-            lineas.push([ped, h, "⏳ FALTA (sin escanear)", "", "", ""]);
         });
 
-        // Y lo que sobra: escaneado bajo este pedimento pero el archivo no se lo
-        // da. Es el error simétrico del que falta, y sin decirlo el conteo
-        // cuadraría por casualidad cuando un bulto entra y otro sale.
-        let sobran = 0;
-        escaneadasAqui.forEach((info, h) => {
-            if (houses.has(h)) return;
-            sobran++;
-            lineas.push([ped, h, "⚠️ SOBRA (el archivo no se la da)",
-                         info.hoja, info.fila, info.guia]);
-        });
-
-        resumen.set(ped, { declaradas: houses.size, ok: ok, faltan: faltan,
-                           enOtro: enOtro, sobran: sobran });
-    });
-
-    // Pedimentos que solo existen en los escaneos: el archivo no los conoce.
-    (escaneado || new Map()).forEach((mapaHouses, ped) => {
-        if (porPedArchivo.has(ped)) return;
-        let sobran = 0;
-        mapaHouses.forEach((info, h) => {
-            sobran++;
-            lineas.push([ped, h, "⚠️ Pedimento que no está en el archivo",
-                         info.hoja, info.fila, info.guia]);
-        });
-        resumen.set(ped, { declaradas: 0, ok: 0, faltan: 0, enOtro: 0, sobran: sobran });
+        resumen.set(ped, { revisadas: revisadas, malas: malas, sobran: sobran });
     });
 
     return { lineas: lineas, resumen: resumen };
 }
 
-// EL BOTÓN DE UNA SOLA PASADA: trae el archivo y cruza, en ese orden.
-//
-// Antes eran dos botones que había que apretar en orden. El día que alguien se
-// saltara el primero, la confronta contestaba con los pedimentos de la pasada
-// anterior y NADA lo decía: un informe con datos viejos se ve exactamente igual
-// que uno al día.
 function confrontarPedimentosConEscaneos() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
@@ -546,22 +523,23 @@ function confrontarPedimentosConEscaneos() {
     hoja.setFrozenRows(1);
     ss.setActiveSheet(hoja);
 
-    let totFaltan = 0, totSobran = 0, totOtro = 0, totOk = 0;
+    let totMalas = 0, totSobran = 0, totRevisadas = 0;
     r.resumen.forEach(v => {
-        totFaltan += v.faltan; totSobran += v.sobran;
-        totOtro += v.enOtro; totOk += v.ok;
+        totMalas += v.malas; totSobran += v.sobran; totRevisadas += v.revisadas;
     });
 
     ui.alert("🔎 Confrontar houses",
         resumenDeImportacionPedimentos(imp) + "\n\n" +
         "── EL CRUCE ──\n" +
-        "   · " + r.resumen.size + " pedimentos\n" +
-        "   · ✅ " + totOk + " houses cuadran\n" +
-        "   · ⏳ " + totFaltan + " faltan por escanear\n" +
-        "   · ❌ " + totOtro + " escaneadas bajo OTRO pedimento\n" +
-        "   · ⚠️ " + totSobran + " sobran\n\n" +
-        "Está en la pestaña «" + HOJA_CONFRONTA_HOUSE + "».\n\n" +
-        "Las que «faltan» no tienen fila donde marcarse: por eso hacen falta " +
-        "aquí y no solo en la columna B.",
+        "   · " + r.resumen.size + " pedimentos del archivo encontrados en los escaneos\n" +
+        "   · " + totRevisadas + " houses revisadas\n" +
+        "   · ❌ " + totMalas + " son de OTRO pedimento\n" +
+        "   · ⚠️ " + totSobran + " sobran (el archivo no las tiene)\n\n" +
+        (r.lineas.length === 0
+            ? "✅ Todo cuadra. La pestaña «" + HOJA_CONFRONTA_HOUSE + "» queda vacía."
+            : "Las " + r.lineas.length + " que están mal salen en la pestaña «" +
+              HOJA_CONFRONTA_HOUSE + "», con su pestaña y su fila.") + "\n\n" +
+        "En el informe SOLO sale lo que está escaneado y está mal. Las que " +
+        "cuadran no salen, ni las que faltan por escanear.",
         ui.ButtonSet.OK);
 }
