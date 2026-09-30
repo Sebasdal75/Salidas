@@ -5759,6 +5759,11 @@ function onOpen() {
               // para refrescar el aviso de la columna B sin pagar el recorrido
               // de todas las pestañas, que es lo caro de la confronta.
               .addItem('🔎 Confrontar con los pedimentos (trae y cruza)', 'confrontarPedimentosConEscaneos')
+              // Cruzar es barato; traer es lo caro. Se separan porque cruzar
+              // es lo que se repite: se corrige un bulto y se quiere ver si ya
+              // cuadra, y releer la carpeta en cada vuelta hace esperar por
+              // algo que no ha cambiado.
+              .addItem('♻️ Solo volver a cruzar (sin traer)', 'cruzarConLoGuardado')
               .addItem('📥 Solo traer las guías (sin cruzar)', 'importarPedimentos')
               .addSeparator()
               // Los dos orígenes. Manda la carpeta si está configurada; el

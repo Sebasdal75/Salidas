@@ -523,7 +523,9 @@ function resumenDeImportacionPedimentos(r) {
     let piezas = 0;
     r.porReferencia.forEach(lista => { piezas += lista.length; });
 
-    let msg = encabezadoDeOrigen(r.origen) + (r.deCarpeta
+    let msg = encabezadoDeOrigen(r.origen) + (r.soloGuardadas
+        ? "Lo que ya estaba cargado:\n"
+        : r.deCarpeta
         ? "De la carpeta «" + r.nombreHoja + "»:\n" +
           "   · " + (r.archivos.length ? r.archivos.length + " archivo" +
                      (r.archivos.length === 1 ? "" : "s") + " nuevo" +
@@ -1125,6 +1127,10 @@ function origenDeLasGuias() {
 // su archivo dentro. Un sistema que elige por su cuenta TIENE que decir qué
 // eligió, o cada diagnóstico empieza por la pregunta equivocada.
 function encabezadoDeOrigen(origen) {
+    if (origen === "guardadas") {
+        return "ORIGEN: la lista que ya estaba guardada. NO se ley\u00f3 ning\u00fan " +
+               "archivo nuevo.\n\n";
+    }
     if (origen === "carpeta") {
         return "ORIGEN: la CARPETA de Drive.\n\n";
     }
@@ -1136,6 +1142,29 @@ function encabezadoDeOrigen(origen) {
                "dejar el Excel ahí no sirve de nada.\n\n";
     }
     return "";
+}
+
+// Las guías que YA están guardadas, sin leer ningún archivo.
+//
+// POR QUÉ EXISTE ESTE CAMINO. Traer el archivo es lo caro: abrir Drive,
+// convertir un Excel, recorrer la carpeta. Cruzar es lo barato, y es lo que se
+// repite: se corrige un bulto en el muelle, se quiere ver si ya cuadra, se
+// corrige otro. Obligar a releer la carpeta en cada vuelta hace esperar por
+// algo que no ha cambiado, y encima mueve archivos a PROCESADOS sin necesidad.
+function guiasGuardadas(ss) {
+    let mapa = mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
+    if (mapa.size === 0) {
+        return { ok: false, origen: "guardadas", error:
+            "No hay ninguna guía guardada todavía, así que no hay contra " +
+            "qué cruzar.\n\nUsa primero «🔎 Confrontar con los pedimentos», " +
+            "que trae el archivo y cruza." };
+    }
+    let entradas = [];
+    mapa.forEach((ref, clave) => entradas.push({ clave: clave, referencia: ref }));
+    return { ok: true, origen: "guardadas", entradas: entradas,
+             porReferencia: referenciasDesdeMapa(mapa),
+             contradicciones: [], celdas: 0, cols: null,
+             nombreHoja: "", libro: null, soloGuardadas: true };
 }
 
 function traerLasGuias(ss) {
@@ -1358,16 +1387,21 @@ function cuadroDeReferencias(porReferencia, atado) {
     return filas;
 }
 
-function confrontarPedimentosConEscaneos() {
+// EL BOTÓN DE ARRIBA: trae el archivo Y cruza.
+function confrontarPedimentosConEscaneos() { hacerLaConfronta(true); }
+
+// EL DE ABAJO: cruza con lo que ya hay, sin tocar la carpeta ni mover nada.
+function cruzarConLoGuardado() { hacerLaConfronta(false); }
+
+function hacerLaConfronta(trayendo) {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
+    const TITULO = trayendo ? "🔎 Confrontar con los pedimentos"
+                            : "♻️ Volver a cruzar";
 
-    ss.toast('⏳ Trayendo las guías…', 'Confronta', 10);
-    let imp = traerLasGuias(ss);
-    if (!imp.ok) {
-        ui.alert("🔎 Confrontar con los pedimentos", imp.error, ui.ButtonSet.OK);
-        return;
-    }
+    if (trayendo) ss.toast('⏳ Trayendo las guías…', 'Confronta', 10);
+    let imp = trayendo ? traerLasGuias(ss) : guiasGuardadas(ss);
+    if (!imp.ok) { ui.alert(TITULO, imp.error, ui.ButtonSet.OK); return; }
 
     // Se cruza contra lo que ACABA de traerse, no contra el texto empaquetado.
     // Volver a leer lo que se acaba de escribir sería pagar una lectura para
@@ -1459,5 +1493,5 @@ function confrontarPedimentosConEscaneos() {
                "no saldrá hasta la próxima confronta.";
     }
 
-    ui.alert("🔎 Confrontar con los pedimentos", msg, ui.ButtonSet.OK);
+    ui.alert(TITULO, msg, ui.ButtonSet.OK);
 }

@@ -5518,7 +5518,7 @@ ok("el error lo lleva delante",
    FUENTE_ORIGEN.indexOf("r.error = encabezadoDeOrigen(origen) + r.error") !== -1);
 // Y el resumen de cuando SI funciona tambien, para que nunca haya que adivinar.
 ok("el resumen tambien",
-   FUENTE_ORIGEN.indexOf("encabezadoDeOrigen(r.origen) + (r.deCarpeta") !== -1);
+   FUENTE_ORIGEN.indexOf("encabezadoDeOrigen(r.origen) + (r.soloGuardadas") !== -1);
 
 // LOS SALTADOS SE ENSEÑAN TAMBIEN CUANDO SALE BIEN, y es lo que faltaba.
 //
@@ -5550,6 +5550,33 @@ ok("avisa de los que ya se movieron",
    FUENTE_INV.indexOf("Muévelos de vuelta") !== -1);
 const FUENTE_MENU = require('fs').readFileSync('Codigo.gs', 'utf8');
 ok("y esta en el menu", FUENTE_MENU.indexOf("'olvidarArchivosLeidos'") !== -1);
+
+// DOS BOTONES: traer-y-cruzar, y solo cruzar.
+//
+// Traer es lo caro -abrir Drive, convertir un Excel, recorrer la carpeta-.
+// Cruzar es lo barato, y es lo que se repite: se corrige un bulto en el muelle,
+// se quiere ver si ya cuadra, se corrige otro. Releer la carpeta en cada vuelta
+// hace esperar por algo que no ha cambiado, y encima mueve archivos a
+// PROCESADOS sin necesidad.
+const FUENTE_DOS = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+ok("el de traer y cruzar sigue ahi",
+   FUENTE_DOS.indexOf("function confrontarPedimentosConEscaneos() { hacerLaConfronta(true); }") !== -1);
+ok("y hay uno de solo cruzar",
+   FUENTE_DOS.indexOf("function cruzarConLoGuardado() { hacerLaConfronta(false); }") !== -1);
+// LOS DOS COMPARTEN EL NUCLEO. Con dos copias, el dia que cambie una regla se
+// arregla en una y no en la otra, y los dos botones dirian cosas distintas del
+// mismo muelle.
+ok("los dos usan el mismo nucleo",
+   (FUENTE_DOS.match(/hacerLaConfronta\(/g) || []).length === 3);
+ok("el de solo cruzar no toca la carpeta",
+   FUENTE_DOS.indexOf("trayendo ? traerLasGuias(ss) : guiasGuardadas(ss)") !== -1);
+ok("y lo dice en el mensaje",
+   encabezadoDeOrigen("guardadas").indexOf("NO se leyó ningún archivo") !== -1);
+const FUENTE_MENU2 = require('fs').readFileSync('Codigo.gs', 'utf8');
+ok("esta en el menu", FUENTE_MENU2.indexOf("'cruzarConLoGuardado'") !== -1);
+// Sin nada guardado, cruzar no puede fingir que cruzo: manda al otro boton.
+ok("sin nada guardado manda al boton de traer",
+   FUENTE_DOS.indexOf("que trae el archivo y cruza.") !== -1);
 
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
