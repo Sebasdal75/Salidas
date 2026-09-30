@@ -623,7 +623,36 @@ function tiposDeArchivoDeGuias() {
     return ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
             'application/vnd.ms-excel',
             'application/vnd.google-apps.spreadsheet',
-            'text/csv'];
+            'text/csv',
+            'text/plain',              // un CSV subido a veces llega así
+            'text/tab-separated-values',
+            'application/octet-stream',// y a veces sin tipo ninguno
+            'application/vnd.ms-excel.sheet.macroEnabled.12'];
+}
+
+// ¿Este archivo puede ser una lista de guías?
+//
+// SE MIRA EL TIPO Y TAMBIÉN EL NOMBRE, y hace falta: Drive etiqueta el mismo
+// .xlsx de maneras distintas según cómo llegue —subido, sincronizado, copiado
+// de otro Drive— y con un .csv es peor todavía, que a veces llega como
+// «text/plain» y a veces sin tipo. Filtrando solo por tipo, el archivo estaba
+// delante y el sistema decía que no había ninguno.
+function pareceArchivoDeGuias(nombre, tipo) {
+    if (tiposDeArchivoDeGuias().indexOf(String(tipo)) !== -1) return true;
+    return /\.(xlsx|xlsm|xls|csv|tsv)$/i.test(String(nombre === undefined ? "" : nombre));
+}
+
+// Lo que se enseña cuando no sale nada: TODO lo que hay en la carpeta, con su
+// tipo y el motivo por el que se saltó. Un «no encontré nada» a secas obliga a
+// adivinar, y lo que se adivina primero —«la carpeta está mal»— casi nunca es.
+function motivoDeSaltarse(nombre, tipo, yaLeido) {
+    if (tipo === 'application/vnd.google-apps.shortcut') {
+        return "es un ACCESO DIRECTO, no el archivo: mete el archivo de verdad";
+    }
+    if (tipo === 'application/vnd.google-apps.folder') return "es una carpeta";
+    if (yaLeido) return "ya se leyó antes (no se vuelve a leer)";
+    if (!pareceArchivoDeGuias(nombre, tipo)) return "no es un Excel ni un CSV";
+    return "";
 }
 
 // El id de una carpeta de Drive a partir de su URL. Es otro formato que el de
@@ -760,9 +789,17 @@ function apuntarArchivosLeidos(ss, ids) {
 function filasDeArchivoDeGuias(archivo) {
     let tipo = archivo.getMimeType();
 
-    if (tipo === 'text/csv') {
+    let nombre = archivo.getName();
+
+    // EL CAMINO SE ELIGE POR TIPO **Y** POR NOMBRE. Un CSV subido llega unas
+    // veces como «text/csv», otras como «text/plain» y otras sin tipo ninguno;
+    // yendo solo por el tipo, esos acababan en el convertidor de Excel y
+    // fallaban con un error de Google que no decía nada de esto.
+    if (tipo === 'text/csv' || tipo === 'text/tab-separated-values' ||
+        /\.(csv|tsv)$/i.test(nombre)) {
         let texto = archivo.getBlob().getDataAsString();
-        return { rejillas: [Utilities.parseCsv(texto)], temporal: "" };
+        let sep = /\.tsv$/i.test(nombre) || tipo === 'text/tab-separated-values' ? "\t" : ",";
+        return { rejillas: [Utilities.parseCsv(texto, sep)], temporal: "" };
     }
     if (tipo === 'application/vnd.google-apps.spreadsheet') {
         let libro = SpreadsheetApp.openById(archivo.getId());
@@ -770,14 +807,26 @@ function filasDeArchivoDeGuias(archivo) {
                  temporal: "" };
     }
 
+    // UN EXCEL HAY QUE CONVERTIRLO, y convertir necesita el servicio avanzado
+    // de Drive. El mensaje dice los clics exactos: «actívalo» a secas manda a
+    // buscar por un menú que no se usa nunca.
     if (typeof Drive === 'undefined' || !Drive.Files || !Drive.Files.create) {
-        throw new Error("para leer un .xlsx hay que activar el servicio «Drive " +
-                        "API» en el editor de Apps Script (Servicios +)");
+        throw new Error("es un Excel (" + tipo + ") y para convertirlo hace " +
+            "falta el servicio «Drive API». En el editor de Apps Script: " +
+            "Servicios ➕ → Drive API → Añadir. " +
+            "Si prefieres no tocar nada, guárdalo como CSV: eso se lee sin " +
+            "activar nada.");
     }
-    let conv = Drive.Files.create(
-        { name: 'tmp_guias_' + archivo.getName(),
-          mimeType: 'application/vnd.google-apps.spreadsheet' },
-        archivo.getBlob());
+    let conv;
+    try {
+        conv = Drive.Files.create(
+            { name: 'tmp_guias_' + nombre,
+              mimeType: 'application/vnd.google-apps.spreadsheet' },
+            archivo.getBlob());
+    } catch (err) {
+        throw new Error("no pude convertirlo a hoja de cálculo (" + err.message +
+            "). Si el archivo es muy grande o está protegido, guárdalo como CSV.");
+    }
     let libro = SpreadsheetApp.openById(conv.id);
     return { rejillas: libro.getSheets().map(h => h.getDataRange().getValues()),
              temporal: conv.id };
@@ -840,15 +889,21 @@ function traerGuiasDeLaCarpeta(ss) {
     let antes = acumulado.size;
     let yaLeidos = archivosYaLeidos(ss);
 
-    let tipos = tiposDeArchivoDeGuias();
-    let mirados = [], nuevosIds = [], problemas = [];
+    let mirados = [], nuevosIds = [], problemas = [], inventario = [];
     let quedan = false, piezasNuevas = 0, invalidas = 0;
 
     let it = carpeta.getFiles();
     while (it.hasNext()) {
         let archivo = it.next();
-        if (tipos.indexOf(archivo.getMimeType()) === -1) continue;
-        if (yaLeidos.has(archivo.getId())) continue;
+        let nombre = archivo.getName();
+        let tipo = archivo.getMimeType();
+        let motivo = motivoDeSaltarse(nombre, tipo, yaLeidos.has(archivo.getId()));
+        if (motivo !== "") {
+            if (inventario.length < 30) {
+                inventario.push(nombre + "  —  " + motivo);
+            }
+            continue;
+        }
         if (mirados.length >= MAX_ARCHIVOS_GUIAS) { quedan = true; break; }
 
         let temporal = "";
@@ -870,10 +925,12 @@ function traerGuiasDeLaCarpeta(ss) {
             });
 
             if (!encontro) {
-                problemas.push(archivo.getName() + ": no encontré las columnas " +
-                               "«Referencia» y «Tracking 1Z»");
+                problemas.push(nombre + ": lo abrí bien, pero en sus " +
+                    leido.rejillas.length + " pestaña(s) no encontré una fila de " +
+                    "encabezados con «Referencia» y «Tracking 1Z» (se miran las " +
+                    FILAS_A_MIRAR_CABECERA + " primeras filas de cada una)");
             } else {
-                mirados.push(archivo.getName());
+                mirados.push(nombre);
                 nuevosIds.push(archivo.getId());
                 // SE APUNTA Y DESPUÉS SE MUEVE, en ese orden. Si mover falla
                 // —permisos, carpeta borrada— el archivo se queda donde está
@@ -883,7 +940,7 @@ function traerGuiasDeLaCarpeta(ss) {
         } catch (err) {
             // UN ARCHIVO MALO NO PARA LOS DEMÁS, y tampoco se apunta como
             // leído: se corrige y en la siguiente pasada entra solo.
-            problemas.push(archivo.getName() + ": " + err.message);
+            problemas.push(nombre + ": " + err.message);
         } finally {
             if (temporal !== "") {
                 try { DriveApp.getFileById(temporal).setTrashed(true); } catch (err) { /* limpieza */ }
@@ -892,11 +949,23 @@ function traerGuiasDeLaCarpeta(ss) {
     }
 
     if (acumulado.size === 0) {
-        return { ok: false, error:
-            "No hay ninguna guía cargada todavía.\n\n" +
-            "En la carpeta «" + carpeta.getName() + "» no encontré ningún Excel " +
-            "o CSV con las columnas «Referencia» y «Tracking 1Z»." +
-            (problemas.length ? "\n\nLo que pasó:\n   · " + problemas.join("\n   · ") : "") };
+        let msg = "No pude sacar ninguna guía de la carpeta «" +
+                  carpeta.getName() + "».\n\n";
+        if (problemas.length) {
+            msg += "LO QUE INTENTÉ LEER:\n   · " + problemas.join("\n   · ") + "\n\n";
+        }
+        if (inventario.length) {
+            msg += "LO QUE HAY EN LA CARPETA Y ME SALTÉ:\n   · " +
+                   inventario.join("\n   · ") + "\n\n";
+        }
+        if (!problemas.length && !inventario.length) {
+            msg += "La carpeta está VACÍA para esta cuenta.\n\n" +
+                   "Las dos causas de siempre: el archivo está en una SUBCARPETA " +
+                   "—aquí solo se mira la carpeta que diste, no lo que cuelga de " +
+                   "ella— o la carpeta que vinculaste no es la que crees. " +
+                   "Comprueba la URL con «📁 Vincular la carpeta de las guías».";
+        }
+        return { ok: false, error: msg };
     }
 
     let entradas = [];

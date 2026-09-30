@@ -5418,6 +5418,49 @@ ok("lo viejo sigue ahi", trasSumar.get(G1Z_A) === REF_A);
 ok("y lo nuevo entra", trasSumar.get(G1Z_C) === REF_B);
 ok("sin duplicar", trasSumar.size === 2);
 
+// QUE ARCHIVOS SE ACEPTAN. Se mira el tipo Y TAMBIEN EL NOMBRE, y hace falta:
+// Drive etiqueta el mismo .xlsx de maneras distintas segun como llegue -subido,
+// sincronizado, copiado de otro Drive- y con un .csv es peor, que a veces llega
+// como «text/plain» y a veces sin tipo. Filtrando solo por tipo, el archivo
+// estaba delante y el sistema decia que no habia ninguno.
+const MIME_XLSX = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+ok("un xlsx con su tipo entra", pareceArchivoDeGuias("Book2.xlsx", MIME_XLSX));
+ok("un csv con su tipo entra", pareceArchivoDeGuias("guias.csv", "text/csv"));
+ok("una hoja de Google entra",
+   pareceArchivoDeGuias("GUIAS", "application/vnd.google-apps.spreadsheet"));
+// EL CASO QUE FALLABA: tipo raro pero el nombre lo dice claro.
+ok("un xlsx SIN tipo entra por el nombre",
+   pareceArchivoDeGuias("Book2.xlsx", "application/octet-stream"));
+ok("un csv como text/plain tambien",
+   pareceArchivoDeGuias("guias.csv", "text/plain"));
+ok("y en mayusculas", pareceArchivoDeGuias("BOOK2.XLSX", "lo-que-sea"));
+// Lo que NO es una lista de guias se sigue quedando fuera.
+ok("una foto no entra", !pareceArchivoDeGuias("pedimento.jpg", "image/jpeg"));
+ok("un pdf tampoco", !pareceArchivoDeGuias("pedimento.pdf", "application/pdf"));
+ok("sin nombre ni tipo no revienta", !pareceArchivoDeGuias(undefined, undefined));
+
+// EL MOTIVO DE SALTARSE CADA UNO. Un «no encontre nada» a secas obliga a
+// adivinar, y lo que se adivina primero -«la carpeta esta mal»- casi nunca es.
+ok("el que sirve no tiene motivo",
+   motivoDeSaltarse("Book2.xlsx", MIME_XLSX, false) === "");
+ok("el ya leido lo dice",
+   motivoDeSaltarse("Book2.xlsx", MIME_XLSX, true).indexOf("ya se leyó") !== -1);
+// UN ACCESO DIRECTO parece el archivo en pantalla y no lo es: es el error que
+// mas cuesta ver, porque en Drive se ve igual.
+ok("un acceso directo lo dice con todas las letras",
+   motivoDeSaltarse("Book2.xlsx", "application/vnd.google-apps.shortcut", false)
+   .indexOf("ACCESO DIRECTO") !== -1);
+ok("una subcarpeta lo dice",
+   motivoDeSaltarse("ENERO", "application/vnd.google-apps.folder", false)
+   .indexOf("carpeta") !== -1);
+ok("una foto lo dice",
+   motivoDeSaltarse("ped.jpg", "image/jpeg", false).indexOf("no es un Excel") !== -1);
+// El orden importa: un acceso directo YA LEIDO tiene que decir que es acceso
+// directo, que es lo que hay que arreglar.
+ok("el acceso directo manda sobre el ya leido",
+   motivoDeSaltarse("x.xlsx", "application/vnd.google-apps.shortcut", true)
+   .indexOf("ACCESO DIRECTO") !== -1);
+
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El
