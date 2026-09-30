@@ -5670,8 +5670,11 @@ function onOpen() {
   try {
       if (typeof importarPedimentos === 'function') {
           menu.addSubMenu(ui.createMenu('📋 Pedimentos')
-              .addItem('📥 Importar los pedimentos', 'importarPedimentos')
-              .addItem('🔎 Confrontar houses con los escaneos', 'confrontarPedimentosConEscaneos')
+              // El de arriba hace las DOS cosas. El de solo importar se queda
+              // para refrescar el aviso de la columna B sin pagar el recorrido
+              // de todas las pestañas, que es lo caro de la confronta.
+              .addItem('🔎 Confrontar houses (trae el archivo y cruza)', 'confrontarPedimentosConEscaneos')
+              .addItem('📥 Solo traer el archivo (sin cruzar)', 'importarPedimentos')
               .addSeparator()
               .addItem('🔗 Vincular el archivo de pedimentos', 'vincularArchivoDePedimentos'));
       }

@@ -292,24 +292,24 @@ function vincularArchivoDePedimentos() {
 }
 
 // Lee el archivo entero y deja el texto listo para consultar en el escaneo.
-function importarPedimentos() {
-    const ss = obtenerArchivo();
-    const ui = SpreadsheetApp.getUi();
-
+// EL NÚCLEO DE LA IMPORTACIÓN, sin diálogos.
+//
+// Se separa de la función del menú porque la confronta también lo necesita: sin
+// esto habría que apretar dos botones en orden, y el día que alguien se saltara
+// el primero la confronta contestaría con los pedimentos de la semana pasada
+// sin que nada lo dijera.
+//
+// Devuelve {ok, error, pares, repetidas, celdas, nombreHoja, libro}.
+function traerPedimentosDelArchivo(ss) {
     let id = idDelArchivoPedimentos();
     if (id === "") {
-        ui.alert("📥 Importar los pedimentos",
-                 "No hay ningún archivo vinculado.\n\nUsa «🔗 Vincular el archivo " +
-                 "de pedimentos» primero.", ui.ButtonSet.OK);
-        return;
+        return { ok: false, error: "No hay ningún archivo vinculado.\n\nUsa " +
+                 "«🔗 Vincular el archivo de pedimentos» primero." };
     }
 
     let libro;
     try { libro = SpreadsheetApp.openById(id); }
-    catch (err) {
-        ui.alert("📥 Importar los pedimentos", "No pude abrirlo:\n" + err, ui.ButtonSet.OK);
-        return;
-    }
+    catch (err) { return { ok: false, error: "No pude abrirlo:\n" + err }; }
 
     // La primera pestaña que tenga las dos columnas. Un archivo generado por
     // otra herramienta suele traer una hoja vacía delante, y exigir la primera
@@ -323,48 +323,66 @@ function importarPedimentos() {
         if (lr < 2) { hojasMiradas.push(h.getName() + " (vacía)"); return; }
         let rejilla = h.getRange(1, 1, lr, lc).getValues();
         let c = detectarColumnasPedimentos(rejilla[0]);
-        hojasMiradas.push(h.getName() + (c.house !== -1 && c.pedimento !== -1 ? " ✅" : " (sin las columnas)"));
+        hojasMiradas.push(h.getName() +
+            (c.house !== -1 && c.pedimento !== -1 ? " ✅" : " (sin las columnas)"));
         if (c.house === -1 || c.pedimento === -1) return;
         cols = c; datos = rejilla; nombreHoja = h.getName();
     });
 
     if (!cols) {
-        ui.alert("📥 Importar los pedimentos",
+        return { ok: false, error:
             "No encontré una pestaña con las columnas «Pedimento» y «House» en " +
-            libro.getName() + ".\n\nMiré:\n" + hojasMiradas.join("\n"),
-            ui.ButtonSet.OK);
-        return;
+            libro.getName() + ".\n\nMiré:\n" + hojasMiradas.join("\n") };
     }
 
     let r = paresDeArchivoPedimentos(datos, cols);
     if (r.pares.length === 0) {
-        ui.alert("📥 Importar los pedimentos",
+        return { ok: false, error:
             "La pestaña «" + nombreHoja + "» tiene las columnas pero ninguna fila " +
-            "con una house y un pedimento de 7 dígitos.", ui.ButtonSet.OK);
-        return;
+            "con una house y un pedimento de 7 dígitos." };
     }
 
     let celdas = guardarBlobHousePedimento(ss, r.pares);
     olvidarBlobPedimentosDeHouseEnRAM();
 
+    return { ok: true, pares: r.pares, repetidas: r.repetidas, celdas: celdas,
+             nombreHoja: nombreHoja, libro: libro };
+}
+
+// El resumen de lo que se trajo, en palabras. Se comparte entre los dos
+// botones para que digan lo mismo.
+function resumenDeImportacionPedimentos(r) {
     let peds = new Set(r.pares.map(p => p.pedimento));
-    let msg = "Listo, desde «" + nombreHoja + "» de " + libro.getName() + ".\n\n" +
+    let msg = "Del archivo «" + r.nombreHoja + "» de " + r.libro.getName() + ":\n" +
               "   · " + r.pares.length.toLocaleString() + " houses\n" +
-              "   · " + peds.size.toLocaleString() + " pedimentos distintos\n" +
-              "   · " + celdas + " celdas de lista rápida\n\n" +
-              "A partir de ahora, al escanear en una hoja de SALIDAS, si la house " +
-              "de un bulto pertenece a otro pedimento la columna B lo dirá.";
+              "   · " + peds.size.toLocaleString() + " pedimentos distintos";
     if (r.repetidas.length) {
         msg += "\n\n⚠️ " + r.repetidas.length + " houses salen en DOS pedimentos " +
-               "distintos en el archivo. Se quedó la primera de cada una:\n" +
+               "distintos EN EL ARCHIVO. Se quedó la primera de cada una:\n" +
                r.repetidas.slice(0, 8)
                    .map(c => "   · " + c.house + ": " + c.primero + " / " + c.segundo)
                    .join("\n");
         if (r.repetidas.length > 8) msg += "\n   …y " + (r.repetidas.length - 8) + " más.";
-        msg += "\n\nEso es una contradicción del archivo, no del escaneo: hay que " +
-               "mirarlas ahí.";
+        msg += "\n\nEso es una contradicción del archivo, no del escaneo.";
     }
-    ui.alert("📥 Importar los pedimentos", msg, ui.ButtonSet.OK);
+    return msg;
+}
+
+// El botón de solo importar. Sirve para refrescar el aviso de la columna B sin
+// pagar el recorrido de todas las pestañas que hace la confronta.
+function importarPedimentos() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+
+    let r = traerPedimentosDelArchivo(ss);
+    if (!r.ok) { ui.alert("📥 Importar los pedimentos", r.error, ui.ButtonSet.OK); return; }
+
+    ui.alert("📥 Importar los pedimentos",
+        "Listo.\n\n" + resumenDeImportacionPedimentos(r) + "\n\n" +
+        "   · " + r.celdas + " celdas de lista rápida\n\n" +
+        "A partir de ahora, al escanear en una hoja de SALIDAS, si la house de " +
+        "un bulto pertenece a otro pedimento la columna B lo dirá.",
+        ui.ButtonSet.OK);
 }
 
 // -------------------------------------------------------------------------
@@ -493,30 +511,27 @@ function confrontarHouses(delArchivo, escaneado) {
     return { lineas: lineas, resumen: resumen };
 }
 
+// EL BOTÓN DE UNA SOLA PASADA: trae el archivo y cruza, en ese orden.
+//
+// Antes eran dos botones que había que apretar en orden. El día que alguien se
+// saltara el primero, la confronta contestaba con los pedimentos de la pasada
+// anterior y NADA lo decía: un informe con datos viejos se ve exactamente igual
+// que uno al día.
 function confrontarPedimentosConEscaneos() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
 
-    let blob = leerBlobHousePedimento(ss);
-    if (blob === "") {
-        ui.alert("🔎 Confrontar houses",
-                 "No hay pedimentos importados.\n\nUsa «📥 Importar los pedimentos» " +
-                 "primero.", ui.ButtonSet.OK);
-        return;
-    }
+    ss.toast('⏳ Trayendo el archivo de pedimentos…', 'Confronta', 10);
+    let imp = traerPedimentosDelArchivo(ss);
+    if (!imp.ok) { ui.alert("🔎 Confrontar houses", imp.error, ui.ButtonSet.OK); return; }
 
-    // El blob se vuelve a partir en pares: guardarlo también como lista sería
-    // tener el mismo dato dos veces y garantizar que un día se desincronicen.
-    let pares = [];
-    blob.split("|").forEach(reg => {
-        if (reg === "") return;
-        let i = reg.indexOf(":");
-        if (i === -1) return;
-        pares.push({ house: reg.substring(0, i), pedimento: reg.substring(i + 1) });
-    });
-
+    // Se cruza contra lo que ACABA de traerse, no contra el texto empaquetado.
+    // Volver a leer el blob que se acaba de escribir sería pagar una lectura
+    // para obtener lo que ya está en memoria, y abre la puerta a que los dos
+    // digan cosas distintas.
+    ss.toast('⏳ Leyendo los escaneos…', 'Confronta', 20);
     let escaneado = housesEscaneadasPorPedimento(ss);
-    let r = confrontarHouses(pares, escaneado);
+    let r = confrontarHouses(imp.pares, escaneado);
 
     let hoja = ss.getSheetByName(HOJA_CONFRONTA_HOUSE);
     if (!hoja) hoja = ss.insertSheet(HOJA_CONFRONTA_HOUSE, ss.getNumSheets());
@@ -538,12 +553,14 @@ function confrontarPedimentosConEscaneos() {
     });
 
     ui.alert("🔎 Confrontar houses",
-        "Listo. Está en la pestaña «" + HOJA_CONFRONTA_HOUSE + "».\n\n" +
+        resumenDeImportacionPedimentos(imp) + "\n\n" +
+        "── EL CRUCE ──\n" +
         "   · " + r.resumen.size + " pedimentos\n" +
         "   · ✅ " + totOk + " houses cuadran\n" +
         "   · ⏳ " + totFaltan + " faltan por escanear\n" +
         "   · ❌ " + totOtro + " escaneadas bajo OTRO pedimento\n" +
         "   · ⚠️ " + totSobran + " sobran\n\n" +
+        "Está en la pestaña «" + HOJA_CONFRONTA_HOUSE + "».\n\n" +
         "Las que «faltan» no tienen fila donde marcarse: por eso hacen falta " +
         "aquí y no solo en la columna B.",
         ui.ButtonSet.OK);
