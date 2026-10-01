@@ -76,6 +76,30 @@ const FILAS_MAX_PEDIMENTOS = 50000;
 const TXT_HOUSE_OTRO_PED = "❌ Esa referencia va en el pedimento ";
 const COLOR_HOUSE_OTRO_PED = '#f5c6cb';
 
+// EL BULTO QUE ESPERA SU PEDIMENTO.
+//
+// El archivo sabe de qué referencia es, así que el bulto está reconocido, pero
+// encima no hay pedimento todavía. Antes eso no decía nada: la fila se veía
+// igual que una normal y el pedimento se podía quedar sin teclear hasta que
+// alguien lo echara en falta con el camión cargado.
+//
+// Empieza por «⏳» a propósito, y no por «❌» ni «⚠️». Eso lo deja en NIVEL_INFO,
+// o sea que CUALQUIER alerta de verdad puede escribir encima: no es un error,
+// es un «todavía no». Con un ⚠️ se habría quedado protegido y habría tapado
+// avisos que sí importan.
+const TXT_FALTA_PEDIMENTO = "⏳ FALTA EL PEDIMENTO · ref ";
+const COLOR_FALTA_PEDIMENTO = '#fff3cd';
+
+function accesoTxtFaltaPedimento() { return TXT_FALTA_PEDIMENTO; }
+
+// El color que le toca a lo que devuelve `avisoDeHouseContraPedimento`. Se
+// decide aquí y no en quien llama para que el texto y su color no puedan
+// separarse: son la misma decisión.
+function colorDelAvisoDePedimento(texto) {
+    return String(texto || "").indexOf(TXT_FALTA_PEDIMENTO) === 0
+        ? COLOR_FALTA_PEDIMENTO : COLOR_HOUSE_OTRO_PED;
+}
+
 function accesoTxtHouseOtroPed() { return TXT_HOUSE_OTRO_PED; }
 
 // -------------------------------------------------------------------------
@@ -415,14 +439,17 @@ function mapaAtadurasParaEscaneo(ss) {
 // puede comprobar no se denuncia: una columna llena de avisos dudosos deja de
 // leerse, y con ella se pierden los que sí eran de verdad.
 function avisoDeHouseContraPedimento(ss, house, pedBloque, guia) {
-    // Sin pedimento en el bloque no hay contra qué comparar. De eso ya avisa
-    // «FALTA EL PEDIMENTO», con su propio texto.
-    let p = String(pedBloque === undefined || pedBloque === null ? "" : pedBloque).trim();
-    if (!/^\d{7}$/.test(p)) return "";
-
     let g = claveHousePed(guia);
     let h = claveHousePed(house);
     if (g === "" && h === "") return "";
+
+    // LA REFERENCIA SE BUSCA ANTES QUE EL PEDIMENTO, y el orden es el cambio.
+    // Antes se salía arriba si el bloque no tenía pedimento, así que un bulto
+    // reconocido y sin pedimento encima se veía igual que uno normal: el
+    // pedimento se podía quedar sin teclear hasta que alguien lo echara en
+    // falta con el camión cargado. Ahora primero se mira si el archivo lo
+    // conoce, y si lo conoce se dice que falta el pedimento.
+    let p = String(pedBloque === undefined || pedBloque === null ? "" : pedBloque).trim();
 
     try {
         let refs = mapaReferenciasParaEscaneo(ss);
@@ -432,6 +459,9 @@ function avisoDeHouseContraPedimento(ss, house, pedBloque, guia) {
         // de una importación que todavía no se ha hecho. Callar es lo correcto.
         let ref = (g !== "" && refs.get(g)) || (h !== "" && porHouse.get(h)) || "";
         if (ref === "") return "";
+
+        // Reconocido pero sin pedimento encima: se espera, y se dice.
+        if (!/^\d{7}$/.test(p)) return TXT_FALTA_PEDIMENTO + ref;
 
         let suyo = mapaAtadurasParaEscaneo(ss).get(ref) || "";
         if (suyo === "") return "";

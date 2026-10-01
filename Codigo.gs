@@ -154,6 +154,23 @@ function esHojaInterna(nombreHoja) {
     // escaneo cada guía chocaría contra su propia copia. Es el mismo fallo que
     // ya costó una tanda de duplicados falsos con el índice de houses.
     if (n.indexOf("INDICE_SALIDAS") !== -1 || n.indexOf("SALIDAS_RAPIDO") !== -1) return true;
+    // Las del módulo de pedimentos, por el mismo motivo y por uno más.
+    //
+    //   · PEDIMENTOS_RAPIDO y REFERENCIAS_RAPIDO y REF_HOUSES_RAPIDO guardan
+    //     listas comprimidas en celdas de miles de caracteres. Tomadas por
+    //     pestañas de escaneo, cada celda entra al caché como si fuera una guía
+    //     y la validación de la columna A la pinta de «❌ Guía Inválida».
+    //   · GUIAS_LEIDAS lleva ids de archivos de Drive, que tampoco son guías.
+    //   · CONFRONTA REFERENCIAS es un INFORME: sus columnas repiten las guías
+    //     que ya están en las hojas de verdad, así que entrando al índice de
+    //     duplicados cada bulto chocaría contra su propia copia del informe.
+    //
+    // Por prefijo «PEDIMENTO» no, a propósito: hay pestañas de operación cuyo
+    // nombre lo lleva, y esconderlas las sacaría del conteo sin decir nada.
+    if (n.indexOf("_RAPIDO") !== -1 || n === "GUIAS_LEIDAS" ||
+        n.indexOf("CONFRONTA") === 0) {
+        return true;
+    }
     // «SIN INFORMACIÓN» es una LISTA, no una pestaña de escaneo. Si no se marca
     // interna, el caché la toma por una Global con miles de guías en la columna
     // A y entonces CADA guía de la lista choca contra la de verdad: «⛔
@@ -4704,7 +4721,13 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
                ? avisoDeHouseContraPedimento(source, datosMasivos[i][2],
                                              pedsPorFilaA[i], valB)
                : "";
-        if (av !== "") { fijo = av; color = COLOR_HOUSE_OTRO_PED; }
+        // El color lo decide Pedimentos.gs: el texto y su color son la misma
+        // decisión y separarlos deja que uno cambie sin el otro.
+        if (av !== "") {
+            fijo = av;
+            color = (typeof colorDelAvisoDePedimento === 'function')
+                  ? colorDelAvisoDePedimento(av) : COLOR_HOUSE_OTRO_PED;
+        }
         else {
             // SE CAE AQUÍ AUNQUE LA HOJA CRUCE CONTRA EL ARCHIVO. Antes eran
             // dos ramas excluyentes, así que en cuanto una pestaña entró en la

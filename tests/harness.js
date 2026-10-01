@@ -5727,6 +5727,63 @@ ok("y la de en otro pedimento", tresRef.fila[4] === 1);
 ok("COMPLETA empieza por el ✅", todoOkRef.fila[5].indexOf("✅") === 0);
 ok("y ningun otro estado empieza asi", tresRef.fila[5].indexOf("✅") !== 0);
 
+console.log("\n--- 23g. El bulto que espera su pedimento ---");
+// LO QUE SE PIDIO: «si ya tiene una referencia me ponga que hace falta hasta
+// que este el pedimento».
+//
+// El archivo sabe de que referencia es, asi que el bulto esta reconocido, pero
+// encima no hay pedimento todavia. Antes eso no decia nada: la fila se veia
+// igual que una normal y el pedimento se podia quedar sin teclear hasta que
+// alguien lo echara en falta con el camion cargado.
+const T_FALTA_PED = accesoTxtFaltaPedimento();
+ok("el texto dice que falta el pedimento",
+   T_FALTA_PED.indexOf("FALTA EL PEDIMENTO") !== -1);
+// EMPIEZA POR «⏳» A PROPOSITO. Eso lo deja en NIVEL_INFO, o sea que cualquier
+// alerta de verdad puede escribir encima: no es un error, es un «todavia no».
+// Con un ⚠️ se habria quedado protegido y habria tapado avisos que si importan.
+ok("es informativo, no una alerta",
+   nivelAlerta(T_FALTA_PED + "X") === nivelAlerta("✅ Ok"));
+ok("asi que un ❌ puede pisarlo",
+   puedePisar(T_FALTA_PED + "X", "❌ Esa referencia va en el pedimento 6113854"));
+ok("y un 🛑 tambien", puedePisar(T_FALTA_PED + "X", "🛑 ERROR"));
+// Y lleva color propio: el de esperar no es el de equivocarse.
+ok("el que espera tiene su color",
+   colorDelAvisoDePedimento(T_FALTA_PED + "REF1") !== accesoTxtHouseOtroPed() &&
+   colorDelAvisoDePedimento(T_FALTA_PED + "REF1") !==
+   colorDelAvisoDePedimento("❌ Esa referencia va en el pedimento 6113854"));
+// El texto trae la referencia: sin ella hay que ir a buscar a que embarque
+// pertenece el bulto que se tiene en la mano.
+ok("y dice de que referencia es",
+   (T_FALTA_PED + "G26A850642").indexOf("G26A850642") !== -1);
+
+console.log("\n--- 23h. Las pestañas del modulo son de sistema ---");
+// LO QUE SE PIDIO: «lo de pedimentos rapido no tenga validacion de guia
+// invalida ni nada, seria una de sistema».
+//
+// Guardan listas comprimidas en celdas de miles de caracteres. Tomadas por
+// pestañas de escaneo, cada celda entra al cache como si fuera una guia y la
+// validacion de la columna A la pinta de «❌ Guia Invalida».
+ok("PEDIMENTOS_RAPIDO es interna", esHojaInterna("PEDIMENTOS_RAPIDO"));
+ok("REFERENCIAS_RAPIDO tambien", esHojaInterna("REFERENCIAS_RAPIDO"));
+ok("REF_HOUSES_RAPIDO tambien", esHojaInterna("REF_HOUSES_RAPIDO"));
+// GUIAS_LEIDAS lleva ids de archivos de Drive, que tampoco son guias.
+ok("GUIAS_LEIDAS tambien", esHojaInterna("GUIAS_LEIDAS"));
+// El informe repite guias que ya estan en las hojas de verdad: entrando al
+// indice de duplicados, cada bulto chocaria contra su propia copia del informe.
+ok("CONFRONTA REFERENCIAS tambien", esHojaInterna("CONFRONTA REFERENCIAS"));
+ok("y todas son de sistema",
+   ["PEDIMENTOS_RAPIDO", "REFERENCIAS_RAPIDO", "REF_HOUSES_RAPIDO",
+    "GUIAS_LEIDAS", "CONFRONTA REFERENCIAS"].every(n => esHojaSistema(n)));
+// Y NINGUNA entra en la confronta ni cuenta como pestaña de escaneo.
+ok("ninguna entra en la confronta",
+   ["PEDIMENTOS_RAPIDO", "REFERENCIAS_RAPIDO", "CONFRONTA REFERENCIAS"]
+   .every(n => !esHojaDeSalidasParaConfronta(n)));
+// POR PREFIJO «PEDIMENTO» NO, a proposito: hay pestañas de operacion cuyo
+// nombre lo lleva, y esconderlas las sacaria del conteo sin decir nada.
+ok("una pestaña de operacion con «PEDIMENTO» en el nombre NO se esconde",
+   !esHojaInterna("PEDIMENTOS GLOBAL 1"));
+ok("ni una Global normal", !esHojaInterna("GLOBAL 1"));
+
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El
