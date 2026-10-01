@@ -5578,6 +5578,48 @@ ok("esta en el menu", FUENTE_MENU2.indexOf("'cruzarConLoGuardado'") !== -1);
 ok("sin nada guardado manda al boton de traer",
    FUENTE_DOS.indexOf("que trae el archivo y cruza.") !== -1);
 
+// EL ESTADO DEL CUADRO: LAS TRES COSAS, CADA UNA CON SU NUMERO.
+//
+// Pueden pasar a la vez, y antes el estado elegia UNA. Ademas «SOBRAN PIEZAS»
+// no decia cuantas: enterarse de que sobra algo sin saber cuanto obliga a
+// contar a mano la columna de al lado.
+function cuadroDe(delArchivo, enSuPed, enOtro) {
+    let ref = 'REF1', ped = '6113854';
+    let porRef = new Map([[ref, Array.from({ length: delArchivo }, (_, i) => '1Z' + i)]]);
+    let m = new Map([[ped, enSuPed]]);
+    if (enOtro) m.set('9999999', enOtro);
+    return cuadroDeReferencias(porRef, { atadura: new Map([[ref, ped]]),
+                                         cuenta: new Map([[ref, m]]) })[0];
+}
+ok("todo cuadra sale COMPLETA", cuadroDe(10, 10, 0)[5] === "✅ COMPLETA");
+ok("los faltantes dicen cuantos", cuadroDe(10, 7, 0)[5] === "🔻 FALTAN 3");
+// LO QUE SE PIDIO: «me pones que sobran piezas pero no me pones cuantas».
+ok("los sobrantes dicen cuantos", cuadroDe(10, 12, 0)[5] === "⚠️ SOBRAN 2");
+// EL AGUJERO PEOR, que salio buscando esto: con las piezas justas escaneadas
+// en su pedimento pero alguna mas en otro, la referencia no era COMPLETA, no
+// sobraba nada y la resta daba cero: salia «🔻 FALTAN 0», que no significa
+// nada y hace dudar de todo el cuadro.
+ok("nunca sale «FALTAN 0»", cuadroDe(10, 10, 2)[5].indexOf("FALTAN 0") === -1);
+ok("y en su lugar dice lo que pasa de verdad",
+   cuadroDe(10, 10, 2)[5] === "❌ 2 EN OTRO PEDIMENTO");
+// Y se pueden juntar: un estado por cada cosa que pasa.
+ok("faltantes y en otro pedimento a la vez",
+   cuadroDe(10, 8, 2)[5] === "🔻 FALTAN 2 · ❌ 2 EN OTRO PEDIMENTO");
+ok("sobrantes y en otro pedimento a la vez",
+   cuadroDe(10, 11, 1)[5] === "⚠️ SOBRAN 1 · ❌ 1 EN OTRO PEDIMENTO");
+// Nada escaneado en su pedimento: faltan TODAS, no «faltan las que no estan
+// en otro».
+ok("sin nada aqui faltan todas",
+   cuadroDe(10, 0, 3)[5] === "🔻 FALTAN 10 · ❌ 3 EN OTRO PEDIMENTO");
+// Las columnas de numeros siguen cuadrando con el estado.
+ok("la columna del archivo es la del archivo", cuadroDe(10, 7, 2)[2] === 10);
+ok("la de escaneadas aqui tambien", cuadroDe(10, 7, 2)[3] === 7);
+ok("y la de en otro pedimento", cuadroDe(10, 7, 2)[4] === 2);
+// El recuento de completas del dialogo mira el ✅ al principio: si el estado
+// dejara de empezar por ahi, el resumen contaria mal sin fallar.
+ok("COMPLETA empieza por el ✅", cuadroDe(5, 5, 0)[5].indexOf("✅") === 0);
+ok("y ningun otro estado empieza asi", cuadroDe(5, 4, 0)[5].indexOf("✅") !== 0);
+
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
 // carga todavia se esta juntando y el pedimento puede no estar escrito. El

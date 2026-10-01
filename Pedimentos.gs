@@ -1376,11 +1376,26 @@ function cuadroDeReferencias(porReferencia, atado) {
         let enSuPed = (cuenta.get(ref) && cuenta.get(ref).get(ped)) || 0;
         let total = 0;
         if (cuenta.get(ref)) cuenta.get(ref).forEach(n => { total += n; });
-        filas.push([ref, ped, delArchivo, enSuPed, total - enSuPed,
-                    delArchivo === enSuPed && total === enSuPed
-                        ? "✅ COMPLETA"
-                        : (enSuPed > delArchivo ? "⚠️ SOBRAN PIEZAS"
-                                                : "🔻 FALTAN " + (delArchivo - enSuPed))]);
+        // LAS TRES COSAS QUE PUEDEN PASAR, CADA UNA CON SU NÚMERO, y pueden
+        // pasar a la vez. Antes el estado elegía UNA y, encima, «SOBRAN
+        // PIEZAS» no decía cuántas: enterarse de que sobra algo sin saber
+        // cuánto obliga a contar a mano la columna de al lado.
+        //
+        // Y había un agujero peor. Con las piezas justas escaneadas en su
+        // pedimento pero alguna más en otro, la referencia no era COMPLETA, no
+        // sobraba nada y la resta daba cero: salía «🔻 FALTAN 0», que no
+        // significa nada y hace dudar de todo el cuadro.
+        let faltan = Math.max(0, delArchivo - enSuPed);
+        let sobran = Math.max(0, enSuPed - delArchivo);
+        let enOtro = total - enSuPed;
+
+        let partes = [];
+        if (faltan) partes.push("🔻 FALTAN " + faltan);
+        if (sobran) partes.push("⚠️ SOBRAN " + sobran);
+        if (enOtro) partes.push("❌ " + enOtro + " EN OTRO PEDIMENTO");
+
+        filas.push([ref, ped, delArchivo, enSuPed, enOtro,
+                    partes.length ? partes.join(" · ") : "✅ COMPLETA"]);
     });
     filas.sort((a, b) => String(a[1]).localeCompare(String(b[1])) ||
                          String(a[0]).localeCompare(String(b[0])));
