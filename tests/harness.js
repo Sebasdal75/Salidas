@@ -5244,7 +5244,7 @@ console.log("\n--- 23d. La confronta: completa, faltantes y sobrantes ---");
 let confCompleta = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
                                     escaneoSimple, atado1);
 ok("una referencia completa no dice nada", confCompleta.lineas.length === 0);
-let cuadroOk = cuadroDeReferencias(leidoRef.porReferencia, atado1);
+let cuadroOk = cuadroDeReferencias(confCompleta.porRef);
 ok("el cuadro trae la referencia atada", cuadroOk.length === 1);
 ok("con sus piezas del archivo", cuadroOk[0][2] === 2);
 ok("y las escaneadas ahi", cuadroOk[0][3] === 2);
@@ -5262,7 +5262,7 @@ ok("y dice que falta", confFalta.lineas[0][2].indexOf("FALTA") !== -1);
 ok("con su guia", confFalta.lineas[0][5] === G1Z_B);
 ok("y su pedimento", confFalta.lineas[0][0] === "6113854");
 ok("el resumen la cuenta", confFalta.resumen.get("6113854").faltan === 1);
-let cuadroFalta = cuadroDeReferencias(leidoRef.porReferencia, atadoFalta);
+let cuadroFalta = cuadroDeReferencias(confFalta.porRef);
 ok("el cuadro dice cuantas faltan", cuadroFalta[0][5].indexOf("FALTAN 1") !== -1);
 
 // UNA PIEZA EN EL PEDIMENTO EQUIVOCADO. Su referencia esta atada a otro.
@@ -5583,42 +5583,84 @@ ok("sin nada guardado manda al boton de traer",
 // Pueden pasar a la vez, y antes el estado elegia UNA. Ademas «SOBRAN PIEZAS»
 // no decia cuantas: enterarse de que sobra algo sin saber cuanto obliga a
 // contar a mano la columna de al lado.
-function cuadroDe(delArchivo, enSuPed, enOtro) {
-    let ref = 'REF1', ped = '6113854';
-    let porRef = new Map([[ref, Array.from({ length: delArchivo }, (_, i) => '1Z' + i)]]);
-    let m = new Map([[ped, enSuPed]]);
-    if (enOtro) m.set('9999999', enOtro);
-    return cuadroDeReferencias(porRef, { atadura: new Map([[ref, ped]]),
-                                         cuenta: new Map([[ref, m]]) })[0];
+//
+// Y LO MAS GORDO: el cuadro llevaba su propia cuenta y el detalle otra. Por eso
+// el cuadro decia «SOBRAN 2» y en el detalle no aparecian esas dos. Dos cuentas
+// del mismo muelle y ninguna forma de saber cual creer. Ahora el cuadro se arma
+// de la MISMA cuenta que escribe cada linea.
+const PED_1 = '6113854', PED_2 = '9999999', REF_1 = 'REF1';
+function g1z(n) { return '1Z' + String(n).padStart(16, '0'); }
+
+// `aqui` y `alla` son listas de guias; las que no esten en `archivo` son
+// intrusas que el archivo no conoce -pasa cuando el 1Z no viene en el Excel y
+// se reconoce por la house, que cubre varios bultos-.
+function confrontaDe(archivo, aqui, alla) {
+    let porReferencia = new Map([[REF_1, archivo]]);
+    let refDeClave = new Map();
+    archivo.concat(aqui, alla).forEach(g => refDeClave.set(g, REF_1));
+    let mapaAqui = new Map(aqui.map((g, i) => [g, { hoja: 'GLOBAL 1', fila: i + 2, house: '' }]));
+    let escaneado = new Map([[PED_1, mapaAqui]]);
+    if (alla.length) {
+        escaneado.set(PED_2, new Map(alla.map((g, i) =>
+            [g, { hoja: 'GLOBAL 2', fila: i + 2, house: '' }])));
+    }
+    let r = confrontarHouses(porReferencia, refDeClave, escaneado,
+                             { atadura: new Map([[REF_1, PED_1]]), repartidas: [] });
+    return { fila: cuadroDeReferencias(r.porRef)[0], lineas: r.lineas };
 }
-ok("todo cuadra sale COMPLETA", cuadroDe(10, 10, 0)[5] === "✅ COMPLETA");
-ok("los faltantes dicen cuantos", cuadroDe(10, 7, 0)[5] === "🔻 FALTAN 3");
-// LO QUE SE PIDIO: «me pones que sobran piezas pero no me pones cuantas».
-ok("los sobrantes dicen cuantos", cuadroDe(10, 12, 0)[5] === "⚠️ SOBRAN 2");
-// EL AGUJERO PEOR, que salio buscando esto: con las piezas justas escaneadas
-// en su pedimento pero alguna mas en otro, la referencia no era COMPLETA, no
-// sobraba nada y la resta daba cero: salia «🔻 FALTAN 0», que no significa
-// nada y hace dudar de todo el cuadro.
-ok("nunca sale «FALTAN 0»", cuadroDe(10, 10, 2)[5].indexOf("FALTAN 0") === -1);
+const A4 = [g1z(1), g1z(2), g1z(3), g1z(4)];
+
+let todoOkRef = confrontaDe(A4, A4, []);
+ok("todo cuadra sale COMPLETA", todoOkRef.fila[5] === "✅ COMPLETA");
+ok("y el detalle queda vacio", todoOkRef.lineas.length === 0);
+
+let faltanRef = confrontaDe(A4, [A4[0], A4[1]], []);
+ok("los faltantes dicen cuantos", faltanRef.fila[5] === "🔻 FALTAN 2");
+ok("y el detalle nombra las dos", faltanRef.lineas.length === 2);
+ok("con su 1Z", faltanRef.lineas.every(l => A4.indexOf(l[5]) !== -1));
+
+// LO QUE SE PIDIO, LAS DOS MITADES: «me pones que sobran piezas pero no me
+// pones cuantas», y despues «pero no se QUE 1z sobra».
+let sobraRef = confrontaDe(A4, A4.concat([g1z(99)]), []);
+ok("los sobrantes dicen cuantos", sobraRef.fila[5] === "⚠️ SOBRAN 1");
+ok("y el detalle dice CUAL sobra",
+   sobraRef.lineas.some(l => l[5] === g1z(99) && l[2].indexOf("SOBRA") !== -1));
+ok("nombrando la referencia que no la lleva",
+   sobraRef.lineas.some(l => l[2].indexOf(REF_1) !== -1));
+ok("y con su pestaña y su fila",
+   sobraRef.lineas.some(l => l[5] === g1z(99) && l[3] === "GLOBAL 1" && l[4] > 0));
+// EL CUADRO Y EL DETALLE NO PUEDEN CONTRADECIRSE: tantas lineas de SOBRA como
+// dice el cuadro. Es el invariante que se rompio.
+ok("el cuadro y el detalle dicen lo mismo",
+   sobraRef.lineas.filter(l => l[2].indexOf("SOBRA") !== -1).length === 1);
+
+// EL AGUJERO DEL «FALTAN 0»: todas las piezas del archivo escaneadas donde
+// tocan, y ademas una intrusa en OTRO pedimento. No falta nada, no sobra nada
+// aqui, y antes la resta daba cero: salia «🔻 FALTAN 0».
+let ceroRef = confrontaDe(A4, A4, [g1z(98)]);
+ok("nunca sale «FALTAN 0»", ceroRef.fila[5].indexOf("FALTAN 0") === -1);
 ok("y en su lugar dice lo que pasa de verdad",
-   cuadroDe(10, 10, 2)[5] === "❌ 2 EN OTRO PEDIMENTO");
-// Y se pueden juntar: un estado por cada cosa que pasa.
-ok("faltantes y en otro pedimento a la vez",
-   cuadroDe(10, 8, 2)[5] === "🔻 FALTAN 2 · ❌ 2 EN OTRO PEDIMENTO");
-ok("sobrantes y en otro pedimento a la vez",
-   cuadroDe(10, 11, 1)[5] === "⚠️ SOBRAN 1 · ❌ 1 EN OTRO PEDIMENTO");
-// Nada escaneado en su pedimento: faltan TODAS, no «faltan las que no estan
-// en otro».
+   ceroRef.fila[5] === "❌ 1 EN OTRO PEDIMENTO");
+
+// Las tres a la vez.
+let tresRef = confrontaDe(A4, [A4[0], A4[1], g1z(99)], [A4[3]]);
+ok("las tres cosas caben juntas",
+   tresRef.fila[5] === "🔻 FALTAN 2 · ⚠️ SOBRAN 1 · ❌ 1 EN OTRO PEDIMENTO");
+ok("y cada una tiene su linea en el detalle", tresRef.lineas.length === 4);
+
+// Nada escaneado aqui: faltan TODAS.
+let nadaRef = confrontaDe(A4, [], [A4[0]]);
 ok("sin nada aqui faltan todas",
-   cuadroDe(10, 0, 3)[5] === "🔻 FALTAN 10 · ❌ 3 EN OTRO PEDIMENTO");
+   nadaRef.fila[5] === "🔻 FALTAN 4 · ❌ 1 EN OTRO PEDIMENTO");
+
 // Las columnas de numeros siguen cuadrando con el estado.
-ok("la columna del archivo es la del archivo", cuadroDe(10, 7, 2)[2] === 10);
-ok("la de escaneadas aqui tambien", cuadroDe(10, 7, 2)[3] === 7);
-ok("y la de en otro pedimento", cuadroDe(10, 7, 2)[4] === 2);
+ok("la columna del archivo es la del archivo", tresRef.fila[2] === 4);
+ok("la de escaneadas aqui tambien", tresRef.fila[3] === 3);
+ok("y la de en otro pedimento", tresRef.fila[4] === 1);
 // El recuento de completas del dialogo mira el ✅ al principio: si el estado
 // dejara de empezar por ahi, el resumen contaria mal sin fallar.
-ok("COMPLETA empieza por el ✅", cuadroDe(5, 5, 0)[5].indexOf("✅") === 0);
-ok("y ningun otro estado empieza asi", cuadroDe(5, 4, 0)[5].indexOf("✅") !== 0);
+ok("COMPLETA empieza por el ✅", todoOkRef.fila[5].indexOf("✅") === 0);
+ok("y ningun otro estado empieza asi", tresRef.fila[5].indexOf("✅") !== 0);
 
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la

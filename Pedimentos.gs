@@ -1312,6 +1312,26 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
         resumen.get(ped)[campo]++;
     };
 
+    // Las piezas que el archivo le da a cada referencia, en un Set para poder
+    // preguntar por una guía suelta sin recorrer la lista entera.
+    let piezasDe = new Map();
+    (porReferencia || new Map()).forEach((lista, ref) => piezasDe.set(ref, new Set(lista)));
+
+    // LA CUENTA POR REFERENCIA, que es de donde sale el cuadro.
+    //
+    // ANTES EL CUADRO LLEVABA SU PROPIA CUENTA, sacada de cuántos bultos había
+    // en cada pedimento, y el detalle llevaba otra. Por eso el cuadro decía
+    // «SOBRAN 2» y en el detalle no aparecían esas dos: eran dos cuentas
+    // distintas del mismo muelle, y con las dos a la vista no hay forma de
+    // saber cuál creer. Ahora el cuadro se arma de ESTA cuenta, la misma que
+    // escribe cada línea, así que no pueden contradecirse.
+    let porRef = new Map();
+    atadura.forEach((ped, ref) => {
+        porRef.set(ref, { referencia: ref, pedimento: ped,
+                          delArchivo: (piezasDe.get(ref) || new Set()).size,
+                          aqui: 0, enOtro: 0, sobran: 0, faltan: 0 });
+    });
+
     // 1. LO ESCANEADO. Cada bulto contra la atadura de su referencia.
     let escaneadasPorRef = new Map();   // referencia -> Set(1Z escaneados en SU pedimento)
     (escaneado || new Map()).forEach((bultos, ped) => {
@@ -1336,14 +1356,34 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
 
             anota(ped, 'revisadas');
             let suyo = atadura.get(ref) || "";
-            if (suyo === "" || suyo === ped) {
-                if (!escaneadasPorRef.has(ref)) escaneadasPorRef.set(ref, new Set());
-                escaneadasPorRef.get(ref).add(g);
+            let cuenta = porRef.get(ref);
+
+            if (suyo !== "" && suyo !== ped) {
+                anota(ped, 'malas');
+                if (cuenta) cuenta.enOtro++;
+                lineas.push([ped, ref, "❌ Esa referencia va en el pedimento " + suyo,
+                             info.hoja, info.fila, g]);
                 return;
             }
-            anota(ped, 'malas');
-            lineas.push([ped, ref, "❌ Esa referencia va en el pedimento " + suyo,
-                         info.hoja, info.fila, g]);
+
+            if (!escaneadasPorRef.has(ref)) escaneadasPorRef.set(ref, new Set());
+            escaneadasPorRef.get(ref).add(g);
+            if (cuenta) cuenta.aqui++;
+
+            // EL SOBRANTE QUE NO SE DECÍA. Está en el pedimento correcto y su
+            // referencia cuadra, pero el archivo NO le da esta pieza a esa
+            // referencia —pasa cuando el 1Z no viene en el Excel y se reconoce
+            // por la house, que cubre varios bultos—. El cuadro lo contaba como
+            // sobrante y el detalle no lo nombraba, así que se sabía que sobraba
+            // algo y no cuál.
+            let delArchivo = piezasDe.get(ref);
+            if (delArchivo && delArchivo.size > 0 && !delArchivo.has(g)) {
+                anota(ped, 'sobran');
+                if (cuenta) cuenta.sobran++;
+                lineas.push([ped, ref,
+                             "⚠️ SOBRA: la referencia " + ref + " no lleva este 1Z",
+                             info.hoja, info.fila, g]);
+            }
         });
     });
 
@@ -1353,29 +1393,25 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
     atadura.forEach((ped, ref) => {
         let delArchivo = (porReferencia && porReferencia.get(ref)) || [];
         let estan = escaneadasPorRef.get(ref) || new Set();
+        let cuenta = porRef.get(ref);
         delArchivo.forEach(g => {
             if (estan.has(g)) return;
             anota(ped, 'faltan');
+            if (cuenta) cuenta.faltan++;
             lineas.push([ped, ref, "🔻 FALTA: el archivo la tiene y no está escaneada",
                          "", "", g]);
         });
     });
 
-    return { lineas: lineas, resumen: resumen, atadura: atadura,
+    return { lineas: lineas, resumen: resumen, atadura: atadura, porRef: porRef,
              repartidas: (atado && atado.repartidas) || [] };
 }
 
-// Cuántas piezas tiene cada referencia atada y cuántas hay escaneadas. Es la
-// tabla que contesta de un vistazo «¿está completa?».
-function cuadroDeReferencias(porReferencia, atado) {
+// El cuadro por referencia, armado de la cuenta que lleva la confronta. Es un
+// resumen de lo que ya está en el detalle, nunca una segunda opinión.
+function cuadroDeReferencias(porRef) {
     let filas = [];
-    let atadura = (atado && atado.atadura) || new Map();
-    let cuenta = (atado && atado.cuenta) || new Map();
-    atadura.forEach((ped, ref) => {
-        let delArchivo = (porReferencia && porReferencia.get(ref) || []).length;
-        let enSuPed = (cuenta.get(ref) && cuenta.get(ref).get(ped)) || 0;
-        let total = 0;
-        if (cuenta.get(ref)) cuenta.get(ref).forEach(n => { total += n; });
+    (porRef || new Map()).forEach(c => {
         // LAS TRES COSAS QUE PUEDEN PASAR, CADA UNA CON SU NÚMERO, y pueden
         // pasar a la vez. Antes el estado elegía UNA y, encima, «SOBRAN
         // PIEZAS» no decía cuántas: enterarse de que sobra algo sin saber
@@ -1385,16 +1421,12 @@ function cuadroDeReferencias(porReferencia, atado) {
         // pedimento pero alguna más en otro, la referencia no era COMPLETA, no
         // sobraba nada y la resta daba cero: salía «🔻 FALTAN 0», que no
         // significa nada y hace dudar de todo el cuadro.
-        let faltan = Math.max(0, delArchivo - enSuPed);
-        let sobran = Math.max(0, enSuPed - delArchivo);
-        let enOtro = total - enSuPed;
-
         let partes = [];
-        if (faltan) partes.push("🔻 FALTAN " + faltan);
-        if (sobran) partes.push("⚠️ SOBRAN " + sobran);
-        if (enOtro) partes.push("❌ " + enOtro + " EN OTRO PEDIMENTO");
+        if (c.faltan) partes.push("🔻 FALTAN " + c.faltan);
+        if (c.sobran) partes.push("⚠️ SOBRAN " + c.sobran);
+        if (c.enOtro) partes.push("❌ " + c.enOtro + " EN OTRO PEDIMENTO");
 
-        filas.push([ref, ped, delArchivo, enSuPed, enOtro,
+        filas.push([c.referencia, c.pedimento, c.delArchivo, c.aqui, c.enOtro,
                     partes.length ? partes.join(" · ") : "✅ COMPLETA"]);
     });
     filas.sort((a, b) => String(a[1]).localeCompare(String(b[1])) ||
@@ -1438,7 +1470,7 @@ function hacerLaConfronta(trayendo) {
     catch (err) { celdasAtadura = 0; }
     olvidarBlobPedimentosDeHouseEnRAM();
 
-    let cuadro = cuadroDeReferencias(imp.porReferencia, atado);
+    let cuadro = cuadroDeReferencias(r.porRef);
 
     let hoja = ss.getSheetByName(HOJA_CONFRONTA_HOUSE);
     if (!hoja) hoja = ss.insertSheet(HOJA_CONFRONTA_HOUSE, ss.getNumSheets());
