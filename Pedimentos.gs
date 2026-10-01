@@ -56,6 +56,10 @@
 
 const HOJA_PEDIMENTOS_RAPIDO = "PEDIMENTOS_RAPIDO";
 const HOJA_REFERENCIAS_RAPIDO = "REFERENCIAS_RAPIDO";
+// Las houses van en su PROPIA pestaña, no mezcladas con las piezas. Ver
+// `referenciasDelArchivo`: una guía corta y una house tienen los dos once
+// caracteres, así que juntas no hay forma de saber cuál es cuál.
+const HOJA_HOUSES_RAPIDO = "REF_HOUSES_RAPIDO";
 const HOJA_CONFRONTA_HOUSE = "CONFRONTA REFERENCIAS";
 const PROP_ID_PEDIMENTOS = 'PEDIMENTOS_ID_ARCHIVO';
 
@@ -126,14 +130,25 @@ function claveHousePed(v) {
 
 // De la rejilla del archivo a lo que hace falta para trabajar.
 //
-// Devuelve TRES cosas:
+// Devuelve CUATRO cosas:
 //
-//   · `entradas`: pares {clave, referencia}. SE INDEXA POR LAS DOS COSAS, por
-//     el 1Z y por la house, porque según la pestaña puede faltar una u otra:
-//     el 1Z está en la columna A desde el instante del escaneo, la house la
-//     pone un relleno que tarda hasta cinco minutos. No chocan entre ellas —un
-//     1Z son dieciocho caracteres y empieza por «1Z», una house once—.
-//   · `porReferencia`: referencia → la lista de sus 1Z. Es lo que permite
+//   · `piezas`: pares {clave, referencia} donde la clave es lo que va en la
+//     COLUMNA A de un escaneo: el 1Z largo, o la GUÍA CORTA cuando el embarque
+//     viene con una de esas.
+//   · `houses`: lo mismo pero con la house, que es la columna C. Hace falta
+//     porque según la pestaña puede faltar una u otra: la columna A está desde
+//     el instante del escaneo y la house la pone un relleno que tarda hasta
+//     cinco minutos.
+//
+//     VAN SEPARADAS, Y ESTO COSTÓ UN DÍA. Antes iban en la misma lista y lo
+//     que era cada cosa se adivinaba por el formato: dieciocho caracteres
+//     empezando por «1Z» era una guía, y lo demás una house. Pero UNA GUÍA
+//     CORTA TIENE ONCE CARACTERES, exactamente como una house, así que todas
+//     las guías cortas se tomaban por houses: no entraban en la lista de la
+//     referencia y al escanearlas salían como SOBRANTES estando en el archivo.
+//     Adivinar por el formato dos cosas que se escriben igual no se puede
+//     arreglar con una expresión regular mejor; hay que no perder el dato.
+//   · `porReferencia`: referencia → la lista de sus piezas. Es lo que permite
 //     contestar «si la referencia tiene diez piezas, ¿están las diez?».
 //   · `contradicciones`: la misma clave en dos referencias. Gana la primera y
 //     se reporta; elegir en silencio es lo que haría que el aviso acusara al
@@ -143,27 +158,29 @@ function claveHousePed(v) {
 // acusa a bultos buenos o absuelve a los malos, y eso solo se ve comparando
 // papeles a mano.
 function referenciasDelArchivo(datos, cols) {
-    let entradas = [];
-    let porClave = new Map();
+    let piezas = [];
+    let houses = [];
+    let vistaPieza = new Map();
+    let vistaHouse = new Map();
     let porReferencia = new Map();
     let contradicciones = [];
     if (!datos || !cols || cols.referencia === -1 ||
         (cols.guia === -1 && cols.house === -1)) {
-        return { entradas: entradas, porReferencia: porReferencia,
-                 contradicciones: contradicciones };
+        return { piezas: piezas, houses: houses, entradas: piezas.concat(houses),
+                 porReferencia: porReferencia, contradicciones: contradicciones };
     }
 
-    let anota = (clave, ref, fila) => {
+    let anota = (lista, vista, clave, ref, fila) => {
         if (clave === "") return;
-        if (porClave.has(clave)) {
-            if (porClave.get(clave) !== ref) {
-                contradicciones.push({ clave: clave, primero: porClave.get(clave),
+        if (vista.has(clave)) {
+            if (vista.get(clave) !== ref) {
+                contradicciones.push({ clave: clave, primero: vista.get(clave),
                                        segundo: ref, fila: fila });
             }
             return;
         }
-        porClave.set(clave, ref);
-        entradas.push({ clave: clave, referencia: ref });
+        vista.set(clave, ref);
+        lista.push({ clave: clave, referencia: ref });
     };
 
     for (let i = 1; i < datos.length; i++) {
@@ -179,7 +196,7 @@ function referenciasDelArchivo(datos, cols) {
         let h = cols.house === -1 ? "" : claveHousePed(fila[cols.house]);
         if (g === "" && h === "") continue;
 
-        // La LISTA de la referencia se lleva por 1Z, que es un bulto. Con la
+        // La LISTA de la referencia se lleva por PIEZA, que es un bulto. Con la
         // house serían menos piezas de las que hay: una house cubre varias.
         let pieza = g !== "" ? g : h;
         if (!porReferencia.has(ref)) porReferencia.set(ref, []);
@@ -187,11 +204,11 @@ function referenciasDelArchivo(datos, cols) {
             porReferencia.get(ref).push(pieza);
         }
 
-        anota(g, ref, i + 1);
-        anota(h, ref, i + 1);
+        anota(piezas, vistaPieza, g, ref, i + 1);
+        anota(houses, vistaHouse, h, ref, i + 1);
     }
-    return { entradas: entradas, porReferencia: porReferencia,
-             contradicciones: contradicciones };
+    return { piezas: piezas, houses: houses, entradas: piezas.concat(houses),
+             porReferencia: porReferencia, contradicciones: contradicciones };
 }
 
 // -------------------------------------------------------------------------
@@ -291,9 +308,27 @@ function guardarTextoRapido(ss, nombre, trozos) {
     return trozos.length;
 }
 
-function guardarBlobReferencias(ss, entradas) {
-    return guardarTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO,
-                              empaquetarClaveReferencia(entradas));
+// ¿La lista guardada es de ANTES de separar piezas y houses?
+//
+// SE DETECTA Y SE TIRA, no se intenta aprovechar. En el texto viejo las dos
+// cosas están mezcladas y no hay forma de deshacer la mezcla: una guía corta y
+// una house tienen los dos once caracteres. Dándola por buena, cada house
+// contaría como una pieza más de su referencia y el cuadro diría que faltan
+// bultos que no existen. Un número equivocado en silencio es peor que no tener
+// número, porque se actúa sobre él.
+function listaGuardadaEsVieja(ss) {
+    let piezas = hojaDeTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO, false);
+    if (!piezas || piezas.getLastRow() < 1) return false;
+    let houses = hojaDeTextoRapido(ss, HOJA_HOUSES_RAPIDO, false);
+    return !houses || houses.getLastRow() < 1;
+}
+
+function guardarBlobReferencias(ss, piezas, houses) {
+    let n = guardarTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO,
+                               empaquetarClaveReferencia(piezas));
+    n += guardarTextoRapido(ss, HOJA_HOUSES_RAPIDO,
+                            empaquetarClaveReferencia(houses || []));
+    return n;
 }
 
 function guardarBlobAtaduras(ss, atadura) {
@@ -325,10 +360,12 @@ function leerTextoRapido(ss, nombre) {
 // dice nada: desaparece el menú «📦 Opciones Avanzadas» completo, sin ningún
 // error a la vista, como si alguien lo hubiera borrado.
 let globalMapaRefDeGuia = null;
+let globalMapaRefDeHouse = null;
 let globalMapaPedDeRef = null;
 
 function olvidarBlobPedimentosDeHouseEnRAM() {
     globalMapaRefDeGuia = null;
+    globalMapaRefDeHouse = null;
     globalMapaPedDeRef = null;
 }
 
@@ -339,6 +376,15 @@ function mapaReferenciasParaEscaneo(ss) {
             leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
     }
     return globalMapaRefDeGuia;
+}
+
+// La house → su referencia. En su propio mapa, ver `referenciasDelArchivo`.
+function mapaHousesDeReferencia(ss) {
+    if (globalMapaRefDeHouse === null) {
+        globalMapaRefDeHouse = mapaDesdeBlobPedimentos(
+            leerTextoRapido(ss, HOJA_HOUSES_RAPIDO));
+    }
+    return globalMapaRefDeHouse;
 }
 
 // referencia → su pedimento, según lo aprendido en la última confronta.
@@ -380,10 +426,11 @@ function avisoDeHouseContraPedimento(ss, house, pedBloque, guia) {
 
     try {
         let refs = mapaReferenciasParaEscaneo(ss);
-        if (!refs || refs.size === 0) return "";
-        // El archivo no conoce ni el 1Z ni la house: puede ser de otro día o de
-        // una importación que todavía no se ha hecho. Callar es lo correcto.
-        let ref = (g !== "" && refs.get(g)) || (h !== "" && refs.get(h)) || "";
+        let porHouse = mapaHousesDeReferencia(ss);
+        if ((!refs || refs.size === 0) && (!porHouse || porHouse.size === 0)) return "";
+        // El archivo no conoce ni la guía ni la house: puede ser de otro día o
+        // de una importación que todavía no se ha hecho. Callar es lo correcto.
+        let ref = (g !== "" && refs.get(g)) || (h !== "" && porHouse.get(h)) || "";
         if (ref === "") return "";
 
         let suyo = mapaAtadurasParaEscaneo(ss).get(ref) || "";
@@ -506,10 +553,11 @@ function traerPedimentosDelArchivo(ss) {
             ".\n\nMiré:\n" + hojasMiradas.join("\n") };
     }
 
-    let celdas = guardarBlobReferencias(ss, mejor.r.entradas);
+    let celdas = guardarBlobReferencias(ss, mejor.r.piezas, mejor.r.houses);
     olvidarBlobPedimentosDeHouseEnRAM();
 
     return { ok: true, entradas: mejor.r.entradas,
+             piezas: mejor.r.piezas, houses: mejor.r.houses,
              porReferencia: mejor.r.porReferencia,
              contradicciones: mejor.r.contradicciones,
              celdas: celdas, cols: mejor.cols,
@@ -538,6 +586,11 @@ function resumenDeImportacionPedimentos(r) {
               "   · " + piezas.toLocaleString() + " piezas\n" +
               "   · " + r.entradas.length.toLocaleString() + " claves (1Z + house)";
 
+    if (r.deCarpeta && r.listaRehecha) {
+        msg += "\n\n\u267b\ufe0f La lista guardada era de la versión anterior " +
+               "—guías y houses mezcladas— y se rehízo entera desde los " +
+               "archivos de la carpeta. Por eso se volvieron a leer todos.";
+    }
     if (r.deCarpeta && r.quedan) {
         msg += "\n\n⏳ Quedan más archivos por leer: vuelve a apretar el botón. " +
                "Se leen " + MAX_ARCHIVOS_GUIAS + " por pasada para no agotar los " +
@@ -994,9 +1047,22 @@ function traerGuiasDeLaCarpeta(ss) {
     // LO QUE YA HABÍA. Se parte de ahí y se suma: un Excel nuevo trae el
     // embarque de hoy, no el de ayer, y reemplazar borraría las referencias que
     // siguen vivas en el muelle.
-    let acumulado = mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
-    let antes = acumulado.size;
-    let yaLeidos = archivosYaLeidos(ss);
+    let vieja = listaGuardadaEsVieja(ss);
+    let acumulado = vieja ? new Map()
+                          : mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
+    let acumHouses = vieja ? new Map()
+                           : mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_HOUSES_RAPIDO));
+    let antes = acumulado.size + acumHouses.size;
+
+    // Con la lista vieja tirada hay que volver a leer TODOS los archivos, o la
+    // carpeta diría «ningún archivo nuevo» y se quedaría sin nada.
+    let yaLeidos = vieja ? new Set() : archivosYaLeidos(ss);
+    if (vieja) {
+        try {
+            let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, false);
+            if (h) h.clearContents();
+        } catch (err) { /* si no se puede, lo peor es releer de más */ }
+    }
 
     let mirados = [], nuevosIds = [], problemas = [], inventario = [];
     let quedan = false, piezasNuevas = 0, invalidas = 0;
@@ -1025,9 +1091,17 @@ function traerGuiasDeLaCarpeta(ss) {
                 if (!r || r.entradas.length === 0) return;
                 encontro = true;
                 invalidas += r.contradicciones.length;
-                r.entradas.forEach(e => {
+                // Las piezas y las houses se acumulan POR SEPARADO: una guía
+                // corta y una house tienen los dos once caracteres, y juntas no
+                // habría forma de saber cuál es cuál al recomponer la lista.
+                r.piezas.forEach(e => {
                     if (acumulado.has(e.clave)) return;
                     acumulado.set(e.clave, e.referencia);
+                    piezasNuevas++;
+                });
+                r.houses.forEach(e => {
+                    if (acumHouses.has(e.clave)) return;
+                    acumHouses.set(e.clave, e.referencia);
                     piezasNuevas++;
                 });
             });
@@ -1056,7 +1130,7 @@ function traerGuiasDeLaCarpeta(ss) {
         }
     }
 
-    if (acumulado.size === 0) {
+    if (acumulado.size === 0 && acumHouses.size === 0) {
         let msg = "No pude sacar ninguna guía de la carpeta «" +
                   carpeta.getName() + "».\n\n";
         if (problemas.length) {
@@ -1076,18 +1150,21 @@ function traerGuiasDeLaCarpeta(ss) {
         return { ok: false, error: msg };
     }
 
-    let entradas = [];
+    let entradas = [], houses = [];
     acumulado.forEach((ref, clave) => entradas.push({ clave: clave, referencia: ref }));
-    let celdas = guardarBlobReferencias(ss, entradas);
+    acumHouses.forEach((ref, clave) => houses.push({ clave: clave, referencia: ref }));
+    let celdas = guardarBlobReferencias(ss, entradas, houses);
     apuntarArchivosLeidos(ss, nuevosIds);
     olvidarBlobPedimentosDeHouseEnRAM();
 
-    return { ok: true, entradas: entradas,
+    return { ok: true, entradas: entradas.concat(houses),
+             piezas: entradas, houses: houses,
              porReferencia: referenciasDesdeMapa(acumulado),
              contradicciones: [],
              celdas: celdas, cols: null,
              nombreHoja: carpeta.getName(), libro: null,
              deCarpeta: true, archivos: mirados, problemas: problemas,
+             listaRehecha: vieja,
              inventario: inventario,
              quedan: quedan, piezasNuevas: piezasNuevas, antes: antes };
 }
@@ -1101,7 +1178,6 @@ function traerGuiasDeLaCarpeta(ss) {
 function referenciasDesdeMapa(mapa) {
     let out = new Map();
     (mapa || new Map()).forEach((ref, clave) => {
-        if (!/^1Z[A-Z0-9]{16}$/.test(clave)) return;
         if (!out.has(ref)) out.set(ref, []);
         out.get(ref).push(clave);
     });
@@ -1152,16 +1228,27 @@ function encabezadoDeOrigen(origen) {
 // corrige otro. Obligar a releer la carpeta en cada vuelta hace esperar por
 // algo que no ha cambiado, y encima mueve archivos a PROCESADOS sin necesidad.
 function guiasGuardadas(ss) {
+    if (listaGuardadaEsVieja(ss)) {
+        return { ok: false, origen: "guardadas", error:
+            "La lista guardada es de la versión anterior, cuando las guías y " +
+            "las houses iban mezcladas, y no se puede deshacer la mezcla: una " +
+            "guía corta y una house tienen los dos once caracteres.\n\n" +
+            "Aprieta «\ud83d\udd0e Confrontar con los pedimentos» una vez y se rehace " +
+            "sola. Después, este botón vuelve a funcionar." };
+    }
     let mapa = mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
-    if (mapa.size === 0) {
+    let mapaH = mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_HOUSES_RAPIDO));
+    if (mapa.size === 0 && mapaH.size === 0) {
         return { ok: false, origen: "guardadas", error:
             "No hay ninguna guía guardada todavía, así que no hay contra " +
             "qué cruzar.\n\nUsa primero «🔎 Confrontar con los pedimentos», " +
             "que trae el archivo y cruza." };
     }
-    let entradas = [];
+    let entradas = [], houses = [];
     mapa.forEach((ref, clave) => entradas.push({ clave: clave, referencia: ref }));
-    return { ok: true, origen: "guardadas", entradas: entradas,
+    mapaH.forEach((ref, clave) => houses.push({ clave: clave, referencia: ref }));
+    return { ok: true, origen: "guardadas", entradas: entradas.concat(houses),
+             piezas: entradas, houses: houses,
              porReferencia: referenciasDesdeMapa(mapa),
              contradicciones: [], celdas: 0, cols: null,
              nombreHoja: "", libro: null, soloGuardadas: true };
@@ -1456,7 +1543,12 @@ function hacerLaConfronta(trayendo) {
     // cosas distintas.
     ss.toast('⏳ Leyendo los escaneos…', 'Confronta', 20);
     let refDeClave = new Map();
-    imp.entradas.forEach(e => refDeClave.set(e.clave, e.referencia));
+    // LAS PIEZAS PRIMERO Y LAS HOUSES DESPUÉS, sin pisar. Si una guía corta y
+    // una house se escriben igual, manda la que identifica el bulto.
+    (imp.piezas || []).forEach(e => refDeClave.set(e.clave, e.referencia));
+    (imp.houses || []).forEach(e => {
+        if (!refDeClave.has(e.clave)) refDeClave.set(e.clave, e.referencia);
+    });
 
     let escaneado = housesEscaneadasPorPedimento(ss);
     let atado = atarReferenciasAPedimentos(refDeClave, escaneado);

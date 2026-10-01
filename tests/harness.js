@@ -5122,6 +5122,12 @@ let clavesRef = new Set(leidoRef.entradas.map(e => e.clave));
 ok("indexa por el 1Z", clavesRef.has(G1Z_A) && clavesRef.has(G1Z_C));
 ok("y por la house", clavesRef.has(H1Z_A) && clavesRef.has(H1Z_C));
 ok("son dos claves por fila", leidoRef.entradas.length === 6);
+ok("la mitad son piezas y la mitad houses",
+   leidoRef.piezas.length === 3 && leidoRef.houses.length === 3);
+// Ninguna clave puede estar en las dos listas: una fila da una pieza Y una
+// house, nunca la misma cosa dos veces.
+ok("ninguna clave esta en las dos listas",
+   !leidoRef.piezas.some(p => leidoRef.houses.some(h => h.clave === p.clave)));
 ok("el encabezado repetido no entra", !clavesRef.has("TRACKING1Z"));
 ok("la fila sin guia ni house tampoco", leidoRef.porReferencia.get(REF_A).length === 2);
 ok("sin contradicciones", leidoRef.contradicciones.length === 0);
@@ -5385,23 +5391,82 @@ for (let i = 0; i < 40; i++) muyAbajo.push(["", "", ""]);
 muyAbajo.push(CAB_REF);
 ok("una cabecera enterrada no se busca sin fin", cabeceraDeGuiasEn(muyAbajo) === null);
 
-// SOLO LOS 1Z ENTRAN EN LA LISTA DE LA REFERENCIA. El mapa lleva tambien las
-// houses -hacen falta para encontrar la referencia de una fila- pero la lista
-// es de BULTOS, y una house cubre varios: contandolas saldrian menos piezas de
-// las que hay y el «faltan tres» seria mentira.
-let mapaMezclado = new Map([
-    [G1Z_A, REF_A], [H1Z_A, REF_A],
-    [G1Z_B, REF_A], [H1Z_B, REF_A],
-    [G1Z_C, REF_B], [H1Z_C, REF_B]
-]);
-let desdeMapa = referenciasDesdeMapa(mapaMezclado);
-ok("la referencia cuenta sus 1Z", desdeMapa.get(REF_A).length === 2);
-ok("no sus houses", desdeMapa.get(REF_A).indexOf(H1Z_A) === -1);
+// LAS PIEZAS Y LAS HOUSES VAN SEPARADAS, Y ESTO COSTO UN DIA.
+//
+// Antes iban en la misma lista y lo que era cada cosa se adivinaba por el
+// formato: dieciocho caracteres empezando por «1Z» era una guia, y lo demas una
+// house. Pero UNA GUIA CORTA TIENE ONCE CARACTERES, exactamente como una house,
+// asi que todas las guias cortas se tomaban por houses: no entraban en la lista
+// de la referencia y al escanearlas salian como SOBRANTES estando en el
+// archivo. Adivinar por el formato dos cosas que se escriben igual no se
+// arregla con una expresion regular mejor; hay que no perder el dato.
+const G_CORTA = "V0264205381";     // once caracteres, como una house
+const H_CORTA = "A2F338CFPBS";
+let conCorta = referenciasDelArchivo([
+    CAB_REF,
+    [H1Z_A, G1Z_A, REF_A, "", ""],     // 1Z largo
+    [H_CORTA, G_CORTA, REF_A, "", ""]  // guia CORTA
+], colsRef);
+ok("la guia corta entra como PIEZA",
+   conCorta.piezas.some(e => e.clave === G_CORTA));
+ok("y la house como house", conCorta.houses.some(e => e.clave === H_CORTA));
+ok("la pieza no se cuela entre las houses",
+   !conCorta.houses.some(e => e.clave === G_CORTA));
+// LO QUE SE ROMPIA: la guia corta tiene que estar en la lista de su
+// referencia, o al escanearla sale como sobrante estando en el archivo.
+ok("la guia corta cuenta como pieza de la referencia",
+   conCorta.porReferencia.get(REF_A).indexOf(G_CORTA) !== -1);
+ok("y la referencia tiene las dos piezas",
+   conCorta.porReferencia.get(REF_A).length === 2);
+
+// Y EL CASO DE VERDAD, de punta a punta: una guia corta escaneada en su
+// pedimento NO puede salir como sobrante.
+let refCorta = new Map(conCorta.piezas.map(e => [e.clave, e.referencia]));
+conCorta.houses.forEach(e => { if (!refCorta.has(e.clave)) refCorta.set(e.clave, e.referencia); });
+let confCorta = confrontarHouses(conCorta.porReferencia, refCorta,
+    new Map([["6113854", new Map([
+        [G1Z_A, { hoja: "GLOBAL 1", fila: 2, house: H1Z_A }],
+        [G_CORTA, { hoja: "GLOBAL 1", fila: 3, house: H_CORTA }]
+    ])]]),
+    { atadura: new Map([[REF_A, "6113854"]]), repartidas: [] });
+ok("la guia corta escaneada NO sobra",
+   !confCorta.lineas.some(l => l[5] === G_CORTA));
+ok("ni falta", confCorta.lineas.length === 0);
+ok("y la referencia sale COMPLETA",
+   cuadroDeReferencias(confCorta.porRef)[0][5] === "✅ COMPLETA");
+
+// `referenciasDesdeMapa` ya no adivina: recompone la lista del texto de las
+// PIEZAS, donde todo lo que hay es una pieza.
+let soloPiezas = new Map([[G1Z_A, REF_A], [G_CORTA, REF_A], [G1Z_C, REF_B]]);
+let desdeMapa = referenciasDesdeMapa(soloPiezas);
+ok("la referencia cuenta sus piezas", desdeMapa.get(REF_A).length === 2);
+ok("incluida la corta", desdeMapa.get(REF_A).indexOf(G_CORTA) !== -1);
 ok("y la otra tambien", desdeMapa.get(REF_B).length === 1);
 ok("sin mapa no revienta", referenciasDesdeMapa(null).size === 0);
-// Una house de once caracteres no puede parecer un 1Z.
-ok("una house nunca pasa por 1Z",
-   referenciasDesdeMapa(new Map([[H1Z_A, REF_A]])).size === 0);
+
+// LA LISTA VIEJA SE DETECTA Y SE TIRA, no se intenta aprovechar.
+//
+// En el texto de antes las piezas y las houses estaban mezcladas y no hay forma
+// de deshacer la mezcla. Dandola por buena, cada house contaria como una pieza
+// mas de su referencia y el cuadro diria que faltan bultos que no existen. Un
+// numero equivocado en silencio es peor que no tener numero, porque se actua
+// sobre el.
+const FUENTE_VIEJA = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+ok("se detecta la lista vieja",
+   FUENTE_VIEJA.indexOf("function listaGuardadaEsVieja(ss)") !== -1);
+// La señal es que exista el texto de piezas y NO el de houses: ese es el unico
+// estado que solo puede venir de la version anterior.
+ok("por la falta del texto de houses",
+   FUENTE_VIEJA.indexOf("return !houses || houses.getLastRow() < 1;") !== -1);
+ok("se empieza de cero", FUENTE_VIEJA.indexOf("let acumulado = vieja ? new Map()") !== -1);
+// Y hay que releer TODOS los archivos, o la carpeta diria «ningun archivo
+// nuevo» y se quedaria sin nada.
+ok("y se vuelven a leer todos los archivos",
+   FUENTE_VIEJA.indexOf("let yaLeidos = vieja ? new Set()") !== -1);
+ok("se dice en el resumen", FUENTE_VIEJA.indexOf("se rehízo entera desde los") !== -1);
+// El boton de solo cruzar NO puede fingir que cruza con la lista vieja.
+ok("solo-cruzar se niega con la lista vieja",
+   FUENTE_VIEJA.indexOf("La lista guardada es de la versión anterior") !== -1);
 
 // SE ACUMULA, NO SE REEMPLAZA. Un Excel nuevo trae el embarque de hoy, no el
 // de ayer, y reemplazar la lista borraria las referencias que siguen vivas en
