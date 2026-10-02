@@ -1527,23 +1527,19 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
 
     // 1. LO ESCANEADO. Cada bulto contra la atadura de su referencia.
     let escaneadasPorRef = new Map();   // referencia -> Set(1Z escaneados en SU pedimento)
+    let desconocidasPorPed = new Map(); // pedimento -> los bultos que el archivo no conoce
     (escaneado || new Map()).forEach((bultos, ped) => {
         bultos.forEach((info, g) => {
             let ref = (refDeClave && refDeClave.get(g)) ||
                       (info.house && refDeClave && refDeClave.get(info.house)) || "";
 
-            // El archivo no conoce este bulto. Solo se denuncia si el pedimento
-            // tiene alguna referencia atada: si no, no hay nada contra qué
-            // comparar y el informe se llenaría de filas que no son un error
-            // sino una falta de datos.
+            // El archivo no conoce este bulto. SE APARTA Y SE CUENTA, no se
+            // escribe una línea por cada uno: ver abajo, donde se juntan.
             if (ref === "") {
-                let conocido = false;
-                atadura.forEach(p => { if (p === ped) conocido = true; });
-                if (!conocido) return;
                 anota(ped, 'revisadas');
-                anota(ped, 'sobran');
-                lineas.push([ped, "", "⚠️ SOBRA: el archivo no tiene este 1Z",
-                             info.hoja, info.fila, g]);
+                if (!desconocidasPorPed.has(ped)) desconocidasPorPed.set(ped, []);
+                desconocidasPorPed.get(ped).push(
+                    { guia: g, hoja: info.hoja, fila: info.fila });
                 return;
             }
 
@@ -1580,7 +1576,35 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
         });
     });
 
-    // 2. LO QUE FALTA. De cada referencia atada, las piezas que el archivo tiene
+    // 2. LAS QUE EL ARCHIVO NO CONOCE, UNA LÍNEA POR PEDIMENTO.
+    //
+    // Antes era una línea por guía, y eso hacía inservible el informe: un
+    // pedimento de cincuenta bultos de los que el archivo solo reconoce dos
+    // escribía cuarenta y ocho renglones que decían todos lo mismo, y
+    // sepultaban las tres o cuatro que sí había que ir a mirar. El dato útil
+    // no es cuál de las cuarenta y ocho, es que son cuarenta y ocho.
+    //
+    // Y SE DICE AUNQUE EL PEDIMENTO NO TENGA NADA ATADO. Antes ahí se callaba
+    // —«de lo que no está en el archivo no se puede opinar»— y callarse del
+    // todo tampoco servía: el pedimento desaparecía del informe y nadie sabía
+    // si estaba bien o si nadie lo había mirado. Una línea no ahoga nada.
+    desconocidasPorPed.forEach((lista, ped) => {
+        let conocido = false;
+        atadura.forEach(p => { if (p === ped) conocido = true; });
+
+        let n = lista.length;
+        for (let k = 0; k < n; k++) anota(ped, 'sobran');
+
+        let primera = lista[0];
+        lineas.push([ped, "",
+            conocido
+                ? "⚠️ El archivo no tiene " + n + " de las guías escaneadas aquí"
+                : "⚠️ Este pedimento NO está en el archivo (" + n + " guías escaneadas)",
+            primera.hoja, primera.fila,
+            n === 1 ? primera.guia : primera.guia + "  …y " + (n - 1) + " más"]);
+    });
+
+    // 3. LO QUE FALTA. De cada referencia atada, las piezas que el archivo tiene
     //    y no aparecen escaneadas en su pedimento. Es la mitad de la pregunta
     //    que se pidió: «si la referencia tiene diez piezas, que sean diez».
     atadura.forEach((ped, ref) => {

@@ -5323,18 +5323,28 @@ let escaneoSobra = new Map([
 let atadoSobra = atarReferenciasAPedimentos(refDeClaveT, escaneoSobra);
 let confSobra = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
                                  escaneoSobra, atadoSobra);
-ok("la intrusa sale como sobrante",
-   confSobra.lineas.some(l => l[5] === "1ZINTRUSA000000001" &&
-                              l[2].indexOf("SOBRA") !== -1));
+// LAS QUE EL ARCHIVO NO CONOCE SE JUNTAN EN UNA LINEA POR PEDIMENTO. Una
+// linea por guia hacia inservible el informe: un pedimento de cincuenta bultos
+// de los que el archivo reconoce dos escribia cuarenta y ocho renglones que
+// decian todos lo mismo y sepultaban las tres que si habia que mirar.
+ok("la intrusa sale en la linea del pedimento",
+   confSobra.lineas.some(l => l[5].indexOf("1ZINTRUSA000000001") === 0 &&
+                              l[2].indexOf("no tiene 1") !== -1));
 ok("el resumen la cuenta", confSobra.resumen.get("6113854").sobran === 1);
 
 // UN PEDIMENTO DEL QUE NO SE SABE NADA no entra. Sin ninguna referencia atada
 // no hay contraRef que comparar, y el informe se llenaria de filas que no son un
 // error sino una falta de datos.
+// Y SE DICE AUNQUE EL PEDIMENTO NO TENGA NADA ATADO. Antes ahi se callaba -«de
+// lo que no esta en el archivo no se puede opinar»- y callarse del todo tampoco
+// servia: el pedimento desaparecia del informe y nadie sabia si estaba bien o
+// si nadie lo habia mirado. Una linea no ahoga nada.
 let confAjeno = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
     new Map([["9999999", new Map([["1ZAJENA00000000001", { hoja: "X", fila: 1, house: "" }]])]]),
     { atadura: new Map(), repartidas: [] });
-ok("un pedimento sin nada atado no entra", confAjeno.lineas.length === 0);
+ok("un pedimento ajeno sale en UNA linea", confAjeno.lineas.length === 1);
+ok("y dice que no esta en el archivo",
+   confAjeno.lineas[0][2].indexOf("NO está en el archivo") !== -1);
 
 // De una referencia que todavia no ha llegado NO se puede decir que falte: no
 // se ha empezado. Solo se miran las que tienen al menos un bulto escaneado.
@@ -5851,6 +5861,68 @@ ok("la repartida en empate no dice «sin empezar»",
    laEmpatada[5].indexOf("SIN EMPEZAR") === -1);
 ok("dice que esta repartida", laEmpatada[5].indexOf("REPARTIDA") !== -1);
 ok("y cuantas hay escaneadas ya", laEmpatada[3] === 2);
+
+// UNA LINEA POR PEDIMENTO PARA LAS QUE EL ARCHIVO NO CONOCE.
+//
+// El dato util no es CUAL de las cuarenta y ocho, es QUE SON CUARENTA Y OCHO.
+function informeDe(reconocidas, desconocidasA, desconocidasB) {
+    let porRefFile = new Map([['REF1', [g1z(1), g1z(2)]]]);
+    let refDe = new Map([[g1z(1), 'REF1'], [g1z(2), 'REF1']]);
+    let a = new Map();
+    for (let i = 0; i < reconocidas; i++) {
+        a.set(g1z(i + 1), { hoja: 'GLOBAL 1', fila: i + 2, house: '' });
+    }
+    for (let i = 0; i < desconocidasA; i++) {
+        a.set('1ZX' + String(i).padStart(15, '0'), { hoja: 'GLOBAL 1', fila: i + 9, house: '' });
+    }
+    let esc = new Map([['6113854', a]]);
+    if (desconocidasB) {
+        let b = new Map();
+        for (let i = 0; i < desconocidasB; i++) {
+            b.set('1ZY' + String(i).padStart(15, '0'), { hoja: 'GLOBAL 2', fila: i + 2, house: '' });
+        }
+        esc.set('7777777', b);
+    }
+    return confrontarHouses(porRefFile, refDe, esc,
+                            atarReferenciasAPedimentos(refDe, esc));
+}
+
+let muchasDesc = informeDe(2, 48, 12);
+ok("cuarenta y ocho desconocidas son UNA linea", muchasDesc.lineas.length === 2);
+ok("y dice cuantas son",
+   muchasDesc.lineas.some(l => l[0] === "6113854" && l[2].indexOf("48") !== -1));
+// La guia de ejemplo y el «y N mas» sirven para ir a mirar sin tener que
+// buscarla: la pestaña y la fila son las de la primera.
+ok("con una guia de ejemplo y cuantas quedan",
+   muchasDesc.lineas.some(l => l[0] === "6113854" && l[5].indexOf("…y 47 más") !== -1));
+ok("y con su pestaña y su fila",
+   muchasDesc.lineas.some(l => l[0] === "6113854" && l[3] === "GLOBAL 1" && l[4] > 0));
+
+// EL PEDIMENTO QUE NO ESTA EN EL ARCHIVO tiene su propio texto: no es lo mismo
+// «de este pedimento faltan guias en el archivo» que «este pedimento no esta».
+ok("el pedimento ajeno lo dice con sus palabras",
+   muchasDesc.lineas.some(l => l[0] === "7777777" &&
+                           l[2].indexOf("NO está en el archivo") !== -1));
+
+// LOS NUMEROS SIGUEN CONTANDO BULTOS, no lineas: juntar el informe no puede
+// cambiar cuantos bultos hay.
+ok("el resumen cuenta bultos, no renglones",
+   muchasDesc.resumen.get("6113854").sobran === 48);
+ok("y los revisados son todos", muchasDesc.resumen.get("6113854").revisadas === 50);
+ok("el del ajeno tambien", muchasDesc.resumen.get("7777777").sobran === 12);
+
+// CON UNA SOLA no se escribe «…y 0 más», que se lee como un error.
+let unaSola = informeDe(2, 1, 0);
+ok("con una sola no dice «y 0 mas»",
+   unaSola.lineas.every(l => l[5].indexOf("…y") === -1));
+ok("y sale la guia tal cual",
+   unaSola.lineas.some(l => l[5] === "1ZX" + "0".repeat(15)));
+
+// Si el archivo las conoce TODAS, no hay linea de estas.
+let ninguna = informeDe(2, 0, 0);
+ok("sin desconocidas no hay linea",
+   !ninguna.lineas.some(l => l[2].indexOf("no tiene") !== -1 ||
+                             l[2].indexOf("NO está") !== -1));
 
 console.log("\n--- 23i. Menos pestañas de sistema ---");
 // CUATRO PESTAÑAS OCULTAS POR UN MODULO SON DEMASIADAS. Quien abre el archivo
