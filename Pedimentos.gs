@@ -54,12 +54,35 @@
 // de salidas, y por las mismas razones.
 // =========================================================================
 
-const HOJA_PEDIMENTOS_RAPIDO = "PEDIMENTOS_RAPIDO";
-const HOJA_REFERENCIAS_RAPIDO = "REFERENCIAS_RAPIDO";
-// Las houses van en su PROPIA pestaña, no mezcladas con las piezas. Ver
-// `referenciasDelArchivo`: una guía corta y una house tienen los dos once
-// caracteres, así que juntas no hay forma de saber cuál es cuál.
-const HOJA_HOUSES_RAPIDO = "REF_HOUSES_RAPIDO";
+// UNA SOLA PESTAÑA PARA LAS CUATRO LISTAS, en cuatro columnas.
+//
+// Empezaron siendo cuatro pestañas —una por lista— porque cada una se añadió
+// el día que hizo falta. Cuatro pestañas ocultas por un módulo es demasiado:
+// quien abre el archivo las ve en el selector de hojas ocultas y no sabe cuál
+// toca ni cuál sobra, y cada una es una más que puede borrarse por error.
+//
+// Lo que guarda cada columna:
+//   A  pieza (1Z o guía corta) → referencia        del archivo
+//   B  house                   → referencia        del archivo
+//   C  referencia              → pedimento         APRENDIDO de los escaneos
+//   D  ids de los archivos de Drive ya leídos
+//
+// A y B van SEPARADAS y eso no es cosmético: una guía corta y una house tienen
+// las dos once caracteres, así que juntas no hay forma de saber cuál es cuál.
+// Separarlas en columnas cuesta lo mismo que en pestañas y se ve de un vistazo.
+const HOJA_SIS_PEDIMENTOS = "SIS_PEDIMENTOS";
+const COL_SIS_PIEZAS = 1;
+const COL_SIS_HOUSES = 2;
+const COL_SIS_ATADURAS = 3;
+const COL_SIS_ARCHIVOS = 4;
+
+// Los nombres VIEJOS, solo para la mudanza. En cuanto se vacían se borran.
+const HOJAS_VIEJAS_PEDIMENTOS = [
+    { nombre: "REFERENCIAS_RAPIDO", col: COL_SIS_PIEZAS },
+    { nombre: "REF_HOUSES_RAPIDO",  col: COL_SIS_HOUSES },
+    { nombre: "PEDIMENTOS_RAPIDO",  col: COL_SIS_ATADURAS },
+    { nombre: "GUIAS_LEIDAS",       col: COL_SIS_ARCHIVOS }
+];
 const HOJA_CONFRONTA_HOUSE = "CONFRONTA REFERENCIAS";
 const PROP_ID_PEDIMENTOS = 'PEDIMENTOS_ID_ARCHIVO';
 
@@ -318,18 +341,77 @@ function hojaDeTextoRapido(ss, nombre, crear) {
     return h;
 }
 
-function hojaHousePedimentoRapido(ss, crear) {
-    return hojaDeTextoRapido(ss, HOJA_PEDIMENTOS_RAPIDO, crear);
+function hojaSisPedimentos(ss, crear) {
+    return hojaDeTextoRapido(ss, HOJA_SIS_PEDIMENTOS, crear);
 }
 
-function guardarTextoRapido(ss, nombre, trozos) {
-    let h = hojaDeTextoRapido(ss, nombre, true);
-    let maxAntes = h.getMaxRows();
-    if (maxAntes > 0) h.getRange(1, 1, maxAntes, 1).clearContent();
+// LA MUDANZA DE LAS CUATRO PESTAÑAS VIEJAS A LAS CUATRO COLUMNAS.
+//
+// Corre sola, una vez, antes de cualquier lectura. Se copia tal cual —el texto
+// es el mismo, solo cambia dónde vive— y la pestaña vieja se borra en cuanto su
+// columna está escrita. Si algo falla a mitad, lo peor que pasa es que quede
+// una pestaña vieja de más: la nueva ya tiene el dato y la siguiente pasada
+// vuelve a intentar borrarla.
+function mudarHojasDePedimentos(ss) {
+    let movidas = [];
+    let destino = null;
+    HOJAS_VIEJAS_PEDIMENTOS.forEach(v => {
+        let vieja;
+        try { vieja = ss.getSheetByName(v.nombre); } catch (err) { return; }
+        if (!vieja) return;
+
+        let lr = vieja.getLastRow();
+        if (lr > 0) {
+            let trozos = vieja.getRange(1, 1, lr, 1).getValues();
+            if (!destino) destino = hojaSisPedimentos(ss, true);
+            // Solo si la columna nueva está vacía: si ya hay algo ahí, manda lo
+            // nuevo. Pisarlo sería resucitar una lista vieja encima de la buena.
+            if (leerTextoDeColumna(ss, v.col) === "") {
+                asegurarFilas(destino, trozos.length + 1);
+                asegurarColumnas(destino, COL_SIS_ARCHIVOS);
+                destino.getRange(1, v.col, trozos.length, 1).setValues(trozos);
+            }
+        }
+        try { ss.deleteSheet(vieja); movidas.push(v.nombre); } catch (err) { /* ya veremos */ }
+    });
+    return movidas;
+}
+
+function guardarTextoEnColumna(ss, col, trozos) {
+    let h = hojaSisPedimentos(ss, true);
+    asegurarColumnas(h, COL_SIS_ARCHIVOS);
+    let maxFilas = h.getMaxRows();
+    // SOLO SU COLUMNA. Un `clear()` de la hoja se llevaría por delante las otras
+    // tres listas, que es justo lo que no puede pasar al juntarlas.
+    if (maxFilas > 0) h.getRange(1, col, maxFilas, 1).clearContent();
     if (trozos.length === 0) return 0;
     asegurarFilas(h, trozos.length + 1);
-    h.getRange(1, 1, trozos.length, 1).setValues(trozos);
+    h.getRange(1, col, trozos.length, 1).setValues(trozos);
     return trozos.length;
+}
+
+function leerTextoDeColumna(ss, col) {
+    try {
+        let h = hojaSisPedimentos(ss, false);
+        if (!h) return "";
+        let lr = h.getLastRow();
+        if (lr < 1 || h.getMaxColumns() < col) return "";
+        return h.getRange(1, col, lr, 1).getValues().map(f => String(f[0])).join("");
+    } catch (err) {
+        // Que esto falle NO puede tumbar un escaneo: sin lista no hay aviso, y
+        // el sistema sigue haciendo todo lo demás igual que antes.
+        return "";
+    }
+}
+
+function guardarBlobReferencias(ss, piezas, houses) {
+    let n = guardarTextoEnColumna(ss, COL_SIS_PIEZAS, empaquetarClaveReferencia(piezas));
+    n += guardarTextoEnColumna(ss, COL_SIS_HOUSES, empaquetarClaveReferencia(houses || []));
+    return n;
+}
+
+function guardarBlobAtaduras(ss, atadura) {
+    return guardarTextoEnColumna(ss, COL_SIS_ATADURAS, empaquetarAtaduras(atadura));
 }
 
 // ¿La lista guardada es de ANTES de separar piezas y houses?
@@ -341,37 +423,8 @@ function guardarTextoRapido(ss, nombre, trozos) {
 // bultos que no existen. Un número equivocado en silencio es peor que no tener
 // número, porque se actúa sobre él.
 function listaGuardadaEsVieja(ss) {
-    let piezas = hojaDeTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO, false);
-    if (!piezas || piezas.getLastRow() < 1) return false;
-    let houses = hojaDeTextoRapido(ss, HOJA_HOUSES_RAPIDO, false);
-    return !houses || houses.getLastRow() < 1;
-}
-
-function guardarBlobReferencias(ss, piezas, houses) {
-    let n = guardarTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO,
-                               empaquetarClaveReferencia(piezas));
-    n += guardarTextoRapido(ss, HOJA_HOUSES_RAPIDO,
-                            empaquetarClaveReferencia(houses || []));
-    return n;
-}
-
-function guardarBlobAtaduras(ss, atadura) {
-    return guardarTextoRapido(ss, HOJA_PEDIMENTOS_RAPIDO,
-                              empaquetarAtaduras(atadura));
-}
-
-function leerTextoRapido(ss, nombre) {
-    try {
-        let h = hojaDeTextoRapido(ss, nombre, false);
-        if (!h) return "";
-        let lr = h.getLastRow();
-        if (lr < 1) return "";
-        return h.getRange(1, 1, lr, 1).getValues().map(f => String(f[0])).join("");
-    } catch (err) {
-        // Que esto falle NO puede tumbar un escaneo: sin lista no hay aviso, y
-        // el sistema sigue haciendo todo lo demás igual que antes.
-        return "";
-    }
+    return leerTextoDeColumna(ss, COL_SIS_PIEZAS) !== "" &&
+           leerTextoDeColumna(ss, COL_SIS_HOUSES) === "";
 }
 
 // Los mapas viven en memoria entre escaneos mientras V8 conserve el proceso. La
@@ -397,7 +450,7 @@ function olvidarBlobPedimentosDeHouseEnRAM() {
 function mapaReferenciasParaEscaneo(ss) {
     if (globalMapaRefDeGuia === null) {
         globalMapaRefDeGuia = mapaDesdeBlobPedimentos(
-            leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
+            leerTextoDeColumna(ss, COL_SIS_PIEZAS));
     }
     return globalMapaRefDeGuia;
 }
@@ -406,7 +459,7 @@ function mapaReferenciasParaEscaneo(ss) {
 function mapaHousesDeReferencia(ss) {
     if (globalMapaRefDeHouse === null) {
         globalMapaRefDeHouse = mapaDesdeBlobPedimentos(
-            leerTextoRapido(ss, HOJA_HOUSES_RAPIDO));
+            leerTextoDeColumna(ss, COL_SIS_HOUSES));
     }
     return globalMapaRefDeHouse;
 }
@@ -415,7 +468,7 @@ function mapaHousesDeReferencia(ss) {
 function mapaAtadurasParaEscaneo(ss) {
     if (globalMapaPedDeRef === null) {
         globalMapaPedDeRef = mapaDesdeBlobPedimentos(
-            leerTextoRapido(ss, HOJA_PEDIMENTOS_RAPIDO));
+            leerTextoDeColumna(ss, COL_SIS_ATADURAS));
     }
     return globalMapaPedDeRef;
 }
@@ -666,6 +719,7 @@ function importarPedimentos() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
 
+    try { mudarHojasDePedimentos(ss); } catch (err) { /* se reintenta sola */ }
     let r = traerLasGuias(ss);
     if (!r.ok) { ui.alert("📥 Importar los pedimentos", r.error, ui.ButtonSet.OK); return; }
 
@@ -706,7 +760,9 @@ const PROP_CARPETA_GUIAS_HECHAS = 'PEDIMENTOS_CARPETA_PROCESADOS';
 
 // Dónde se apunta qué archivos ya se leyeron. Es lo que hace que pasar dos
 // veces el mismo Excel no cueste nada y no duplique nada.
-const HOJA_ARCHIVOS_GUIAS = "GUIAS_LEIDAS";
+// Los ids de los archivos ya leídos viven en la COLUMNA D de la pestaña del
+// módulo. Eran una pestaña propia; cuatro pestañas ocultas por un módulo son
+// demasiadas y ninguna de las cuatro vale por sí sola.
 
 // Cuántos archivos por pasada. Cada uno que no sea nativo hay que convertirlo, y
 // una conversión tarda segundos: sin tope, una carpeta con cien Excel agotaría
@@ -848,46 +904,47 @@ function vincularCarpetaDeGuias() {
 
 function archivosYaLeidos(ss) {
     let set = new Set();
-    let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, false);
-    if (!h) return set;
-    let lr = h.getLastRow();
-    if (lr < 1) return set;
-    h.getRange(1, 1, lr, 1).getValues().forEach(f => {
-        let v = String(f[0] === undefined ? "" : f[0]).trim();
-        if (v !== "") set.add(v);
+    String(leerTextoDeColumna(ss, COL_SIS_ARCHIVOS)).split("|").forEach(v => {
+        let t = v.trim();
+        if (t !== "") set.add(t);
     });
     return set;
 }
 
 function apuntarArchivosLeidos(ss, ids) {
     if (!ids || ids.length === 0) return 0;
-    let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, true);
-    let desde = h.getLastRow() + 1;
-    asegurarFilas(h, desde + ids.length);
-    // SE AÑADE AL FINAL, no se reescribe la columna entera: es el mismo
-    // invariante que protege la columna A de los escaneos. Entre leer y
-    // escribir cabe otra ejecución, y devolver la copia leída la borraría.
-    h.getRange(desde, 1, ids.length, 1).setValues(ids.map(x => [x]));
+    // Se lee y se reescribe la columna entera. Son unas decenas de ids, no
+    // decenas de miles: aquí no compensa la disciplina de escribir solo al
+    // final, y leer antes evita perder lo que otra ejecución apuntara en medio.
+    let yaEstan = archivosYaLeidos(ss);
+    ids.forEach(id => yaEstan.add(String(id).trim()));
+    let texto = [];
+    yaEstan.forEach(id => { if (id !== "") texto.push("|" + id); });
+    guardarTextoEnColumna(ss, COL_SIS_ARCHIVOS,
+                          trocearTexto(texto.join(""), CHARS_POR_CELDA_PED));
     return ids.length;
 }
 
-// LA SALIDA DE EMERGENCIA.
-//
-// Cada archivo se lee una vez y su id queda apuntado. Eso es lo correcto casi
-// siempre, pero deja una trampa sin salida: si un archivo se leyó a medias, o
-// se corrigió y se volvió a subir CON EL MISMO ARCHIVO de Drive, ya no hay
-// manera de que vuelva a entrar. Sin este botón la única salida era borrar a
-// mano una pestaña oculta que nadie sabe que existe.
-//
-// NO BORRA NINGUNA GUÍA: solo olvida qué archivos se leyeron. Lo ya cargado
-// sigue donde estaba, y volver a pasar el mismo Excel no duplica nada, porque
-// lo que manda es la clave —el 1Z—, no el archivo de donde salió.
+// Parte un texto largo en celdas, cortando siempre en un «|» para que ninguna
+// celda empiece a mitad de un id.
+function trocearTexto(texto, maximo) {
+    let t = String(texto || "");
+    let trozos = [];
+    while (t.length > maximo) {
+        let corte = t.lastIndexOf("|", maximo);
+        if (corte <= 0) corte = maximo;
+        trozos.push([t.substring(0, corte)]);
+        t = t.substring(corte);
+    }
+    if (t !== "") trozos.push([t]);
+    return trozos;
+}
+
 function olvidarArchivosLeidos() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
 
-    let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, false);
-    let cuantos = (h && h.getLastRow() > 0) ? h.getLastRow() : 0;
+    let cuantos = archivosYaLeidos(ss).size;
     if (cuantos === 0) {
         ui.alert("🧹 Volver a leer los archivos",
                  "No hay ningún archivo apuntado como leído.", ui.ButtonSet.OK);
@@ -904,7 +961,7 @@ function olvidarArchivosLeidos() {
         ui.ButtonSet.YES_NO);
     if (r !== ui.Button.YES) return;
 
-    h.clearContents();
+    guardarTextoEnColumna(ss, COL_SIS_ARCHIVOS, []);
     ui.alert("🧹 Volver a leer los archivos",
         "Listo: " + cuantos + " olvidados.\n\n" +
         "Ojo: si configuraste la carpeta de PROCESADOS, los archivos ya se " +
@@ -1079,19 +1136,17 @@ function traerGuiasDeLaCarpeta(ss) {
     // siguen vivas en el muelle.
     let vieja = listaGuardadaEsVieja(ss);
     let acumulado = vieja ? new Map()
-                          : mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
+                          : mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_PIEZAS));
     let acumHouses = vieja ? new Map()
-                           : mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_HOUSES_RAPIDO));
+                           : mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_HOUSES));
     let antes = acumulado.size + acumHouses.size;
 
     // Con la lista vieja tirada hay que volver a leer TODOS los archivos, o la
     // carpeta diría «ningún archivo nuevo» y se quedaría sin nada.
     let yaLeidos = vieja ? new Set() : archivosYaLeidos(ss);
     if (vieja) {
-        try {
-            let h = hojaDeTextoRapido(ss, HOJA_ARCHIVOS_GUIAS, false);
-            if (h) h.clearContents();
-        } catch (err) { /* si no se puede, lo peor es releer de más */ }
+        try { guardarTextoEnColumna(ss, COL_SIS_ARCHIVOS, []); }
+        catch (err) { /* si no se puede, lo peor es releer de más */ }
     }
 
     let mirados = [], nuevosIds = [], problemas = [], inventario = [];
@@ -1266,8 +1321,8 @@ function guiasGuardadas(ss) {
             "Aprieta «\ud83d\udd0e Confrontar con los pedimentos» una vez y se rehace " +
             "sola. Después, este botón vuelve a funcionar." };
     }
-    let mapa = mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_REFERENCIAS_RAPIDO));
-    let mapaH = mapaDesdeBlobPedimentos(leerTextoRapido(ss, HOJA_HOUSES_RAPIDO));
+    let mapa = mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_PIEZAS));
+    let mapaH = mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_HOUSES));
     if (mapa.size === 0 && mapaH.size === 0) {
         return { ok: false, origen: "guardadas", error:
             "No hay ninguna guía guardada todavía, así que no hay contra " +
@@ -1560,6 +1615,12 @@ function cruzarConLoGuardado() { hacerLaConfronta(false); }
 function hacerLaConfronta(trayendo) {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
+
+    // LA MUDANZA VA PRIMERO, antes de leer nada: si quedan pestañas viejas, sus
+    // listas tienen que estar ya en las columnas o esta pasada trabajaría con
+    // una lista vacía y diría que falta todo.
+    let mudadas = [];
+    try { mudadas = mudarHojasDePedimentos(ss); } catch (err) { mudadas = []; }
     const TITULO = trayendo ? "🔎 Confrontar con los pedimentos"
                             : "♻️ Volver a cruzar";
 
@@ -1629,7 +1690,12 @@ function hacerLaConfronta(trayendo) {
     });
     let completas = cuadro.filter(f => String(f[5]).indexOf("✅") === 0).length;
 
-    let msg = resumenDeImportacionPedimentos(imp) + "\n\n" +
+    let msg = (mudadas.length
+        ? "🧹 Se juntaron " + mudadas.length + " pestañas ocultas del módulo en " +
+          "una sola, «" + HOJA_SIS_PEDIMENTOS + "»: " + mudadas.join(", ") +
+          ".\n\n"
+        : "") +
+        resumenDeImportacionPedimentos(imp) + "\n\n" +
         "── EL CRUCE ──\n" +
         "   · " + r.atadura.size + " referencias atadas a un pedimento\n" +
         "   · ✅ " + completas + " completas\n" +

@@ -1192,7 +1192,24 @@ function probarArchivoDeSalidas() {
 // haciendo match dentro del hueco de otra. El separador lo hace imposible.
 // =========================================================================
 
-const HOJA_SALIDAS_RAPIDO = "SALIDAS_RAPIDO";
+// Renombrada con el prefijo «SIS_» como todas las de sistema: en el selector de
+// pestañas ocultas se ven juntas y de un vistazo se sabe cuáles no se tocan.
+// El nombre viejo se acepta y se renombra solo la primera vez.
+const HOJA_SALIDAS_RAPIDO = "SIS_SALIDAS_RAPIDO";
+const HOJA_SALIDAS_RAPIDO_VIEJA = "SALIDAS_RAPIDO";
+
+// Si queda la de antes, se le cambia el nombre en vez de crear otra: dentro
+// está el índice comprimido entero y volver a construirlo cuesta abrir el
+// archivo de salidas y leer cientos de miles de filas.
+function renombrarSalidasRapidoSiHaceFalta(ss) {
+    try {
+        if (ss.getSheetByName(HOJA_SALIDAS_RAPIDO)) return false;
+        let vieja = ss.getSheetByName(HOJA_SALIDAS_RAPIDO_VIEJA);
+        if (!vieja) return false;
+        vieja.setName(HOJA_SALIDAS_RAPIDO);
+        return true;
+    } catch (err) { return false; }
+}
 // Cuánto texto cabe en cada celda de la lista rápida.
 //
 // El tope de Sheets son 50.000 caracteres por celda, y la primera versión iba a
@@ -1285,6 +1302,7 @@ function buscarSalidaEnBlob(blob, guia) {
 // -------------------------------------------------------------------------
 
 function hojaSalidasRapido(ss, crear) {
+    renombrarSalidasRapidoSiHaceFalta(ss);
     let h = ss.getSheetByName(HOJA_SALIDAS_RAPIDO);
     if (!h && crear) {
         h = ss.insertSheet(HOJA_SALIDAS_RAPIDO);

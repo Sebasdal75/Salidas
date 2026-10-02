@@ -147,14 +147,39 @@ const NOMBRE_ARCHIVO_INDICE = "WMS · Índice de houses";
 // decisión consciente, no el efecto de haber pegado un archivo.
 // La marca de «encendido» es una PESTAÑA OCULTA, no una propiedad del script.
 //
-// `onOpen` es un disparador simple y corre sin autorización: hay servicios que
-// ahí no están disponibles. Si el menú preguntara por una propiedad del script,
-// podría reventar al abrir el archivo —y con él TODO el menú, no solo el
-// submenú de houses—. Mirar si existe una pestaña sí funciona siempre.
+// EL INTERRUPTOR YA NO ES UNA PESTAÑA.
 //
-// Además así la marca viaja con el archivo: si alguien duplica la hoja, la
-// copia sabe cómo estaba, sin depender de propiedades que no se copian.
+// Era una pestaña vacía llamada «HOUSE_ACTIVO» cuya única función era existir.
+// Se eligió así porque `onOpen` es un disparador simple que corre sin
+// autorización, y ahí hay servicios que no están disponibles: si el menú
+// preguntara por una propiedad del script, podría reventar al abrir el archivo
+// —y con él TODO el menú, no solo el submenú de houses—.
+//
+// Lo que cambia es el POR DEFECTO, y eso lo arregla. Antes «no hay pestaña» =
+// apagado, así que la respuesta tenía que ser fiable o el módulo se apagaba
+// solo. Ahora el por defecto es ENCENDIDO: se pregunta por una propiedad dentro
+// de un `try`, y si no se puede leer —que es justo lo que pasa en `onOpen`— se
+// contesta que sí. Fallar hacia el lado bueno quita la necesidad de la pestaña.
+//
+// Aquí las houses van siempre encendidas; el botón de apagar se quitó del menú
+// hace tiempo por petición. La propiedad se queda como salida de emergencia, y
+// no cuesta ninguna pestaña.
+const PROP_HOUSE_APAGADO = 'HOUSE_MODULO_APAGADO';
+
+// El nombre viejo, solo para borrarla. Una pestaña que ya no significa nada es
+// peor que una que estorba: la siguiente persona la lee y deduce mal.
 const HOJA_MARCA_ACTIVO = "HOUSE_ACTIVO";
+
+// Se borra sola la primera vez que pasa el relleno. No hace falta que funcione:
+// si no se puede borrar, lo peor que queda es una pestaña vacía de más.
+function borrarMarcaDeActivoSiSobra(ss) {
+    try {
+        let marca = ss.getSheetByName(HOJA_MARCA_ACTIVO);
+        if (!marca) return false;
+        ss.deleteSheet(marca);
+        return true;
+    } catch (err) { return false; }
+}
 
 // -------------------------------------------------------------------------
 // EL PRESUPUESTO DEL DISPARADOR
@@ -237,11 +262,15 @@ function esArchivoDePrueba(nombreArchivo) {
 function moduloActivo(ss) {
     try {
         if (esArchivoDePrueba(ss.getName())) return true;
-        return ss.getSheetByName(HOJA_MARCA_ACTIVO) !== null;
+    } catch (err) { /* ni el nombre del archivo puede tumbar esto */ }
+    try {
+        // ANTE LA DUDA, ENCENDIDO. Es el cambio que permite quitar la pestaña:
+        // en `onOpen` esta propiedad puede no poder leerse, y antes eso habría
+        // apagado el módulo. Ahora apagar exige decirlo expresamente.
+        return PropertiesService.getScriptProperties()
+               .getProperty(PROP_HOUSE_APAGADO) !== "1";
     } catch (err) {
-        // Ante la duda, apagado. Nunca reventar: quien pregunta puede ser el
-        // menú, y el menú lo necesitan siete personas todos los días.
-        return false;
+        return true;
     }
 }
 
@@ -282,13 +311,10 @@ function activarHousesEnEsteArchivo() {
         ui.ButtonSet.YES_NO);
     if (r !== ui.Button.YES) return;
 
-    if (!ss.getSheetByName(HOJA_MARCA_ACTIVO)) {
-        let marca = ss.insertSheet(HOJA_MARCA_ACTIVO);
-        marca.getRange(1, 1).setValue(
-            "Esta pestaña es la marca de que el índice de houses está ENCENDIDO en " +
-            "este archivo. Borrarla lo apaga. No escribas nada más aquí.");
-        marca.hideSheet();
-    }
+    try {
+        PropertiesService.getScriptProperties().deleteProperty(PROP_HOUSE_APAGADO);
+    } catch (err) { /* si no se puede, ya estaba encendido por defecto */ }
+    borrarMarcaDeActivoSiSobra(ss);
     ui.alert("🏠 Houses", "Encendido.\n\nRecarga la hoja para que aparezca el menú " +
              "completo, y no olvides crear el archivo del índice si aún no lo hiciste.",
              ui.ButtonSet.OK);
@@ -297,8 +323,10 @@ function activarHousesEnEsteArchivo() {
 function desactivarHousesEnEsteArchivo() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
-    let marca = ss.getSheetByName(HOJA_MARCA_ACTIVO);
-    if (marca) ss.deleteSheet(marca);
+    try {
+        PropertiesService.getScriptProperties().setProperty(PROP_HOUSE_APAGADO, "1");
+    } catch (err) { /* si no se puede, se queda encendido: es el lado bueno */ }
+    borrarMarcaDeActivoSiSobra(ss);
     quitarTriggerHouse(true);
     ui.alert("🏠 Houses", "Apagado, y el disparador quitado.\n\nLo que ya está escrito " +
              "en la columna D se queda: apagar no borra nada.", ui.ButtonSet.OK);
@@ -2051,6 +2079,11 @@ function rellenarHousesPendientes(forzar, segundosMax) {
     // decir nada, porque un disparador no puede mostrar avisos—. El síntoma era
     // «el automático no rellena» sin ningún error en ningún sitio.
     if (!moduloActivo(ss)) return anotarRelleno("apagado en este archivo");
+
+    // La pestaña «HOUSE_ACTIVO» ya no significa nada: el interruptor vive en
+    // una propiedad. Se borra sola para no dejar una pestaña que la siguiente
+    // persona lea y de la que deduzca mal.
+    borrarMarcaDeActivoSiSobra(ss);
 
     // PRIMERO la comprobación barata. El índice no se abre hasta saber que hay
     // algo que rellenar, y casi todas las pasadas no lo hay.

@@ -153,24 +153,23 @@ function esHojaInterna(nombreHoja) {
     // comprimida de lo que ya se fue, y si el caché la tomara por una hoja de
     // escaneo cada guía chocaría contra su propia copia. Es el mismo fallo que
     // ya costó una tanda de duplicados falsos con el índice de houses.
-    if (n.indexOf("INDICE_SALIDAS") !== -1 || n.indexOf("SALIDAS_RAPIDO") !== -1) return true;
-    // Las del módulo de pedimentos, por el mismo motivo y por uno más.
+    if (n.indexOf("INDICE_SALIDAS") !== -1) return true;
+
+    // EL PREFIJO «SIS_» ES LA REGLA, y basta con él.
     //
-    //   · PEDIMENTOS_RAPIDO y REFERENCIAS_RAPIDO y REF_HOUSES_RAPIDO guardan
-    //     listas comprimidas en celdas de miles de caracteres. Tomadas por
-    //     pestañas de escaneo, cada celda entra al caché como si fuera una guía
-    //     y la validación de la columna A la pinta de «❌ Guía Inválida».
-    //   · GUIAS_LEIDAS lleva ids de archivos de Drive, que tampoco son guías.
-    //   · CONFRONTA REFERENCIAS es un INFORME: sus columnas repiten las guías
-    //     que ya están en las hojas de verdad, así que entrando al índice de
-    //     duplicados cada bulto chocaría contra su propia copia del informe.
-    //
-    // Por prefijo «PEDIMENTO» no, a propósito: hay pestañas de operación cuyo
-    // nombre lo lleva, y esconderlas las sacaría del conteo sin decir nada.
-    if (n.indexOf("_RAPIDO") !== -1 || n === "GUIAS_LEIDAS" ||
-        n.indexOf("CONFRONTA") === 0) {
-        return true;
-    }
+    // Las pestañas de sistema se fueron añadiendo con el nombre que convenía
+    // ese día —SALIDAS_RAPIDO, PEDIMENTOS_RAPIDO, GUIAS_LEIDAS…— y acabaron
+    // siendo una lista que había que recordar. Con el prefijo, cualquiera que
+    // abra el selector de pestañas ocultas las ve juntas y sabe que no se
+    // tocan, y aquí no hay que ampliar nada cada vez que nace una.
+    if (n.indexOf("SIS_") === 0) return true;
+    // Los nombres de antes del prefijo, mientras queden archivos sin migrar.
+    if (n.indexOf("_RAPIDO") !== -1 || n === "GUIAS_LEIDAS") return true;
+
+    // Los INFORMES. Repiten guías que ya están en las hojas de verdad, así que
+    // entrando al índice de duplicados cada bulto chocaría contra su propia
+    // copia del informe: duplicados falsos inventados por la herramienta.
+    if (n.indexOf("CONFRONTA") === 0 || n.indexOf("ERRORES_") === 0) return true;
     // «SIN INFORMACIÓN» es una LISTA, no una pestaña de escaneo. Si no se marca
     // interna, el caché la toma por una Global con miles de guías en la columna
     // A y entonces CADA guía de la lista choca contra la de verdad: «⛔

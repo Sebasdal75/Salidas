@@ -1741,27 +1741,33 @@ ok("minúsculas también", esArchivoDePrueba("copia de prueba 2026"));
 ok("el archivo real NO es de pruebas", !esArchivoDePrueba("SALIDAS UPS"));
 ok("«PRUEBAS» en plural también entra", esArchivoDePrueba("WMS PRUEBAS"));
 
-// El interruptor de producción. Una copia de pruebas se enciende sola por el
-// nombre; el archivo real necesita que alguien lo encienda a mano, porque que
-// un módulo empiece a escribir en la columna D de siete operadores tiene que
-// ser una decisión consciente y no el efecto de haber pegado un archivo.
+// EL INTERRUPTOR YA NO ES UNA PESTAÑA.
 //
-// La marca es una PESTAÑA, no una propiedad del script: `onOpen` es un
-// disparador simple, corre sin autorización, y si el menú preguntara por algo
-// no disponible ahí reventaría el menú ENTERO.
-let libroSinMarca = { getName: () => "SALIDAS UPS", getSheetByName: () => null };
-let libroConMarca = { getName: () => "SALIDAS UPS",
-                      getSheetByName: (n) => (n === "HOUSE_ACTIVO" ? {} : null) };
+// Era una pestaña vacia llamada «HOUSE_ACTIVO» cuya unica funcion era existir.
+// Se eligio asi porque `onOpen` es un disparador simple que corre sin
+// autorizacion, y ahi hay servicios que no estan disponibles: si el menu
+// preguntara por una propiedad del script podria reventar al abrir el archivo,
+// y con el TODO el menu.
+//
+// Lo que cambia es el POR DEFECTO, y eso lo arregla. Antes «no hay pestaña» =
+// apagado, asi que la respuesta tenia que ser fiable o el modulo se apagaba
+// solo. Ahora el por defecto es ENCENDIDO: se pregunta dentro de un `try` y si
+// no se puede leer -que es justo lo que pasa en `onOpen`- se contesta que si.
+// Fallar hacia el lado bueno quita la necesidad de la pestaña.
 ok("una copia de pruebas se enciende sola",
    moduloActivo({ getName: () => "WMS PRUEBA", getSheetByName: () => null }));
-ok("el archivo real NO se enciende solo", !moduloActivo(libroSinMarca));
-ok("...salvo que exista la pestaña de marca", moduloActivo(libroConMarca));
-// Ante cualquier fallo, apagado y sin reventar: quien pregunta puede ser el
-// menú, y el menú lo necesitan siete personas todos los días.
+// SIN PESTAÑA NINGUNA sigue encendido: es el cambio que permite borrarla.
+ok("sin la pestaña de marca sigue encendido",
+   moduloActivo({ getName: () => "SALIDAS UPS", getSheetByName: () => null }));
+// Y NUNCA REVIENTA: quien pregunta puede ser el menu, y el menu lo necesitan
+// siete personas todos los dias.
 ok("un libro roto no revienta el menú",
-   !moduloActivo({ getName: () => { throw new Error("boom"); } }));
+   moduloActivo({ getName: () => { throw new Error("boom"); } }) === true ||
+   moduloActivo({ getName: () => { throw new Error("boom"); } }) === false);
+ok("y contesta encendido",
+   moduloActivo({ getName: () => { throw new Error("boom"); } }));
 ok("un libro sin getSheetByName tampoco",
-   !moduloActivo({ getName: () => "SALIDAS UPS" }));
+   moduloActivo({ getName: () => "SALIDAS UPS" }));
 
 console.log("\n--- 6b. Leer el CSV que salga de Power Query ---");
 // Excel en México exporta con punto y coma tan a menudo como con coma, y
@@ -5457,7 +5463,7 @@ ok("se detecta la lista vieja",
 // La señal es que exista el texto de piezas y NO el de houses: ese es el unico
 // estado que solo puede venir de la version anterior.
 ok("por la falta del texto de houses",
-   FUENTE_VIEJA.indexOf("return !houses || houses.getLastRow() < 1;") !== -1);
+   FUENTE_VIEJA.indexOf('leerTextoDeColumna(ss, COL_SIS_HOUSES) === ""') !== -1);
 ok("se empieza de cero", FUENTE_VIEJA.indexOf("let acumulado = vieja ? new Map()") !== -1);
 // Y hay que releer TODOS los archivos, o la carpeta diria «ningun archivo
 // nuevo» y se quedaria sin nada.
@@ -5608,7 +5614,7 @@ ok("si hay mas de 30 lo dice", FUENTE_INV.indexOf('"\\u2026y m\\u00e1s"') !== -1
 ok("hay un boton para volver a leer",
    FUENTE_INV.indexOf("function olvidarArchivosLeidos()") !== -1);
 ok("solo vacia la lista de leidos, no las guias",
-   FUENTE_INV.indexOf("h.clearContents();") !== -1);
+   FUENTE_INV.indexOf("guardarTextoEnColumna(ss, COL_SIS_ARCHIVOS, []);") !== -1);
 // Y avisa del efecto que nadie ve venir: si se movieron a PROCESADOS, en la
 // carpeta de entrada ya no estan.
 ok("avisa de los que ya se movieron",
@@ -5783,6 +5789,58 @@ ok("ninguna entra en la confronta",
 ok("una pestaña de operacion con «PEDIMENTO» en el nombre NO se esconde",
    !esHojaInterna("PEDIMENTOS GLOBAL 1"));
 ok("ni una Global normal", !esHojaInterna("GLOBAL 1"));
+
+console.log("\n--- 23i. Menos pestañas de sistema ---");
+// CUATRO PESTAÑAS OCULTAS POR UN MODULO SON DEMASIADAS. Quien abre el archivo
+// las ve en el selector de hojas ocultas y no sabe cual toca ni cual sobra, y
+// cada una es una mas que puede borrarse por error. Ahora son cuatro COLUMNAS
+// de una sola pestaña.
+const FUENTE_SIS = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+ok("hay una sola pestaña del modulo",
+   FUENTE_SIS.indexOf('const HOJA_SIS_PEDIMENTOS = "SIS_PEDIMENTOS"') !== -1);
+ok("con sus cuatro columnas",
+   ["COL_SIS_PIEZAS", "COL_SIS_HOUSES", "COL_SIS_ATADURAS", "COL_SIS_ARCHIVOS"]
+   .every(c => FUENTE_SIS.indexOf("const " + c + " =") !== -1));
+// AL ESCRIBIR UNA COLUMNA NO SE PUEDEN LLEVAR LAS OTRAS TRES. Un `clear()` de
+// la hoja seria exactamente el fallo que juntarlas podria introducir.
+ok("se limpia solo la columna que se escribe",
+   FUENTE_SIS.indexOf("h.getRange(1, col, maxFilas, 1).clearContent()") !== -1);
+ok("nunca la hoja entera",
+   FUENTE_SIS.indexOf("hojaSisPedimentos(ss, true).clear()") === -1);
+// LA MUDANZA CORRE SOLA Y VA PRIMERO: si quedan pestañas viejas, sus listas
+// tienen que estar ya en las columnas o la pasada trabajaria con una lista
+// vacia y diria que falta todo.
+ok("hay mudanza de las pestañas viejas",
+   FUENTE_SIS.indexOf("function mudarHojasDePedimentos(ss)") !== -1);
+ok("y corre antes de leer nada",
+   FUENTE_SIS.indexOf("mudarHojasDePedimentos(ss); } catch (err) { mudadas = []; }") !== -1);
+// No se pisa lo nuevo con lo viejo: resucitar una lista vieja encima de la
+// buena es peor que no migrar.
+ok("no pisa lo que ya este en la columna",
+   FUENTE_SIS.indexOf('if (leerTextoDeColumna(ss, v.col) === "")') !== -1);
+
+// EL PREFIJO «SIS_» ES LA REGLA, y basta con el: aqui no hay que ampliar una
+// lista cada vez que nace una pestaña de sistema.
+ok("cualquier SIS_ es interna", esHojaInterna("SIS_PEDIMENTOS"));
+ok("y otra cualquiera tambien", esHojaInterna("SIS_LO_QUE_SEA"));
+ok("SIS_SALIDAS_RAPIDO tambien", esHojaInterna("SIS_SALIDAS_RAPIDO"));
+// Los nombres de antes del prefijo siguen valiendo mientras queden archivos
+// sin migrar: quitarlos de golpe deja la pestaña vieja entrando al cache.
+ok("los nombres viejos siguen reconociendose",
+   esHojaInterna("SALIDAS_RAPIDO") && esHojaInterna("GUIAS_LEIDAS") &&
+   esHojaInterna("PEDIMENTOS_RAPIDO"));
+// Y una pestaña de operacion NO se esconde por parecerse.
+ok("una Global no se esconde", !esHojaInterna("GLOBAL 1"));
+ok("ni una que empiece por SI sin la barra", !esHojaInterna("SIMPLES 3"));
+
+// EL INTERRUPTOR DE HOUSES YA NO GASTA UNA PESTAÑA.
+const FUENTE_HOUSE = require('fs').readFileSync('House.gs', 'utf8');
+ok("el interruptor vive en una propiedad",
+   FUENTE_HOUSE.indexOf("const PROP_HOUSE_APAGADO") !== -1);
+ok("y la pestaña vieja se borra sola",
+   FUENTE_HOUSE.indexOf("function borrarMarcaDeActivoSiSobra(ss)") !== -1);
+ok("en cada pasada del relleno",
+   FUENTE_HOUSE.indexOf("borrarMarcaDeActivoSiSobra(ss);") !== -1);
 
 console.log("\n--- 23f. El aviso solo en las de salidas ---");
 // Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
