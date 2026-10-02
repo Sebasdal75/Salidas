@@ -5257,10 +5257,16 @@ let confCompleta = confrontarHouses(leidoRef.porReferencia, refDeClaveT,
                                     escaneoSimple, atado1);
 ok("una referencia completa no dice nada", confCompleta.lineas.length === 0);
 let cuadroOk = cuadroDeReferencias(confCompleta.porRef);
-ok("el cuadro trae la referencia atada", cuadroOk.length === 1);
-ok("con sus piezas del archivo", cuadroOk[0][2] === 2);
-ok("y las escaneadas ahi", cuadroOk[0][3] === 2);
-ok("y la marca COMPLETA", cuadroOk[0][5].indexOf("COMPLETA") !== -1);
+// Ahora el cuadro trae TODAS las del archivo: la atada y la que no se ha
+// empezado. Antes solo salia la atada y lo que faltaba por empezar no se veia.
+ok("el cuadro trae la referencia atada",
+   cuadroOk.some(f => f[0] === REF_A && f[1] === "6113854"));
+ok("y tambien la que no se ha empezado",
+   cuadroOk.some(f => f[0] === REF_B && f[1] === ""));
+let filaAtada = cuadroOk.find(f => f[0] === REF_A);
+ok("con sus piezas del archivo", filaAtada[2] === 2);
+ok("y las escaneadas ahi", filaAtada[3] === 2);
+ok("y la marca COMPLETA", filaAtada[5].indexOf("COMPLETA") !== -1);
 
 // FALTA UNA PIEZA: el archivo la tiene y no esta escaneada.
 let escaneoFalta = new Map([
@@ -5275,7 +5281,8 @@ ok("con su guia", confFalta.lineas[0][5] === G1Z_B);
 ok("y su pedimento", confFalta.lineas[0][0] === "6113854");
 ok("el resumen la cuenta", confFalta.resumen.get("6113854").faltan === 1);
 let cuadroFalta = cuadroDeReferencias(confFalta.porRef);
-ok("el cuadro dice cuantas faltan", cuadroFalta[0][5].indexOf("FALTAN 1") !== -1);
+ok("el cuadro dice cuantas faltan",
+   cuadroFalta.find(f => f[0] === REF_A)[5].indexOf("FALTAN 1") !== -1);
 
 // UNA PIEZA EN EL PEDIMENTO EQUIVOCADO. Su referencia esta atada a otro.
 let escaneoMala = new Map([
@@ -5789,6 +5796,61 @@ ok("ninguna entra en la confronta",
 ok("una pestaña de operacion con «PEDIMENTO» en el nombre NO se esconde",
    !esHojaInterna("PEDIMENTOS GLOBAL 1"));
 ok("ni una Global normal", !esHojaInterna("GLOBAL 1"));
+
+// TODAS LAS REFERENCIAS DEL ARCHIVO ENTRAN AL CUADRO, no solo las empezadas.
+//
+// Antes una referencia cargada y sin escanear no salia en ningun sitio: el
+// cuadro enseñaba lo que se estaba cargando y callaba lo que faltaba por
+// empezar, que es justo lo que hay que saber para decidir si la unidad puede
+// irse.
+function cuadroDeTres(escaneado, atado) {
+    let porReferencia = new Map([
+        ['REF-COMPLETA', [g1z(1), g1z(2)]],
+        ['REF-AMEDIAS',  [g1z(3), g1z(4), g1z(5)]],
+        ['REF-NUEVA',    [g1z(6), g1z(7), g1z(8), g1z(9)]]
+    ]);
+    let refDe = new Map();
+    porReferencia.forEach((l, r) => l.forEach(x => refDe.set(x, r)));
+    let at = atado || atarReferenciasAPedimentos(refDe, escaneado);
+    let r = confrontarHouses(porReferencia, refDe, escaneado, at);
+    return cuadroDeReferencias(r.porRef);
+}
+let tresFilas = cuadroDeTres(new Map([['6113854', new Map([
+    [g1z(1), { hoja: 'GLOBAL 1', fila: 2, house: '' }],
+    [g1z(2), { hoja: 'GLOBAL 1', fila: 3, house: '' }],
+    [g1z(3), { hoja: 'GLOBAL 1', fila: 4, house: '' }]
+])]]));
+ok("salen las tres referencias del archivo", tresFilas.length === 3);
+let nueva = tresFilas.find(f => f[0] === 'REF-NUEVA');
+ok("la que no se ha empezado tambien", !!nueva);
+ok("sin pedimento, porque no lo tiene", nueva[1] === "");
+ok("con sus piezas del archivo", nueva[2] === 4);
+ok("y ninguna escaneada", nueva[3] === 0);
+// El estado DICE CUANTAS son: «sin empezar» a secas obliga a mirar la columna
+// de al lado para saber si son cuatro bultos o cuatrocientos.
+ok("el estado dice que no se ha empezado", nueva[5].indexOf("SIN EMPEZAR") !== -1);
+ok("y cuantas piezas tiene", nueva[5].indexOf("4 piezas") !== -1);
+
+// LAS EMPEZADAS ARRIBA Y LAS QUE NO, ABAJO. Ordenando por pedimento a secas,
+// las que no tienen -cadena vacia- se iban las primeras y empujaban fuera de la
+// pantalla justo lo que se esta cargando ahora.
+ok("las que no se han empezado van al final",
+   tresFilas[tresFilas.length - 1][0] === 'REF-NUEVA');
+ok("y las empezadas arriba",
+   tresFilas[0][1] !== "" && tresFilas[1][1] !== "");
+
+// UNA REPARTIDA EN EMPATE no es «sin empezar»: se empezo, y lo que pasa es que
+// no se puede decidir sola. Decir «sin empezar» mandaria a buscar bultos que ya
+// estan en el muelle.
+let empatada = cuadroDeTres(new Map([
+    ['6113854', new Map([[g1z(6), { hoja: 'G1', fila: 2, house: '' }]])],
+    ['9999999', new Map([[g1z(7), { hoja: 'G2', fila: 2, house: '' }]])]
+]));
+let laEmpatada = empatada.find(f => f[0] === 'REF-NUEVA');
+ok("la repartida en empate no dice «sin empezar»",
+   laEmpatada[5].indexOf("SIN EMPEZAR") === -1);
+ok("dice que esta repartida", laEmpatada[5].indexOf("REPARTIDA") !== -1);
+ok("y cuantas hay escaneadas ya", laEmpatada[3] === 2);
 
 console.log("\n--- 23i. Menos pestañas de sistema ---");
 // CUATRO PESTAÑAS OCULTAS POR UN MODULO SON DEMASIADAS. Quien abre el archivo

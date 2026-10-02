@@ -1504,6 +1504,27 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
                           aqui: 0, enOtro: 0, sobran: 0, faltan: 0 });
     });
 
+    // TODAS LAS REFERENCIAS DEL ARCHIVO ENTRAN AL CUADRO, no solo las
+    // empezadas. Antes una referencia cargada y sin escanear no salía en
+    // ningún sitio: el cuadro enseñaba lo que se estaba cargando y callaba lo
+    // que faltaba por empezar, que es justo lo que hay que saber para decidir
+    // si la unidad puede irse.
+    //
+    // Hay dos maneras de no estar atada, y dicen cosas distintas:
+    //   · sin NINGÚN bulto escaneado: no se ha empezado;
+    //   · con bultos repartidos en empate entre dos pedimentos: se empezó y no
+    //     se puede decidir sola. Ver `atarReferenciasAPedimentos`.
+    let cuentaDe = (atado && atado.cuenta) || new Map();
+    (porReferencia || new Map()).forEach((lista, ref) => {
+        if (porRef.has(ref)) return;
+        let vistas = 0;
+        if (cuentaDe.get(ref)) cuentaDe.get(ref).forEach(n => { vistas += n; });
+        porRef.set(ref, { referencia: ref, pedimento: "",
+                          delArchivo: (lista || []).length,
+                          aqui: 0, enOtro: 0, sobran: 0, faltan: 0,
+                          sinAtar: true, vistas: vistas });
+    });
+
     // 1. LO ESCANEADO. Cada bulto contra la atadura de su referencia.
     let escaneadasPorRef = new Map();   // referencia -> Set(1Z escaneados en SU pedimento)
     (escaneado || new Map()).forEach((bultos, ped) => {
@@ -1593,6 +1614,15 @@ function cuadroDeReferencias(porRef) {
         // pedimento pero alguna más en otro, la referencia no era COMPLETA, no
         // sobraba nada y la resta daba cero: salía «🔻 FALTAN 0», que no
         // significa nada y hace dudar de todo el cuadro.
+        if (c.sinAtar) {
+            filas.push([c.referencia, "", c.delArchivo, c.vistas || 0, 0,
+                        c.vistas ? "⚠️ REPARTIDA: hay " + c.vistas + " escaneadas y " +
+                                   "ningún pedimento gana, decídelo tú"
+                                 : "⏳ SIN EMPEZAR: ninguna de sus " +
+                                   c.delArchivo + " piezas está escaneada"]);
+            return;
+        }
+
         let partes = [];
         if (c.faltan) partes.push("🔻 FALTAN " + c.faltan);
         if (c.sobran) partes.push("⚠️ SOBRAN " + c.sobran);
@@ -1601,8 +1631,15 @@ function cuadroDeReferencias(porRef) {
         filas.push([c.referencia, c.pedimento, c.delArchivo, c.aqui, c.enOtro,
                     partes.length ? partes.join(" · ") : "✅ COMPLETA"]);
     });
-    filas.sort((a, b) => String(a[1]).localeCompare(String(b[1])) ||
-                         String(a[0]).localeCompare(String(b[0])));
+    // LAS EMPEZADAS ARRIBA Y LAS QUE NO, ABAJO. Ordenando por pedimento a
+    // secas, las que no tienen —cadena vacía— se iban las primeras y empujaban
+    // fuera de la pantalla justo lo que se está cargando ahora.
+    filas.sort((a, b) => {
+        let va = String(a[1]) === "" ? 1 : 0, vb = String(b[1]) === "" ? 1 : 0;
+        if (va !== vb) return va - vb;
+        return String(a[1]).localeCompare(String(b[1])) ||
+               String(a[0]).localeCompare(String(b[0]));
+    });
     return filas;
 }
 
@@ -1689,6 +1726,8 @@ function hacerLaConfronta(trayendo) {
         totSobran += v.sobran; totRevisadas += v.revisadas;
     });
     let completas = cuadro.filter(f => String(f[5]).indexOf("✅") === 0).length;
+    let sinEmpezar = cuadro.filter(f => String(f[5]).indexOf("⏳") === 0).length;
+    let sinDecidir = cuadro.filter(f => String(f[5]).indexOf("⚠️ REPARTIDA") === 0).length;
 
     let msg = (mudadas.length
         ? "🧹 Se juntaron " + mudadas.length + " pestañas ocultas del módulo en " +
@@ -1697,8 +1736,11 @@ function hacerLaConfronta(trayendo) {
         : "") +
         resumenDeImportacionPedimentos(imp) + "\n\n" +
         "── EL CRUCE ──\n" +
-        "   · " + r.atadura.size + " referencias atadas a un pedimento\n" +
+        "   · " + cuadro.length + " referencias cargadas en total\n" +
+        "   · " + r.atadura.size + " atadas a un pedimento\n" +
         "   · ✅ " + completas + " completas\n" +
+        "   · ⏳ " + sinEmpezar + " sin empezar (ninguna pieza escaneada)\n" +
+        (sinDecidir ? "   · ⚠️ " + sinDecidir + " repartidas sin decidir\n" : "") +
         "   · " + totRevisadas + " bultos revisados\n" +
         "   · ❌ " + totMalas + " en el pedimento equivocado\n" +
         "   · 🔻 " + totFaltan + " piezas del archivo sin escanear\n" +
@@ -1719,8 +1761,10 @@ function hacerLaConfronta(trayendo) {
     }
 
     msg += "\n\nEn la pestaña «" + HOJA_CONFRONTA_HOUSE + "»: el cuadro por " +
-           "referencia a la izquierda, y el detalle de lo que está mal a la " +
-           "derecha, con su pestaña y su fila.\n\n" +
+           "referencia a la izquierda —TODAS las cargadas, empezadas o no— y el " +
+           "detalle de lo que está mal a la derecha, con su pestaña y su fila.\n\n" +
+           "Las que ya están en un pedimento salen primero; las que no se han " +
+           "empezado, al final.\n\n" +
            "A partir de ahora, al escanear en una hoja de SALIDAS, un 1Z cuya " +
            "referencia esté atada a otro pedimento lo dirá en la columna B.";
     if (celdasAtadura === 0 && r.atadura.size > 0) {
