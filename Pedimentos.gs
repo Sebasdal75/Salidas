@@ -1568,6 +1568,7 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
                 return;
             }
 
+
             anota(ped, 'revisadas');
             let suyo = atadura.get(ref) || "";
             let cuenta = porRef.get(ref);
@@ -1609,22 +1610,30 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
     // sepultaban las tres o cuatro que sí había que ir a mirar. El dato útil
     // no es cuál de las cuarenta y ocho, es que son cuarenta y ocho.
     //
-    // Y SE DICE AUNQUE EL PEDIMENTO NO TENGA NADA ATADO. Antes ahí se callaba
-    // —«de lo que no está en el archivo no se puede opinar»— y callarse del
-    // todo tampoco servía: el pedimento desaparecía del informe y nadie sabía
-    // si estaba bien o si nadie lo había mirado. Una línea no ahoga nada.
+    // SOLO SI EL PEDIMENTO TIENE ALGO ATADO. Del que no, NO SE DICE NADA.
+    //
+    // Hubo un intento de decirlo igual —«este pedimento no está en el
+    // archivo»— con el argumento de que callarse esconde información. Fue un
+    // error y duró un día: el archivo de referencias solo cubre una parte de
+    // lo que se carga, así que la inmensa mayoría de los pedimentos de una
+    // Global no están en él. El informe salió con sesenta renglones seguidos
+    // diciendo lo mismo sobre pedimentos perfectamente normales, y las cuatro
+    // líneas que importaban quedaron enterradas entre ellos.
+    //
+    // No es lo mismo «esto está mal» que «de esto no tengo datos». Lo segundo
+    // no es un hallazgo: es el estado por defecto de casi todo, y un informe
+    // que lo repite deja de leerse.
     desconocidasPorPed.forEach((lista, ped) => {
         let conocido = false;
         atadura.forEach(p => { if (p === ped) conocido = true; });
+        if (!conocido) return;
 
         let n = lista.length;
         for (let k = 0; k < n; k++) anota(ped, 'sobran');
 
         let primera = lista[0];
         lineas.push([ped, "",
-            conocido
-                ? "⚠️ El archivo no tiene " + n + " de las guías escaneadas aquí"
-                : "⚠️ Este pedimento NO está en el archivo (" + n + " guías escaneadas)",
+            "⚠️ El archivo no tiene " + n + " de las guías escaneadas aquí",
             primera.hoja, primera.fila,
             n === 1 ? primera.guia : primera.guia + "  …y " + (n - 1) + " más"]);
     });
