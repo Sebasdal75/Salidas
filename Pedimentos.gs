@@ -1365,14 +1365,39 @@ function traerLasGuias(ss) {
 
 // Qué pestañas entran en la confronta.
 //
-// Las de unidad, que es donde se carga. Fuera las M-S —se pidió así—, fuera los
-// inventarios y fuera el rezago, que lleva su propio ritmo y su propia columna O.
+// POR AHORA SOLO LAS GLOBALES. Se pidió empezar por ahí, y es la decisión
+// correcta para estrenar algo: una regla nueva que se equivoca en una pestaña
+// se mira y se arregla; equivocándose en las quince a la vez, lo que se mira es
+// cómo apagarla.
+//
+// PARA AMPLIARLO SE TOCA SOLO ESTA LISTA. Está aparte de la función a propósito:
+// el día que entren las de tránsito o las de aduana, se añade el prefijo aquí y
+// no hay que entender el resto. Y el resto de condiciones se queda como está,
+// porque ninguna sobra aunque la lista crezca.
+const PREFIJOS_CONFRONTA = ["GLOBAL"];
+
+function accesoPrefijosConfronta() { return PREFIJOS_CONFRONTA.slice(); }
+
 function esHojaDeSalidasParaConfronta(nombreHoja) {
     let n = claveHoja(nombreHoja);
     if (esHojaSistema(n) || esHojaInterna(n)) return false;
+    // Fuera las M-S —se pidió así—, fuera los inventarios y fuera el rezago,
+    // que lleva su propio ritmo y su propia columna O.
     if (esHojaMS(n) || esHojaInventario(n)) return false;
     if (n.indexOf("REZAGO") !== -1) return false;
-    return esHojaPrincipal(n);
+    if (!esHojaPrincipal(n)) return false;
+    return PREFIJOS_CONFRONTA.some(p => n.indexOf(p) === 0);
+}
+
+// Qué pestañas se van a mirar, por su nombre. Se enseña en el informe: un
+// alcance que no se ve es un alcance que se olvida, y la primera vez que falte
+// algo nadie va a sospechar de la lista de arriba.
+function hojasQueEntranEnLaConfronta(ss) {
+    let nombres = [];
+    ss.getSheets().forEach(h => {
+        if (esHojaDeSalidasParaConfronta(h.getName())) nombres.push(h.getName());
+    });
+    return nombres;
 }
 
 // Lo que hay escaneado, por pedimento y por bulto.
@@ -1694,6 +1719,9 @@ function hacerLaConfronta(trayendo) {
     // obtener lo que ya está en memoria, y abre la puerta a que los dos digan
     // cosas distintas.
     ss.toast('⏳ Leyendo los escaneos…', 'Confronta', 20);
+    let hojasMiradasConfronta = [];
+    try { hojasMiradasConfronta = hojasQueEntranEnLaConfronta(ss); }
+    catch (err) { hojasMiradasConfronta = []; }
     let refDeClave = new Map();
     // LAS PIEZAS PRIMERO Y LAS HOUSES DESPUÉS, sin pisar. Si una guía corta y
     // una house se escriben igual, manda la que identifica el bulto.
@@ -1760,6 +1788,12 @@ function hacerLaConfronta(trayendo) {
         : "") +
         resumenDeImportacionPedimentos(imp) + "\n\n" +
         "── EL CRUCE ──\n" +
+        "   · se miraron " + hojasMiradasConfronta.length + " pestañas: " +
+        (hojasMiradasConfronta.length
+            ? hojasMiradasConfronta.slice(0, 8).join(", ") +
+              (hojasMiradasConfronta.length > 8
+                  ? " …y " + (hojasMiradasConfronta.length - 8) + " más" : "")
+            : "NINGUNA") + "\n" +
         "   · " + cuadro.length + " referencias cargadas en total\n" +
         "   · " + r.atadura.size + " atadas a un pedimento\n" +
         "   · ✅ " + completas + " completas\n" +
@@ -1789,8 +1823,11 @@ function hacerLaConfronta(trayendo) {
            "detalle de lo que está mal a la derecha, con su pestaña y su fila.\n\n" +
            "Las que ya están en un pedimento salen primero; las que no se han " +
            "empezado, al final.\n\n" +
-           "A partir de ahora, al escanear en una hoja de SALIDAS, un 1Z cuya " +
-           "referencia esté atada a otro pedimento lo dirá en la columna B.";
+           "POR AHORA SOLO ENTRAN LAS PESTAÑAS QUE EMPIEZAN POR «" +
+           PREFIJOS_CONFRONTA.join("» o «") + "». Las demás no se miran y " +
+           "tampoco sale el aviso en su columna B.\n\n" +
+           "Al escanear en una de ellas, un 1Z cuya referencia esté atada a " +
+           "otro pedimento lo dirá en la columna B.";
     if (celdasAtadura === 0 && r.atadura.size > 0) {
         msg += "\n\n⚠️ No pude guardar las ataduras: el aviso de la columna B " +
                "no saldrá hasta la próxima confronta.";

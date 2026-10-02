@@ -5976,15 +5976,45 @@ ok("y la pestaña vieja se borra sola",
 ok("en cada pasada del relleno",
    FUENTE_HOUSE.indexOf("borrarMarcaDeActivoSiSobra(ss);") !== -1);
 
-console.log("\n--- 23f. El aviso solo en las de salidas ---");
-// Se pidio asi, y encaja con la operacion: la M-S es el paso de antes, donde la
-// carga todavia se esta juntando y el pedimento puede no estar escrito. El
-// error de meter un bulto en el pedimento equivocado se comete al CARGAR.
+console.log("\n--- 23f. El alcance: por ahora solo las Globales ---");
+// POR AHORA SOLO LAS GLOBALES. Se pidio empezar por ahi, y es la decision
+// correcta para estrenar algo: una regla nueva que se equivoca en una pestaña
+// se mira y se arregla; equivocandose en las quince a la vez, lo que se mira es
+// como apagarla.
+ok("una Global entra", esHojaDeSalidasParaConfronta("GLOBAL 1"));
+ok("con su placa detras tambien", esHojaDeSalidasParaConfronta("GLOBAL 2 20-AE-3H"));
+// «GLOBAL 1» y «GLOBAL 10» son pestañas distintas: el prefijo no puede
+// confundirlas ni dejar fuera la de dos cifras.
+ok("y la de dos cifras", esHojaDeSalidasParaConfronta("GLOBAL 10"));
+// LO QUE NO ENTRA, que es lo que se pidio limitar.
+ok("una unidad que no es Global NO entra",
+   !esHojaDeSalidasParaConfronta("T1 3"));
+ok("ni las de transito", !esHojaDeSalidasParaConfronta("TRANSITO 2"));
+// Y lo que ya estaba fuera sigue fuera: la M-S es el paso de antes, donde la
+// carga todavia se esta juntando y el pedimento puede no estar escrito.
 ok("una M-S queda fuera", !esHojaDeSalidasParaConfronta("M-S T1"));
+ok("una M-S GLOBALES tampoco, aunque lleve la palabra",
+   !esHojaDeSalidasParaConfronta("M-S GLOBALES"));
 ok("una M-S SALIDAS también", !esHojaDeSalidasParaConfronta("M-S SALIDAS"));
 ok("el rezago también", !esHojaDeSalidasParaConfronta("REZAGO 1"));
+ok("los inventarios tampoco", !esHojaDeSalidasParaConfronta("INVENTARIO A"));
 ok("y las de sistema", !esHojaDeSalidasParaConfronta("MACHO"));
-ok("una de unidad SÍ entra", esHojaDeSalidasParaConfronta("GLOBAL 2 20-AE-3H"));
+ok("ni las del propio modulo",
+   !esHojaDeSalidasParaConfronta("SIS_PEDIMENTOS") &&
+   !esHojaDeSalidasParaConfronta("CONFRONTA REFERENCIAS"));
+
+// PARA AMPLIARLO SE TOCA SOLO LA LISTA DE PREFIJOS. Esta aparte a proposito:
+// el dia que entren las de transito se añade el prefijo y no hay que entender
+// el resto.
+ok("el alcance vive en una lista", accesoPrefijosConfronta().length === 1);
+ok("y hoy es solo GLOBAL", accesoPrefijosConfronta()[0] === "GLOBAL");
+// EL ALCANCE SE ENSEÑA EN EL INFORME: uno que no se ve es uno que se olvida, y
+// la primera vez que falte algo nadie va a sospechar de esta lista.
+const FUENTE_ALCANCE = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+ok("se dice que pestañas se miraron",
+   FUENTE_ALCANCE.indexOf("se miraron \" + hojasMiradasConfronta.length") !== -1);
+ok("y cual es el alcance",
+   FUENTE_ALCANCE.indexOf("POR AHORA SOLO ENTRAN LAS PESTAÑAS QUE EMPIEZAN") !== -1);
 
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 // LO QUE ESTO CAZA, Y YA PASO: `globalBlobPedimentos` estaba declarado con
