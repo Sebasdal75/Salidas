@@ -585,6 +585,22 @@ function traerCostalesDeEstaUnidad() {
         let hoja = ss.getSheetByName(nombreUnidad);
         if (!hoja) { resultado = { error: "La pestaña ya no existe." }; return; }
 
+        // PODAR EL CACHÉ ANTES DE TOCAR NADA.
+        //
+        // Una columna del caché que pertenece a una pestaña que ya NO es de
+        // escaneo —porque se renombró, o porque pasó a ser de sistema, como el
+        // informe «CONFRONTA REFERENCIAS»— se queda ahí con todas sus guías
+        // dentro. Y entonces cada guía de verdad choca contra su copia: la
+        // unidad entera en «⛔ DUPLICADO», incluido todo lo que llevaba días
+        // puesto y nadie ha tocado.
+        //
+        // Se poda aquí porque este botón recalcula la hoja entera justo
+        // después: sin la poda, el recálculo repartiría ese duplicado falso por
+        // todas las filas de golpe, y el operador lo ve al volver del muelle con
+        // los costales ya pegados. Es una llamada en una operación manual que
+        // ya tarda segundos.
+        try { podarCacheHuerfano(ss); } catch (err) { /* nunca impide pegar */ }
+
         // El último dato se lee DENTRO del lock: entre la confirmación y este
         // punto puede haber entrado un escaneo más.
         let lr = Math.max(hoja.getLastRow(), 0);

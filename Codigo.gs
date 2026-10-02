@@ -3585,16 +3585,39 @@ function estadoConCostal(fijo, color, esCostal) {
 // Un prefijo puesto antes haría que una fila perfectamente buena contara como
 // error, y con ella su pedimento dejaría de sumar bultos. Puesta al final, la
 // marca es solo texto y no le cambia el sentido a nada.
+// ¿Esta celda de estado YA llevaba la marca de costal?
+//
+// La marca va siempre DELANTE del resto del estado, así que basta mirar el
+// principio. Ver `estadoConCostal`.
+function yaDiceCostal(txt) {
+    return String(txt === undefined || txt === null ? "" : txt)
+           .trim().indexOf(TXT_COSTAL) === 0;
+}
+
 function marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, colGuia) {
     let c = colGuia || 0;
     let set = null;
-    try { set = conjuntoCostales(cacheInfo); } catch (err) { return 0; }
-    if (!set || set.size === 0) return 0;
+    try { set = conjuntoCostales(cacheInfo); } catch (err) { set = null; }
 
     let n = 0;
     for (let i = 0; i < ultimaFila; i++) {
         let v = String((datosMasivos[i] || [])[c] || "").trim().toUpperCase();
-        if (v === "" || !set.has(v)) continue;
+        if (v === "") continue;
+
+        // DOS FUENTES, Y LA SEGUNDA ES LA QUE FALTABA.
+        //
+        // La lista del caché es la buena mientras exista. Pero el caché SE
+        // BORRA ENTERO al reconstruirlo, y con él la columna «__COSTAL»: desde
+        // ese momento las filas de costal dejaban de marcarse y la leyenda
+        // desaparecía de hojas donde llevaba días puesta, sin que nada lo
+        // dijera y sin forma de recuperarla salvo volver a pegar los costales.
+        //
+        // La hoja misma es la otra fuente, y no se puede perder: si la columna
+        // B YA decía «📦 COSTAL», esa fila es de costal y punto. Así la marca
+        // sobrevive a cualquier pérdida del caché, que es justo lo que se pidió.
+        let enCache = set && set.size > 0 && set.has(v);
+        let yaPuesta = yaDiceCostal((datosMasivos[i] || [])[c + 1]);
+        if (!enCache && !yaPuesta) continue;
         let r = estadoConCostal(resultadosB[i][0], coloresB[i][0], true);
         resultadosB[i][0] = r.fijo;
         coloresB[i][0] = r.color;

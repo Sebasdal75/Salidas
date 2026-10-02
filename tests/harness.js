@@ -5924,6 +5924,59 @@ ok("sin desconocidas no hay linea",
    !ninguna.lineas.some(l => l[2].indexOf("no tiene") !== -1 ||
                              l[2].indexOf("NO está") !== -1));
 
+// LA LEYENDA DE COSTALES SOBREVIVE A PERDER EL CACHE.
+//
+// La lista vivia SOLO en la columna «__COSTAL» del cache, y el cache SE BORRA
+// ENTERO al reconstruirlo. Desde ese momento las filas de costal dejaban de
+// marcarse y la leyenda desaparecia de hojas donde llevaba dias puesta, sin que
+// nada lo dijera y sin forma de recuperarla salvo volver a pegar los costales.
+//
+// La hoja misma es la otra fuente, y no se puede perder: si la columna B YA
+// decia «📦 COSTAL», esa fila es de costal y punto.
+const T_COSTAL = accesoTxtCostal();
+ok("reconoce la marca ya puesta", yaDiceCostal(T_COSTAL + " · ✅ Ok"));
+ok("y la marca sola", yaDiceCostal(T_COSTAL));
+ok("un estado normal no la lleva", !yaDiceCostal("✅ Ok"));
+// SOLO AL PRINCIPIO: la marca va delante del resto del estado, y una guia cuyo
+// resumen mencionara la palabra no puede pasar por costal.
+ok("no cuela si va en medio", !yaDiceCostal("✅ Ok · " + T_COSTAL));
+ok("vacio no cuela", !yaDiceCostal(""));
+ok("null tampoco", !yaDiceCostal(null));
+
+// Sin cache, la fila que ya la lleva escrita se vuelve a marcar.
+// OJO: `conjuntoCostales` guarda el Set en RAM y se queda con la primera foto
+// que ve. Sin olvidarlo entre casos, el segundo trabaja con el cache del
+// primero: es el mismo fallo que ya costo una tarde con las salidas.
+olvidarCostalesEnRAM();
+let filasCostal = [["1ZAAA", T_COSTAL + " · ✅ Ok"], ["1ZBBB", "✅ Ok"]];
+let resB = [[""], [""]], colB = [["#FFFFFF"], ["#FFFFFF"]];
+marcarFilasDeCostal(filasCostal, resB, colB, { data: null, headers: null }, 2, 0);
+ok("sin cache, la que ya estaba marcada se remarca",
+   resB[0][0].indexOf(T_COSTAL) === 0);
+ok("y la que no, no", resB[1][0].indexOf(T_COSTAL) === -1);
+
+// Y EL CACHE SIGUE MANDANDO cuando esta: es la fuente buena mientras exista.
+olvidarCostalesEnRAM();
+let resB2 = [[""], [""]], colB2 = [["#FFFFFF"], ["#FFFFFF"]];
+marcarFilasDeCostal([["1ZCCC", "✅ Ok"], ["1ZDDD", "✅ Ok"]], resB2, colB2,
+    { headers: [accesoHeaderCostal()], data: [[accesoHeaderCostal()], ["1ZCCC"]] }, 2, 0);
+ok("la del cache se marca aunque la hoja no lo diga",
+   resB2[0][0].indexOf(T_COSTAL) === 0);
+ok("y la que no esta en ninguna, no", resB2[1][0].indexOf(T_COSTAL) === -1);
+olvidarCostalesEnRAM();
+
+// LA PODA ANTES DE PEGAR COSTALES. Una columna del cache de una pestaña que ya
+// no es de escaneo deja cada guia chocando contra su copia: la unidad entera en
+// «⛔ DUPLICADO», incluido lo que nadie ha tocado.
+const FUENTE_COST = require('fs').readFileSync('Costales.gs', 'utf8');
+ok("se poda el cache antes de pegar",
+   FUENTE_COST.indexOf("podarCacheHuerfano(ss); } catch (err)") !== -1);
+// Y una pestaña que pasa a ser de sistema tiene que salir del cache: es el
+// caso que lo provoco.
+ok("una columna de una hoja ya de sistema se poda",
+   columnasHuerfanas(["CONFRONTA REFERENCIAS_FISICO"],
+                     new Set(["CONFRONTA REFERENCIAS"])).length === 1);
+
 console.log("\n--- 23i. Menos pestañas de sistema ---");
 // CUATRO PESTAÑAS OCULTAS POR UN MODULO SON DEMASIADAS. Quien abre el archivo
 // las ve en el selector de hojas ocultas y no sabe cual toca ni cual sobra, y
