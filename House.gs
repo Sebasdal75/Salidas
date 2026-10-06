@@ -30,6 +30,30 @@ const MARCA_PRUEBA = "PRUEBA";
 
 const HOJA_INDICE_HOUSE = "INDICE_HOUSE";        // caliente: lo reciente
 const HOJA_INDICE_HOUSE_FRIO = "INDICE_HOUSE_FRIO"; // archivo: solo bajo demanda
+
+// La tercera fuente: lo que manda la app de 1Z al escanear en el muelle.
+//
+// VA EN SU PROPIA PESTAÑA Y NO EN «INDICE_HOUSE», a propósito. Lo que llega de
+// la app no ha pasado por el inbound: es lo que una persona leyó de la etiqueta
+// con el teléfono en la mano. Mezclado con el índice bueno no habría forma de
+// separarlo después, y el día que una lectura salga mal habría que revisar
+// cuarenta y cinco mil filas para encontrarla. Aparte, se borra su pestaña y ya.
+//
+// EL WMS NUNCA LE ESCRIBE. La llena la aplicación por su cuenta; aquí solo se
+// lee. Por eso tampoco entra en `volcarAlIndice`, que REESCRIBE lo que toca:
+// fusionarla ahí duplicaría cada par —una copia en el índice y la original en
+// su pestaña— y haría crecer el archivo sin que nadie entendiera por qué.
+const HOJA_INDICE_HOUSE_APP = "INDICE_HOUSE_APP";
+
+// Las tres, en un solo sitio.
+//
+// Estaba escrita a mano «[HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO]» en seis
+// funciones distintas. Añadir una fuente significaba acordarse de los seis, y
+// la que se olvidara fallaría en silencio: la herramienta seguiría dando un
+// resultado, solo que mirando dos tercios de los datos.
+function hojasDelIndice() {
+    return [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO, HOJA_INDICE_HOUSE_APP];
+}
 const CARPETA_INBOUND = "INBOUND_PREALERTAS";    // carpeta de Drive con los CSV
 
 // Columna D. Está libre: el script escribe en A, B, C1:C3, L, M, N, O, P,
@@ -1474,7 +1498,7 @@ function anexarAlIndice(ss, nuevas) {
     // Se leen LAS DOS. Mirar solo el caliente metería otra vez todo lo que ya
     // está en el frío, que es justo lo que más pesa.
     let mapa = new Map();
-    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+    hojasDelIndice().forEach(nombre => {
         leerIndice(ss, nombre).forEach(f => {
             let g = claveGuiaHouse(f[0]);
             if (g !== "" && !mapa.has(g)) mapa.set(g, String(f[1]).trim());
@@ -1519,6 +1543,11 @@ function anexarAlIndice(ss, nuevas) {
 }
 
 function volcarAlIndice(ss, nuevas) {
+    // AQUÍ NO ENTRA LA DE LA APP, Y NO ES UN OLVIDO. Esta función REESCRIBE
+    // las dos pestañas que toca. Metiendo la de la app en la fusión, sus pares
+    // acabarían copiados dentro del índice mientras siguen en su pestaña: cada
+    // par dos veces, el archivo creciendo y nadie entendiendo por qué. La de la
+    // app se LEE en los otros sitios; se escribe sola.
     let fusion = fusionarEnIndice(leerIndice(ss, HOJA_INDICE_HOUSE)
                                   .concat(leerIndice(ss, HOJA_INDICE_HOUSE_FRIO)), nuevas);
     let particion = particionPorAntiguedad(fusion.filas, new Date(), DIAS_INDICE_CALIENTE);
@@ -2164,7 +2193,12 @@ function rellenarHousesPendientes(forzar, segundosMax) {
                       " · houses en caché: " + (enCacheYa || cosechados.length));
     }
 
-    let indice = leerIndice(ss, HOJA_INDICE_HOUSE);
+    // EL CALIENTE Y EL DE LA APP, no el frío: el frío son cientos de miles de
+    // filas y abrirlo cada cinco minutos se come la cuota de disparadores de la
+    // cuenta entera, incluido el del escaneo. El de la app es pequeño —lo de
+    // hoy— y es justo donde está lo más fresco, así que tiene que ir aquí.
+    let indice = leerIndice(ss, HOJA_INDICE_HOUSE)
+                 .concat(leerIndice(ss, HOJA_INDICE_HOUSE_APP));
     if (indice.length === 0) {
         return anotarRelleno("HAY " + faltanTotal + " GUÍAS ESPERANDO PERO EL ÍNDICE ESTÁ " +
                       "VACÍO: falta importar · huérfanas borradas: " + borradas);
@@ -2374,8 +2408,10 @@ function completarHousesDesdeFrio() {
     const ui = SpreadsheetApp.getUi();
     if (!exigirModoPrueba(ss)) return;
 
-    let mapa = mapaDeIndice(leerIndice(ss, HOJA_INDICE_HOUSE)
-                            .concat(leerIndice(ss, HOJA_INDICE_HOUSE_FRIO)));
+    // LAS TRES. Este es el botón de «búscala donde sea»: si no mira todas, una
+    // guía que sí está acabaría marcada como que no existe.
+    let mapa = mapaDeIndice(hojasDelIndice().reduce(
+        (acc, nombre) => acc.concat(leerIndice(ss, nombre)), []));
     let encontradas = 0, siguenSinAparecer = 0;
 
     ss.getSheets().forEach(hoja => {
@@ -2869,7 +2905,7 @@ function revisarHousesContraSuGuia() {
 
     let todos = [];
     let revisadas = 0;
-    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+    hojasDelIndice().forEach(nombre => {
         let filas = leerIndice(ss, nombre);
         revisadas += filas.length;
         descuadresDeIndice(filas, nombre).forEach(d => todos.push(d));
@@ -2992,7 +3028,7 @@ function quitarRepetidosDelIndice() {
 
     let previo = {};
     let totalPrevio = 0;
-    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+    hojasDelIndice().forEach(nombre => {
         previo[nombre] = leerIndice(ss, nombre);
         totalPrevio += previo[nombre].length;
     });
@@ -3006,7 +3042,7 @@ function quitarRepetidosDelIndice() {
     // confirme una operación que no hace nada es perder su tiempo dos veces.
     let plan = {};
     let aQuitar = 0, conflictos = [];
-    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+    hojasDelIndice().forEach(nombre => {
         plan[nombre] = quitarGuiasRepetidas(previo[nombre]);
         aQuitar += plan[nombre].quitadas;
         plan[nombre].conflictos.forEach(c => conflictos.push(c));
@@ -3040,7 +3076,7 @@ function quitarRepetidosDelIndice() {
         "¿Sigo?", ui.ButtonSet.YES_NO);
     if (r !== ui.Button.YES) return;
 
-    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+    hojasDelIndice().forEach(nombre => {
         if (plan[nombre].quitadas === 0) return;
         escribirIndice(ss, nombre, plan[nombre].limpias);
     });
@@ -3077,7 +3113,7 @@ function repararIndiceHouse() {
     if (r !== ui.Button.YES) return;
 
     let tiradasIndice = 0;
-    [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach(nombre => {
+    hojasDelIndice().forEach(nombre => {
         let filas = leerIndice(ss, nombre);
         if (!filas.length) return;
         let limpio = filasSinBasura(filas);

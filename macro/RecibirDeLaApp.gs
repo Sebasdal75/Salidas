@@ -29,8 +29,17 @@
 
 const NOMBRE_HOJA = 'SOBRANTES';
 
-// Las del índice. Los nombres son los que lee el WMS: no se cambian.
-const HOJA_INDICE = 'INDICE_HOUSE';
+// SU PROPIA PESTAÑA, NO «INDICE_HOUSE».
+//
+// Lo que manda la app no ha pasado por el inbound: es lo que una persona leyó
+// de la etiqueta con el teléfono en la mano. Mezclado con el índice bueno no
+// habría forma de separarlo después, y el día que una lectura salga mal habría
+// que revisar cuarenta y cinco mil filas para encontrarla. Aparte, se borra la
+// pestaña y ya.
+//
+// El WMS la lee como TERCERA FUENTE, junto al índice caliente y al frío. El
+// nombre tiene que ser exactamente este: es el que busca.
+const HOJA_INDICE = 'INDICE_HOUSE_APP';
 const CABECERA_INDICE = ['GUIA', 'HOUSE', 'FECHA', 'ORIGEN'];
 
 // De dónde vino cada fila. Sirve para poder deshacer: el día que la app mande
@@ -127,8 +136,7 @@ function guardarEnIndice(d) {
   const libro = SpreadsheetApp.getActiveSpreadsheet();
   let h = libro.getSheetByName(HOJA_INDICE);
   if (!h) {
-    // Que no exista es raro, pero crearla con la cabecera buena es mejor que
-    // fallar: el WMS la llenará en la siguiente importación.
+    // La crea la app, no el WMS: aquí es donde nace esta pestaña.
     h = libro.insertSheet(HOJA_INDICE, libro.getNumSheets());
     h.getRange(1, 1, 1, 4).setValues([CABECERA_INDICE]);
     h.setFrozenRows(1);

@@ -6200,6 +6200,57 @@ ok("el comando se atiende antes del lock",
    FUENTE_EDIC.indexOf("edicionEsComando") <
    FUENTE_EDIC.indexOf("const lock = LockService.getDocumentLock()"));
 
+console.log("\n=== 23k. La tercera fuente del indice (la app de 1Z) ===");
+// Lo que manda la app de 1Z va en SU PROPIA pestaña y no mezclado con el
+// indice bueno: no ha pasado por el inbound, es lo que una persona leyo de la
+// etiqueta con el telefono en la mano. Mezclado no habria forma de separarlo,
+// y el dia que una lectura salga mal habria que revisar cuarenta y cinco mil
+// filas para encontrarla.
+ok("hay tres fuentes", hojasDelIndice().length === 3);
+ok("el caliente", hojasDelIndice().indexOf("INDICE_HOUSE") !== -1);
+ok("el frio", hojasDelIndice().indexOf("INDICE_HOUSE_FRIO") !== -1);
+ok("y el de la app", hojasDelIndice().indexOf("INDICE_HOUSE_APP") !== -1);
+// La pestaña nueva tiene que quedar FUERA del motor de escaneo, como las otras
+// dos: si el cache la tomara por una hoja de guias, cada par chocaria contra su
+// propia copia y saldrian duplicados falsos por todas partes.
+ok("la de la app es interna", esHojaInterna("INDICE_HOUSE_APP"));
+ok("y de sistema", esHojaSistema("INDICE_HOUSE_APP"));
+ok("y no entra en la confronta", !esHojaDeSalidasParaConfronta("INDICE_HOUSE_APP"));
+
+const FUENTE_IDX = require('fs').readFileSync('House.gs', 'utf8');
+// LA LISTA ESTABA ESCRITA A MANO EN SEIS FUNCIONES. Añadir una fuente
+// significaba acordarse de las seis, y la que se olvidara fallaria en
+// silencio: la herramienta seguiria dando un resultado, solo que mirando dos
+// tercios de los datos.
+ok("ya no queda ninguna pareja escrita a mano",
+   FUENTE_IDX.indexOf("[HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach") === -1);
+ok("y las herramientas usan la lista",
+   (FUENTE_IDX.match(/hojasDelIndice\(\)\.forEach/g) || []).length >= 5);
+
+// EL RELLENO AUTOMATICO: caliente + app, NUNCA el frio. El frio son cientos de
+// miles de filas y abrirlo cada cinco minutos se come la cuota de disparadores
+// de la cuenta entera, incluido el del escaneo.
+(function () {
+    let i = FUENTE_IDX.indexOf("function rellenarHousesPendientes");
+    let j = FUENTE_IDX.indexOf("function anotarRelleno", i);
+    let cuerpo = FUENTE_IDX.substring(i, j > i ? j : i + 12000);
+    ok("el relleno lee el de la app",
+       cuerpo.indexOf("leerIndice(ss, HOJA_INDICE_HOUSE_APP)") !== -1);
+    ok("y NO abre el frio",
+       cuerpo.indexOf("HOJA_INDICE_HOUSE_FRIO") === -1);
+})();
+
+// `volcarAlIndice` REESCRIBE lo que toca: la de la app no puede entrar ahi o
+// sus pares acabarian copiados dentro del indice mientras siguen en su
+// pestaña, cada par dos veces y el archivo creciendo sin motivo.
+(function () {
+    let i = FUENTE_IDX.indexOf("function volcarAlIndice");
+    let cuerpo = FUENTE_IDX.substring(i, i + 2500);
+    ok("el volcado no toca la de la app",
+       cuerpo.indexOf("HOJA_INDICE_HOUSE_APP") === -1);
+    ok("y esta dicho por que", cuerpo.indexOf("NO ES UN OLVIDO") !== -1);
+})();
+
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 // LO QUE ESTO CAZA, Y YA PASO: `globalBlobPedimentos` estaba declarado con
 // `let` en Salidas.gs y en Pedimentos.gs. En Apps Script todos los archivos
