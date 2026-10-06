@@ -6200,19 +6200,27 @@ ok("el comando se atiende antes del lock",
    FUENTE_EDIC.indexOf("edicionEsComando") <
    FUENTE_EDIC.indexOf("const lock = LockService.getDocumentLock()"));
 
-console.log("\n=== 23k. La tercera fuente del indice (la app de 1Z) ===");
-// Lo que manda la app de 1Z va en SU PROPIA pestaña y no mezclado con el
-// indice bueno: no ha pasado por el inbound, es lo que una persona leyo de la
-// etiqueta con el telefono en la mano. Mezclado no habria forma de separarlo,
-// y el dia que una lectura salga mal habria que revisar cuarenta y cinco mil
-// filas para encontrarla.
-ok("hay tres fuentes", hojasDelIndice().length === 3);
+console.log("\n=== 23k. La pestaña de la app, aparte del indice ===");
+// Lo que manda la app de 1Z va en SU PROPIA pestaña -INDICE_HOUSE_APP- y no
+// mezclado con el indice bueno: no ha pasado por el inbound, es lo que una
+// persona leyo de la etiqueta con el telefono en la mano. Mezclado no habria
+// forma de separarlo, y el dia que una lectura salga mal habria que revisar
+// cuarenta y cinco mil filas para encontrarla.
+
+// EL INDICE SIGUEN SIENDO DOS. Se pidio que lo de la app entre SOLO al apretar
+// su boton: metido en esta lista entraria solo en el relleno de cada cinco
+// minutos, en el reparador, en el de quitar repetidos… y entonces una lectura
+// hecha a mano con el telefono pasaria a ser indistinguible del inbound sin
+// que nadie lo hubiera decidido.
+ok("el indice son dos pestañas", hojasDelIndice().length === 2);
 ok("el caliente", hojasDelIndice().indexOf("INDICE_HOUSE") !== -1);
-ok("el frio", hojasDelIndice().indexOf("INDICE_HOUSE_FRIO") !== -1);
-ok("y el de la app", hojasDelIndice().indexOf("INDICE_HOUSE_APP") !== -1);
-// La pestaña nueva tiene que quedar FUERA del motor de escaneo, como las otras
-// dos: si el cache la tomara por una hoja de guias, cada par chocaria contra su
-// propia copia y saldrian duplicados falsos por todas partes.
+ok("y el frio", hojasDelIndice().indexOf("INDICE_HOUSE_FRIO") !== -1);
+ok("la de la app NO esta en la lista",
+   hojasDelIndice().indexOf("INDICE_HOUSE_APP") === -1);
+
+// Pero si tiene que quedar FUERA del motor de escaneo, como las otras dos: si
+// el cache la tomara por una hoja de guias, cada par chocaria contra su propia
+// copia y saldrian duplicados falsos por todas partes.
 ok("la de la app es interna", esHojaInterna("INDICE_HOUSE_APP"));
 ok("y de sistema", esHojaSistema("INDICE_HOUSE_APP"));
 ok("y no entra en la confronta", !esHojaDeSalidasParaConfronta("INDICE_HOUSE_APP"));
@@ -6220,24 +6228,36 @@ ok("y no entra en la confronta", !esHojaDeSalidasParaConfronta("INDICE_HOUSE_APP
 const FUENTE_IDX = require('fs').readFileSync('House.gs', 'utf8');
 // LA LISTA ESTABA ESCRITA A MANO EN SEIS FUNCIONES. Añadir una fuente
 // significaba acordarse de las seis, y la que se olvidara fallaria en
-// silencio: la herramienta seguiria dando un resultado, solo que mirando dos
-// tercios de los datos.
+// silencio: la herramienta seguiria dando un resultado, solo que mirando la
+// mitad de los datos.
 ok("ya no queda ninguna pareja escrita a mano",
    FUENTE_IDX.indexOf("[HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO].forEach") === -1);
 ok("y las herramientas usan la lista",
    (FUENTE_IDX.match(/hojasDelIndice\(\)\.forEach/g) || []).length >= 5);
 
-// EL RELLENO AUTOMATICO: caliente + app, NUNCA el frio. El frio son cientos de
-// miles de filas y abrirlo cada cinco minutos se come la cuota de disparadores
-// de la cuenta entera, incluido el del escaneo.
+// LA PESTAÑA DE LA APP SE USA EN UN SOLO SITIO: su boton. Si apareciera en
+// cualquier otra funcion, estaria entrando en la operacion sin que nadie lo
+// hubiera pedido.
+(function () {
+    let veces = (FUENTE_IDX.match(/HOJA_INDICE_HOUSE_APP/g) || []).length;
+    let i = FUENTE_IDX.indexOf("function traerSoloLasDeLaApp");
+    let j = FUENTE_IDX.indexOf("// Borra las marcas", i);
+    let dentro = (FUENTE_IDX.substring(i, j).match(/HOJA_INDICE_HOUSE_APP/g) || []).length;
+    // Una vez al declararla, el resto dentro del boton.
+    ok("solo se usa en su boton", veces - dentro === 1);
+})();
+
+// EL RELLENO AUTOMATICO: solo el caliente. Ni el frio -cientos de miles de
+// filas cada cinco minutos se comen la cuota de disparadores de la cuenta
+// entera, incluido el del escaneo- ni el de la app.
 (function () {
     let i = FUENTE_IDX.indexOf("function rellenarHousesPendientes");
     let j = FUENTE_IDX.indexOf("function anotarRelleno", i);
     let cuerpo = FUENTE_IDX.substring(i, j > i ? j : i + 12000);
-    ok("el relleno lee el de la app",
-       cuerpo.indexOf("leerIndice(ss, HOJA_INDICE_HOUSE_APP)") !== -1);
-    ok("y NO abre el frio",
+    ok("el relleno no abre el frio",
        cuerpo.indexOf("HOJA_INDICE_HOUSE_FRIO") === -1);
+    ok("ni la pestaña de la app",
+       cuerpo.indexOf("HOJA_INDICE_HOUSE_APP") === -1);
 })();
 
 // `volcarAlIndice` REESCRIBE lo que toca: la de la app no puede entrar ahi o
@@ -6271,7 +6291,8 @@ ok("y esta en el menu de houses",
        cuerpo.indexOf("leerIndice(ss, HOJA_INDICE_HOUSE_APP)") !== -1);
     ok("y no abre el indice entero",
        cuerpo.indexOf("hojasDelIndice()") === -1 &&
-       cuerpo.indexOf("HOJA_INDICE_HOUSE_FRIO") === -1);
+       cuerpo.indexOf("HOJA_INDICE_HOUSE_FRIO") === -1 &&
+       cuerpo.indexOf("leerIndice(ss, HOJA_INDICE_HOUSE)") === -1);
     // SE REINTENTAN LAS MARCADAS CON «—»: esa marca significa «ya se busco y no
     // estaba», y es justo lo que la app viene a resolver. Sin reintentarlas, el
     // boton solo serviria para guias recien escaneadas y no para las que llevan

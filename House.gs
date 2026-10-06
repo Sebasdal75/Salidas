@@ -45,14 +45,22 @@ const HOJA_INDICE_HOUSE_FRIO = "INDICE_HOUSE_FRIO"; // archivo: solo bajo demand
 // su pestaña— y haría crecer el archivo sin que nadie entendiera por qué.
 const HOJA_INDICE_HOUSE_APP = "INDICE_HOUSE_APP";
 
-// Las tres, en un solo sitio.
+// EL ÍNDICE SON DOS PESTAÑAS: la caliente y la fría. LA DE LA APP NO ESTÁ
+// AQUÍ, y es una decisión, no un olvido.
 //
-// Estaba escrita a mano «[HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO]» en seis
-// funciones distintas. Añadir una fuente significaba acordarse de los seis, y
-// la que se olvidara fallaría en silencio: la herramienta seguiría dando un
-// resultado, solo que mirando dos tercios de los datos.
+// Se pidió que lo de la app entre SOLO al apretar su botón. Metida en esta
+// lista entraría sola en el relleno de cada cinco minutos, en el reparador, en
+// el de quitar repetidos… y entonces una lectura hecha a mano con el teléfono
+// pasaría a ser indistinguible del inbound sin que nadie lo hubiera decidido.
+// Separadas, lo de la app es algo que se trae a propósito y se puede deshacer
+// borrando una pestaña.
+//
+// La lista existe porque estaba escrita a mano —«[HOJA_INDICE_HOUSE,
+// HOJA_INDICE_HOUSE_FRIO]»— en seis funciones distintas: añadir una fuente
+// significaba acordarse de las seis, y la que se olvidara fallaría en silencio,
+// dando un resultado que mira la mitad de los datos.
 function hojasDelIndice() {
-    return [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO, HOJA_INDICE_HOUSE_APP];
+    return [HOJA_INDICE_HOUSE, HOJA_INDICE_HOUSE_FRIO];
 }
 const CARPETA_INBOUND = "INBOUND_PREALERTAS";    // carpeta de Drive con los CSV
 
@@ -2193,12 +2201,12 @@ function rellenarHousesPendientes(forzar, segundosMax) {
                       " · houses en caché: " + (enCacheYa || cosechados.length));
     }
 
-    // EL CALIENTE Y EL DE LA APP, no el frío: el frío son cientos de miles de
-    // filas y abrirlo cada cinco minutos se come la cuota de disparadores de la
-    // cuenta entera, incluido el del escaneo. El de la app es pequeño —lo de
-    // hoy— y es justo donde está lo más fresco, así que tiene que ir aquí.
-    let indice = leerIndice(ss, HOJA_INDICE_HOUSE)
-                 .concat(leerIndice(ss, HOJA_INDICE_HOUSE_APP));
+    // SOLO EL CALIENTE. El frío son cientos de miles de filas y abrirlo cada
+    // cinco minutos se come la cuota de disparadores de la cuenta entera,
+    // incluido el del escaneo. Y la pestaña de la app tampoco: se pidió que
+    // entre solo al apretar su botón, para que una lectura hecha a mano con el
+    // teléfono no se cuele sola en la operación.
+    let indice = leerIndice(ss, HOJA_INDICE_HOUSE);
     if (indice.length === 0) {
         return anotarRelleno("HAY " + faltanTotal + " GUÍAS ESPERANDO PERO EL ÍNDICE ESTÁ " +
                       "VACÍO: falta importar · huérfanas borradas: " + borradas);
@@ -2408,8 +2416,8 @@ function completarHousesDesdeFrio() {
     const ui = SpreadsheetApp.getUi();
     if (!exigirModoPrueba(ss)) return;
 
-    // LAS TRES. Este es el botón de «búscala donde sea»: si no mira todas, una
-    // guía que sí está acabaría marcada como que no existe.
+    // LAS DOS DEL ÍNDICE. La de la app tiene su propio botón: aquí se busca en
+    // lo que vino del inbound, que es lo que este botón promete.
     let mapa = mapaDeIndice(hojasDelIndice().reduce(
         (acc, nombre) => acc.concat(leerIndice(ss, nombre)), []));
     let encontradas = 0, siguenSinAparecer = 0;
