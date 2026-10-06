@@ -1916,23 +1916,44 @@ function detectarGuiasPegadas(valor) {
 // El aviso que se pinta cuando la captura no es una guía válida. Si son dos
 // pegadas se dice cuáles, porque de ahí se recupera la que se perdió.
 function textoCapturaInvalida(valor) {
-    // UN COMANDO QUE SE QUEDÓ A MEDIAS tiene su propio texto.
+    // UN COMANDO tiene su propio texto, y depende de si está corriendo.
     //
     // La celda del comando se borra al TERMINAR la acción, no al empezar, para
-    // que mientras corre se vea qué se está haciendo. Si la ejecución se corta
-    // —se agota el tiempo de Google, se cierra el archivo— el código se queda
-    // escrito en la columna A, y entonces salía «❌ Guía Inválida»: un mensaje
-    // que manda a revisar una guía que no existe. Decir lo que es de verdad
-    // convierte un misterio en un borrar la celda.
+    // que mientras corre se vea qué se está haciendo. Pero varios comandos
+    // RECALCULAN la hoja, y ese recálculo corre con el código todavía escrito
+    // en la columna A: el comando se encuentra a sí mismo. Avisar ahí sacaba
+    // «COMANDO SIN TERMINAR» sobre algo que estaba funcionando bien, medio
+    // segundo antes de que todo quedara correcto. Un mensaje de alarma que se
+    // desmiente solo es peor que ninguno: después no se cree ninguno.
+    //
+    // Mientras corre, CALLADO. Si el código sigue ahí visto desde OTRA
+    // ejecución, entonces sí se quedó colgado y se dice.
     try {
         if (typeof comandoDeBarras === 'function' && comandoDeBarras(valor)) {
-            return "⏳ COMANDO SIN TERMINAR · borra esta celda y vuelve a escanear";
+            if (typeof hayComandoEnCurso === 'function' && hayComandoEnCurso()) return "";
+            return "⏳ Comando sin terminar · borra esta celda";
         }
     } catch (err) { /* nunca puede impedir el aviso normal */ }
 
     let pegadas = detectarGuiasPegadas(valor);
     if (!pegadas) return "❌ Guía Inválida";
     return "❌ DOS PEGADAS: " + pegadas.primera + " + " + pegadas.segunda;
+}
+
+// El color que le toca a una captura que no es una guía.
+//
+// UN COMANDO NO SE PINTA DE ROJO. El rojo es «esto está mal y hay que ir a
+// mirarlo», y un comando ni está mal ni hay nada que mirar: o está corriendo,
+// o es una celda que se borra. Pintarlo igual que una guía rota hace que el
+// rojo deje de significar lo que significa, y el rojo es lo que se mira
+// primero al llegar a una pestaña.
+function colorDeCapturaInvalida(valor) {
+    try {
+        if (typeof comandoDeBarras === 'function' && comandoDeBarras(valor)) {
+            return '#FFFFFF';
+        }
+    } catch (err) { /* ante la duda, el color de siempre */ }
+    return "#df5f6b";
 }
 
 function normalizacionAEscribir(valRaw) {
@@ -4556,7 +4577,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               // no está, y el resumen sin cerrar jamás.
               if (resultadosP[i][0] === '') {
                   resultadosP[i][0] = textoCapturaInvalida(v);
-                  coloresP[i][0] = "#df5f6b";
+                  coloresP[i][0] = colorDeCapturaInvalida(v);
               }
           } else {
               totalBultosPreforma++;
@@ -4582,7 +4603,7 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
               // convertía en un faltante eterno.
               if (resultadosP[i][0] === '') {
                   resultadosP[i][0] = textoCapturaInvalida(v);
-                  coloresP[i][0] = "#df5f6b";
+                  coloresP[i][0] = colorDeCapturaInvalida(v);
               }
           } else {
               totalBultosPreforma++; gTmp.push(v); fTmp.push(i);
@@ -4853,7 +4874,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           if (esErr) {
               if (bAAct) bAAct.conAlerta++;
           } else if (!esGuiaUPSValida(v)) {
-              resultadosB[i][0] = textoCapturaInvalida(v); coloresB[i][0] = "#df5f6b";
+              resultadosB[i][0] = textoCapturaInvalida(v);
+              coloresB[i][0] = colorDeCapturaInvalida(v);
               if (bAAct) bAAct.conAlerta++;
           } else {
               if (bAAct) { bAAct.guias.push(v); bAAct.filasGuias.push(i); }
@@ -5392,7 +5414,8 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
           if (esErr) {
               if (bAAct) bAAct.conAlerta++;
           } else if (!esGuiaUPSValida(v)) {
-              resultadosB[i][0] = textoCapturaInvalida(v); coloresB[i][0] = "#df5f6b";
+              resultadosB[i][0] = textoCapturaInvalida(v);
+              coloresB[i][0] = colorDeCapturaInvalida(v);
               if (bAAct) bAAct.conAlerta++;
           } else {
               guiasGlobales.add(v);
@@ -5733,7 +5756,8 @@ function actualizarInventario(hoja, cacheInfo, repintarTodo, filaFinalSugerida, 
     } else if (esErr) {
       // Duplicado entre inventarios o error estructural: ya tiene mensaje fijo.
     } else if (!esGuiaUPSValida(valor)) {
-      resultadosB[i][0] = textoCapturaInvalida(valor); coloresB[i][0] = "#df5f6b";
+      resultadosB[i][0] = textoCapturaInvalida(valor);
+      coloresB[i][0] = colorDeCapturaInvalida(valor);
     } else if (filaUbicacionActual === -1) {
       // Guía escaneada antes de cualquier ubicación: antes se quedaba SIN
       // estado, y una columna B vacía con dato en A hacía que la red de

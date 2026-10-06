@@ -6254,19 +6254,74 @@ ok("se limpia tambien cuando falla",
    FUENTE_CMD.indexOf('if (fallo !== "")') >
    FUENTE_CMD.indexOf("hoja.getRange(fila, 1, 1, 2).clearContent()"));
 
-// EL MIEDO ESTABA BIEN, PERO LA RESPUESTA NO ERA BORRAR A CIEGAS. Si la celda
-// se queda con el codigo porque la ejecucion se corto, la columna B lo dice
-// con esas palabras en vez de mandar a revisar una guia que no existe.
-ok("un comando a medias se reconoce",
-   textoCapturaInvalida("WMSACT").indexOf("COMANDO SIN TERMINAR") !== -1);
+// MIENTRAS EL COMANDO CORRE, CALLADO.
+//
+// Varios comandos RECALCULAN la hoja, y ese recalculo corre con el codigo
+// todavia escrito en la columna A: el comando se encuentra a si mismo. Avisar
+// ahi sacaba «COMANDO SIN TERMINAR» sobre algo que estaba funcionando bien,
+// medio segundo antes de que todo quedara correcto. Un mensaje de alarma que
+// se desmiente solo es peor que ninguno: despues no se cree ninguno.
+ok("hay forma de saber si uno esta corriendo",
+   typeof hayComandoEnCurso === 'function');
+ok("en reposo no hay ninguno", !hayComandoEnCurso());
+
+// Se comprueba a traves de `atenderComando`, que es quien pone y quita la
+// marca: probar la variable a mano no demostraria que el camino real la pone.
+(function () {
+    let visto = null;
+    let hojaFalsa = { getRange: () => ({ setValue: () => {}, clearContent: () => {} }) };
+    let ssFalso = { toast: () => {} };
+    atenderComando(ssFalso, hojaFalsa, 1, {
+        codigo: "WMSACT", titulo: "prueba",
+        correr: function () {
+            // Esto es lo que ve el recalculo que dispara el propio comando.
+            visto = { texto: textoCapturaInvalida("WMSACT"),
+                      color: colorDeCapturaInvalida("WMSACT"),
+                      enCurso: hayComandoEnCurso() };
+            return "ok";
+        }
+    });
+    ok("mientras corre, se sabe que corre", visto.enCurso === true);
+    ok("y la columna B no dice nada", visto.texto === "");
+    ok("y no se pinta de rojo", visto.color === "#FFFFFF");
+    // EN `finally`: si la accion revienta, la marca no puede quedarse puesta o
+    // el resto de la ejecucion creeria que sigue corriendo.
+    ok("al terminar la marca se quita", !hayComandoEnCurso());
+})();
+
+(function () {
+    let hojaFalsa = { getRange: () => ({ setValue: () => {}, clearContent: () => {} }) };
+    atenderComando({ toast: () => {} }, hojaFalsa, 1, {
+        codigo: "WMSACT", titulo: "prueba",
+        correr: function () { throw new Error("boom"); }
+    });
+    ok("y tambien si la accion revienta", !hayComandoEnCurso());
+})();
+
+// VISTO DESDE OTRA EJECUCION -con ningun comando en curso- si que se avisa:
+// ahi el codigo se quedo de verdad colgado.
+ok("un comando colgado se reconoce",
+   textoCapturaInvalida("WMSACT").indexOf("sin terminar") !== -1);
 ok("y dice que hacer",
    textoCapturaInvalida("WMSACT").indexOf("borra esta celda") !== -1);
+// UN COMANDO NO SE PINTA DE ROJO, nunca. El rojo es «esto esta mal y hay que ir
+// a mirarlo», y un comando ni esta mal ni hay nada que mirar. Pintarlo igual
+// que una guia rota hace que el rojo deje de significar lo que significa, y el
+// rojo es lo que se mira primero al llegar a una pestaña.
+ok("ni colgado se pinta de rojo", colorDeCapturaInvalida("WMSACT") === "#FFFFFF");
 // Una guia mala sigue diciendo lo de siempre: esto no puede comerse el aviso
 // que ya existia.
 ok("una guia mala sigue siendo guia mala",
    textoCapturaInvalida("1Z613V09040347861") === "❌ Guía Inválida");
 ok("y dos pegadas tambien",
    textoCapturaInvalida("1Z613V0904034786126113854").indexOf("DOS PEGADAS") !== -1);
+ok("y esas SI se pintan de rojo",
+   colorDeCapturaInvalida("1Z613V09040347861") === "#df5f6b");
+// El color ya no se escribe a mano junto al texto: si volviera a escribirse,
+// un comando se pintaria de rojo otra vez sin que nada fallara.
+ok("el color sale de la funcion, no de una constante suelta",
+   require('fs').readFileSync('Codigo.gs', 'utf8')
+   .indexOf('textoCapturaInvalida(v); coloresB[i][0] = "#df5f6b"') === -1);
 // NINGUN COMANDO ABRE UN DIALOGO: un ui.alert dentro de un disparador espera
 // una respuesta que en un telefono no llega, y cuelga el lock del documento.
 ok("ningun comando abre un dialogo",

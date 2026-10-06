@@ -38,6 +38,24 @@
 
 const TXT_COMANDO_OK = "✅ ";
 
+// ¿HAY UN COMANDO CORRIENDO AHORA MISMO?
+//
+// Esto existe por un detalle que no se ve venir: varios comandos RECALCULAN la
+// hoja, y ese recálculo corre mientras el código sigue escrito en la columna A.
+// O sea que el propio comando se encuentra a sí mismo y escribe «COMANDO SIN
+// TERMINAR» sobre algo que está funcionando perfectamente. El operario ve un
+// mensaje de alarma y medio segundo después todo correcto, y ya no se fía de
+// ninguno de los dos.
+//
+// Es una variable normal y basta con eso: el recálculo que dispara el comando
+// ocurre DENTRO de la misma ejecución, así que la ve. Un código que se quedó de
+// una ejecución anterior —la que se cortó— se mira desde otra ejecución, donde
+// esto vale `false`, y ahí el aviso sí sale. La misma comprobación distingue
+// «está corriendo» de «se quedó colgado» sin guardar nada en ningún sitio.
+let globalComandoEnCurso = false;
+
+function hayComandoEnCurso() { return globalComandoEnCurso === true; }
+
 function comandosDeBarras() {
     return [
         {
@@ -178,10 +196,15 @@ function atenderComando(ss, hoja, fila, cmd) {
     ss.toast('⏳ ' + cmd.titulo + '…', 'Comando', 30);
 
     let resultado, fallo = "";
+    globalComandoEnCurso = true;
     try {
         resultado = cmd.correr(ss);
     } catch (err) {
         fallo = err.message;
+    } finally {
+        // En `finally`: si la acción revienta, la marca no puede quedarse
+        // puesta o el resto de la ejecución creería que sigue corriendo.
+        globalComandoEnCurso = false;
     }
 
     // SE LIMPIA PASE LO QUE PASE, incluso si la acción falló: el comando ya se
