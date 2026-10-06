@@ -104,6 +104,19 @@ function colorColumnaA(valor, estado) {
     let v = String(valor).trim().toUpperCase();
     if (v === "") return COLOR_A_NEUTRO;
 
+    // UN COMANDO NO SE PINTA, y va LO PRIMERO.
+    //
+    // Este es el rojo de la CELDA, no el del estado: la última línea de esta
+    // función pinta de rojo todo lo que no sea una guía válida, y un comando no
+    // lo es. Por eso seguía saliendo rojo después de quitarle el color a la
+    // columna B: son dos colores distintos y solo se había arreglado uno.
+    //
+    // Va delante de la comprobación de duplicado a propósito. Un comando es un
+    // comando aunque arrastre un estado viejo que diga «DUPLICADO»: esos
+    // estados quedaron de antes de que los comandos dejaran de entrar al caché,
+    // y pintarlos de rojo sería seguir enseñando un problema ya resuelto.
+    if (esComandoEnColumnaA(v)) return COLOR_A_NEUTRO;
+
     // Duplicada en cualquiera de sus formas: entre hojas, entre pedimentos, o la
     // primera de la pareja marcada con "⚠️ DUPLICADO (repetida en...)". Se busca
     // la raíz sin distinguir mayúsculas para que ningún texto se escape.

@@ -6365,6 +6365,38 @@ ok("null tampoco", !esComandoEnColumnaA(null));
        fuente.indexOf("setValues(sinComandosEnColumna(hoja.getRange(1, 1, lr, 1).getValues()))") !== -1);
 })();
 
+// NI LA CELDA DE LA COLUMNA A SE PINTA.
+//
+// SON DOS COLORES DISTINTOS y solo se habia arreglado uno. `colorColumnaA`
+// pinta de rojo la CELDA cuando lo que hay no es una guia valida -y un comando
+// no lo es-, al margen de lo que diga el estado. Por eso seguia saliendo rojo
+// despues de quitarle el color a la columna B.
+ok("un comando deja la celda en blanco",
+   colorColumnaA("WMSACT", "").toLowerCase() === "#ffffff");
+ok("y los demas tambien",
+   colorColumnaA("WMSHOUSE", "").toLowerCase() === "#ffffff");
+// VA DELANTE DE LA COMPROBACION DE DUPLICADO a proposito: un comando es un
+// comando aunque arrastre un estado viejo que diga «DUPLICADO». Esos estados
+// quedaron de antes de que los comandos dejaran de entrar al cache, y pintarlos
+// de rojo seria seguir enseñando un problema ya resuelto.
+ok("ni con un estado viejo de duplicado encima",
+   colorColumnaA("WMSACT", "⛔ DUPLICADO (En: GLOBAL 1 Fila 12)").toLowerCase() === "#ffffff");
+ok("ni con uno de guia invalida",
+   colorColumnaA("WMSHOUSE", "❌ Guía Inválida").toLowerCase() === "#ffffff");
+// LO QUE SI ES UN PROBLEMA SIGUE EN ROJO: esto no puede apagar el color que
+// hace que una guia rota se vea desde el otro lado del muelle.
+ok("una guia mal leida sigue roja",
+   colorColumnaA("1Z613V0904034786", "").toLowerCase() === "#df5f6b");
+ok("una duplicada tambien",
+   colorColumnaA("1Z613V090403478612", "⛔ DUPLICADO (En: X Fila 2)").toLowerCase() === "#df5f6b");
+// Y los colores normales no se tocan.
+ok("una guia buena sigue verde",
+   colorColumnaA("1Z613V090403478612", "✅ Ok").toLowerCase() === "#00ff00");
+ok("un pedimento sigue azul",
+   colorColumnaA("6113854", "").toLowerCase() === "#178ccc");
+ok("una celda vacia sigue en blanco",
+   colorColumnaA("", "").toLowerCase() === "#ffffff");
+
 // UN COMANDO NO SE PINTA DE ROJO, nunca. El rojo es «esto esta mal y hay que ir
 // a mirarlo», y un comando ni esta mal ni hay nada que mirar. Pintarlo igual
 // que una guia rota hace que el rojo deje de significar lo que significa, y el
