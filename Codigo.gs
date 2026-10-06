@@ -1916,6 +1916,20 @@ function detectarGuiasPegadas(valor) {
 // El aviso que se pinta cuando la captura no es una guía válida. Si son dos
 // pegadas se dice cuáles, porque de ahí se recupera la que se perdió.
 function textoCapturaInvalida(valor) {
+    // UN COMANDO QUE SE QUEDÓ A MEDIAS tiene su propio texto.
+    //
+    // La celda del comando se borra al TERMINAR la acción, no al empezar, para
+    // que mientras corre se vea qué se está haciendo. Si la ejecución se corta
+    // —se agota el tiempo de Google, se cierra el archivo— el código se queda
+    // escrito en la columna A, y entonces salía «❌ Guía Inválida»: un mensaje
+    // que manda a revisar una guía que no existe. Decir lo que es de verdad
+    // convierte un misterio en un borrar la celda.
+    try {
+        if (typeof comandoDeBarras === 'function' && comandoDeBarras(valor)) {
+            return "⏳ COMANDO SIN TERMINAR · borra esta celda y vuelve a escanear";
+        }
+    } catch (err) { /* nunca puede impedir el aviso normal */ }
+
     let pegadas = detectarGuiasPegadas(valor);
     if (!pegadas) return "❌ Guía Inválida";
     return "❌ DOS PEGADAS: " + pegadas.primera + " + " + pegadas.segunda;

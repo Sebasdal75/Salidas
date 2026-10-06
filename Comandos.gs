@@ -36,9 +36,6 @@
 // cambia por dónde se llaman.
 // =========================================================================
 
-// La celda se vacía ANTES de ejecutar nada. Si la acción tarda o falla, lo que
-// no puede pasar es que el comando se quede escrito en la columna A pareciendo
-// una guía: ahí lo recogería el siguiente recálculo y lo contaría.
 const TXT_COMANDO_OK = "✅ ";
 
 function comandosDeBarras() {
@@ -161,21 +158,43 @@ function edicionEsComando(nombreHoja, colInicial, numRows, numCols, valor) {
 // parado hasta que Google corte la ejecución—, que es exactamente el fallo que
 // ya costó una tarde con el cierre del día.
 function atenderComando(ss, hoja, fila, cmd) {
-    // PRIMERO SE VACÍA LA CELDA. Si la acción tarda o revienta, lo que no puede
-    // quedar es el comando escrito en la columna A pareciendo una guía.
-    try { hoja.getRange(fila, 1).clearContent(); } catch (err) { /* sigue igual */ }
+    // EL CÓDIGO SE QUEDA A LA VISTA MIENTRAS CORRE, y se borra al terminar.
+    //
+    // Antes se borraba antes de empezar, por miedo a que una ejecución cortada
+    // lo dejara escrito en la columna A pareciendo una guía. Pero eso se lleva
+    // por delante lo único que el operario ve: escanea, la celda se vacía al
+    // instante y durante medio minuto no pasa nada visible. Desde el muelle eso
+    // es indistinguible de que no haya funcionado, y lo que se hace entonces es
+    // volver a escanear.
+    //
+    // El miedo estaba bien, pero la respuesta no era esta: ahora, si la celda
+    // se queda con el código, la columna B dice «⏳ COMANDO SIN TERMINAR ·
+    // borra esta celda» —ver `textoCapturaInvalida`—. Ya no hay misterio que
+    // evitar, así que no hace falta pagar el precio de borrar a ciegas.
+    try {
+        hoja.getRange(fila, 2).setValue("⏳ " + cmd.titulo + "…");
+    } catch (err) { /* el aviso de la B es un extra, no puede parar nada */ }
 
-    ss.toast('⏳ ' + cmd.titulo + '…', 'Comando', 10);
-    let resultado;
+    ss.toast('⏳ ' + cmd.titulo + '…', 'Comando', 30);
+
+    let resultado, fallo = "";
     try {
         resultado = cmd.correr(ss);
     } catch (err) {
+        fallo = err.message;
+    }
+
+    // SE LIMPIA PASE LO QUE PASE, incluso si la acción falló: el comando ya se
+    // atendió y dejarlo escrito haría que el siguiente recálculo lo mirara.
+    try { hoja.getRange(fila, 1, 1, 2).clearContent(); } catch (err) { /* sigue */ }
+
+    if (fallo !== "") {
         // Un comando que falla tiene que DECIRLO. Callado, el operador se queda
         // mirando una pestaña que no cambió y repitiendo el escaneo.
-        ss.toast('❌ ' + cmd.titulo + ': ' + err.message, 'Comando', 15);
+        ss.toast('❌ ' + cmd.titulo + ': ' + fallo, 'Comando', 20);
         return false;
     }
-    ss.toast(TXT_COMANDO_OK + (resultado || cmd.titulo), 'Comando', 8);
+    ss.toast(TXT_COMANDO_OK + (resultado || cmd.titulo), 'Comando', 10);
     return true;
 }
 

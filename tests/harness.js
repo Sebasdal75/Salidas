@@ -6233,12 +6233,40 @@ ok("una Global no es un informe", !esHojaDeInforme("GLOBAL 1"));
        cuerpo.indexOf("if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;"));
 })();
 
-// LA CELDA SE VACIA ANTES DE EJECUTAR NADA. Si la accion tarda o revienta, lo
-// que no puede quedar es el comando escrito en la columna A pareciendo una
-// guia: ahi lo recogeria el siguiente recalculo y lo contaria como bulto.
+// EL CODIGO SE QUEDA A LA VISTA MIENTRAS CORRE, y se borra al terminar.
+//
+// Antes se borraba ANTES de empezar, por miedo a que una ejecucion cortada lo
+// dejara escrito en la columna A pareciendo una guia. Pero eso se lleva por
+// delante lo unico que el operario ve: escanea, la celda se vacia al instante
+// y durante medio minuto no pasa nada visible. Desde el muelle eso es
+// indistinguible de que no haya funcionado, y lo que se hace entonces es
+// volver a escanear.
 const FUENTE_CMD = require('fs').readFileSync('Comandos.gs', 'utf8');
-ok("la celda se vacia antes de correr",
-   FUENTE_CMD.indexOf("clearContent()") < FUENTE_CMD.indexOf("cmd.correr(ss)"));
+ok("la celda se borra DESPUES de correr",
+   FUENTE_CMD.indexOf("cmd.correr(ss)") <
+   FUENTE_CMD.indexOf("hoja.getRange(fila, 1, 1, 2).clearContent()"));
+// Y mientras corre se ve que esta pasando, en la columna B de esa misma fila.
+ok("mientras corre se dice que se esta haciendo",
+   FUENTE_CMD.indexOf('hoja.getRange(fila, 2).setValue("⏳ " + cmd.titulo') !== -1);
+// SE LIMPIA PASE LO QUE PASE, tambien si la accion fallo: el comando ya se
+// atendio y dejarlo escrito haria que el siguiente recalculo lo mirara.
+ok("se limpia tambien cuando falla",
+   FUENTE_CMD.indexOf('if (fallo !== "")') >
+   FUENTE_CMD.indexOf("hoja.getRange(fila, 1, 1, 2).clearContent()"));
+
+// EL MIEDO ESTABA BIEN, PERO LA RESPUESTA NO ERA BORRAR A CIEGAS. Si la celda
+// se queda con el codigo porque la ejecucion se corto, la columna B lo dice
+// con esas palabras en vez de mandar a revisar una guia que no existe.
+ok("un comando a medias se reconoce",
+   textoCapturaInvalida("WMSACT").indexOf("COMANDO SIN TERMINAR") !== -1);
+ok("y dice que hacer",
+   textoCapturaInvalida("WMSACT").indexOf("borra esta celda") !== -1);
+// Una guia mala sigue diciendo lo de siempre: esto no puede comerse el aviso
+// que ya existia.
+ok("una guia mala sigue siendo guia mala",
+   textoCapturaInvalida("1Z613V09040347861") === "❌ Guía Inválida");
+ok("y dos pegadas tambien",
+   textoCapturaInvalida("1Z613V0904034786126113854").indexOf("DOS PEGADAS") !== -1);
 // NINGUN COMANDO ABRE UN DIALOGO: un ui.alert dentro de un disparador espera
 // una respuesta que en un telefono no llega, y cuelga el lock del documento.
 ok("ningun comando abre un dialogo",
