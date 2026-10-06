@@ -2253,7 +2253,19 @@ function rellenarHousesPendientes(forzar, segundosMax) {
     // Y las que se acaban de marcar con «—»: es EN ESTA PASADA cuando se sabe
     // que no tienen house, y es la lista que hace que el aviso salga al instante
     // en las hojas de salida sin esperar a que el relleno llegue a su renglón.
-    let sinDatoAhora = sinDatoVistas.slice();
+    //
+    // LAS QUE SE ACABAN DE RESOLVER SE QUITAN, y hacía falta: `sinDatoVistas`
+    // se cosecha ANTES de rellenar, leyendo los «—» que había en las hojas. Una
+    // guía que llevaba el marcador y en esta misma pasada encuentra su house
+    // seguía en esa lista, así que la fila quedaba con su house puesta en la
+    // columna C y el aviso de «Sin información» encima. Forzar la actualización
+    // no lo arreglaba: lo que estaba mal era justo lo que la actualización
+    // consulta, y desde fuera parecía que el botón no había hecho nada.
+    let resueltasAhora = new Set();
+    pendientes.forEach(p => p.faltan.forEach(f => {
+        if (mapa.get(f.guia)) resueltasAhora.add(f.guia);
+    }));
+    let sinDatoAhora = sinDatoVistas.filter(g => !resueltasAhora.has(g));
     pendientes.forEach(p => p.faltan.forEach(f => {
         if (!mapa.get(f.guia)) sinDatoAhora.push(f.guia);
     }));
@@ -2420,7 +2432,7 @@ function completarHousesDesdeFrio() {
     // lo que vino del inbound, que es lo que este botón promete.
     let mapa = mapaDeIndice(hojasDelIndice().reduce(
         (acc, nombre) => acc.concat(leerIndice(ss, nombre)), []));
-    let encontradas = 0, siguenSinAparecer = 0;
+    let encontradas = 0, siguenSinAparecer = 0, resueltasFrio = [];
 
     ss.getSheets().forEach(hoja => {
         let clave = claveHoja(hoja.getName());
@@ -2437,14 +2449,22 @@ function completarHousesDesdeFrio() {
                 if (guia === "") continue;
                 if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;
                 let house = mapa.get(guia);
-                if (house) { items.push({ fila: i + 1, valor: house }); encontradas++; }
-                else siguenSinAparecer++;
+                if (house) {
+                    items.push({ fila: i + 1, valor: house });
+                    resueltasFrio.push(guia);
+                    encontradas++;
+                } else siguenSinAparecer++;
             }
             bloquesContiguos(items).forEach(b => {
                 hoja.getRange(b.fila, par.house, b.valores.length, 1).setValues(b.valores);
             });
         });
     });
+
+    // Mismo motivo que en el botón de la app: sin esto la fila se queda con su
+    // house puesta y el aviso de «Sin información» encima, porque ese aviso
+    // mira el caché y no la fila.
+    try { quitarDeSinHouseEnCache(ss, resueltasFrio); } catch (err) { /* da igual */ }
 
     ui.alert("🏠 Houses desde el archivo",
              "Encontradas: " + encontradas + "\nSiguen sin aparecer: " + siguenSinAparecer +
@@ -2506,7 +2526,7 @@ function correrTraerDeLaApp() {
     }
 
     let mapa = mapaDeIndice(filas);
-    let encontradas = 0, siguenSinAparecer = 0, hojasTocadas = [];
+    let encontradas = 0, siguenSinAparecer = 0, hojasTocadas = [], resueltas = [];
 
     ss.getSheets().forEach(hoja => {
         let clave = claveHoja(hoja.getName());
@@ -2527,8 +2547,11 @@ function correrTraerDeLaApp() {
                 // sobre una lectura hecha a mano con el teléfono.
                 if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;
                 let house = mapa.get(guia);
-                if (house) { items.push({ fila: i + 1, valor: house }); encontradas++; }
-                else if (actual === "") siguenSinAparecer++;
+                if (house) {
+                    items.push({ fila: i + 1, valor: house });
+                    resueltas.push(guia);
+                    encontradas++;
+                } else if (actual === "") siguenSinAparecer++;
             }
             if (items.length) tocada = true;
             bloquesContiguos(items).forEach(b => {
@@ -2538,10 +2561,29 @@ function correrTraerDeLaApp() {
         if (tocada) hojasTocadas.push(hoja.getName());
     });
 
-    // Lo encontrado va también al caché, para que el SIGUIENTE escaneo de esas
-    // guías —el de salida, normalmente— las tenga al instante y sin abrir nada.
-    try { if (typeof olvidarMapaHouseEnRAM === 'function') olvidarMapaHouseEnRAM(); }
-    catch (err) { /* no puede impedir el resultado */ }
+    // SE LIMPIA EL CACHÉ Y SE REPINTA. Sin esto, la fila se queda con su house
+    // puesta en la columna C y el aviso de «Sin información» encima, porque ese
+    // aviso no mira la fila: mira el caché. Y forzar la actualización no lo
+    // arregla —lo que está mal es justo lo que la actualización consulta—, así
+    // que desde fuera parece que el botón no hizo nada.
+    let limpiadas = 0;
+    try { limpiadas = quitarDeSinHouseEnCache(ss, resueltas); }
+    catch (err) { limpiadas = 0; }
+
+    // Y se repintan SOLO las pestañas tocadas. Repintarlas todas costaría
+    // minutos para arreglar dos filas.
+    let repintadas = 0;
+    if (encontradas > 0) {
+        try {
+            let cacheInfo = getCacheData(ss);
+            hojasTocadas.forEach(nombre => {
+                let h = ss.getSheetByName(nombre);
+                if (!h) return;
+                recalcularHoja(h, ss, cacheInfo, null, false, false);
+                repintadas++;
+            });
+        } catch (err) { repintadas = -1; }
+    }
 
     return {
         ok: true,
@@ -2550,9 +2592,12 @@ function correrTraerDeLaApp() {
             filas.length.toLocaleString() + " pares.\n\n" +
             "   · " + encontradas + " houses puestas\n" +
             "   · " + siguenSinAparecer + " siguen sin house\n" +
+            "   · " + limpiadas + " dejaron de estar marcadas como «sin información»\n" +
             (hojasTocadas.length
                 ? "\nPestañas tocadas: " + hojasTocadas.slice(0, 10).join(", ") +
-                  (hojasTocadas.length > 10 ? " …y " + (hojasTocadas.length - 10) + " más" : "")
+                  (hojasTocadas.length > 10 ? " …y " + (hojasTocadas.length - 10) + " más" : "") +
+                  (repintadas < 0 ? "\n\n⚠️ No pude repintarlas: usa «🔄 Forzar Actualización»."
+                                  : "\nRepintadas: " + repintadas)
                 : "\nNo hizo falta tocar ninguna pestaña.") +
             "\n\nEsto mira SOLO lo de la app. Para buscar en el índice completo " +
             "usa «🏠 Poner AHORA las houses que faltan»."
@@ -2723,6 +2768,44 @@ function guiaSinHouseConocida(cacheInfo, guia) {
 // relleno leyendo todas las hojas, así que una guía a la que alguien le puso la
 // house a mano deja de estar marcada sola. Acumulando, el aviso se le quedaría
 // pegado para siempre sin manera de quitárselo.
+// Quita del caché las guías que YA tienen house.
+//
+// POR QUÉ HACE FALTA, Y ES EL FALLO QUE DESTAPÓ ESTO. La lista
+// «__HOUSE_SINDATO» es lo que hace que el aviso de «Sin información» salga al
+// instante en cualquier pestaña. La rehace el relleno automático leyendo las
+// hojas, así que se corrige sola… cinco minutos después.
+//
+// Cuando un botón pone houses al momento —el de la app, el del archivo frío—
+// esa lista se queda mintiendo: la fila YA tiene su house en la columna C y
+// aun así sigue diciendo «Sin información», porque el aviso no mira esa fila,
+// mira el caché. Y forzar la actualización no arregla nada, porque lo que está
+// mal es justo lo que la actualización consulta. Visto desde fuera parece que
+// el botón no hizo nada.
+//
+// Se quitan SOLO las que se acaban de resolver; las demás se quedan, que para
+// eso están.
+function quitarDeSinHouseEnCache(ss, guias) {
+    let fuera = new Set();
+    (guias || []).forEach(g => {
+        let k = claveGuiaHouse(g);
+        if (k !== "") fuera.add(k);
+    });
+    if (fuera.size === 0) return 0;
+
+    let quedan = [];
+    try {
+        let info = getCacheData(ss);
+        sinHouseDelCache(info.data, info.headers).forEach(g => {
+            if (!fuera.has(g)) quedan.push(g);
+        });
+    } catch (err) { return 0; }
+
+    guardarSinHouseEnCache(ss, quedan);
+    try { olvidarMapaHouseEnRAM(); } catch (err) { /* puede no existir */ }
+    try { invalidarCacheRAM(); } catch (err) { /* idem */ }
+    return fuera.size;
+}
+
 function guardarSinHouseEnCache(ss, guias) {
     let cacheSheet = ss.getSheetByName("CACHE_SISTEMA");
     if (!cacheSheet) return 0;

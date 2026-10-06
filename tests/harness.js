@@ -6326,10 +6326,69 @@ ok("y esta en el menu de houses",
     // lectura hecha a mano con el telefono.
     ok("no pisa una house que ya estaba",
        cuerpo.indexOf('if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;') !== -1);
-    // Y el mapa en RAM tiene que caducar, o el siguiente escaneo serviria el de
-    // antes: es el mismo fallo que ya costo una tarde con las salidas.
-    ok("olvida el mapa en RAM al terminar",
-       cuerpo.indexOf("olvidarMapaHouseEnRAM") !== -1);
+    // EL FALLO QUE DESTAPO LA FOTO: la fila YA tenia su house en la columna C y
+    // seguia diciendo «Sin informacion», porque ese aviso no mira la fila, mira
+    // el cache. Y forzar la actualizacion no arreglaba nada: lo que estaba mal
+    // era justo lo que la actualizacion consulta.
+    ok("limpia del cache las que ya resolvio",
+       cuerpo.indexOf("quitarDeSinHouseEnCache(ss, resueltas)") !== -1);
+    // Y repinta, para no dejar al operador apretando «Forzar Actualizacion»
+    // sobre un dato que ya esta bien.
+    ok("y repinta las pestañas tocadas",
+       cuerpo.indexOf("recalcularHoja(h, ss, cacheInfo") !== -1);
+    ok("solo las tocadas, no todas",
+       cuerpo.indexOf("hojasTocadas.forEach") !== -1);
+})();
+
+// QUITAR DEL CACHE LO QUE YA SE RESOLVIO.
+//
+// La lista «__HOUSE_SINDATO» es lo que hace que el aviso de «Sin informacion»
+// salga al instante en cualquier pestaña. La rehace el relleno automatico
+// leyendo las hojas, asi que se corrige sola… cinco minutos despues. Cuando un
+// boton pone houses AL MOMENTO, esa lista se queda mintiendo.
+const FUENTE_QUITA = require('fs').readFileSync('House.gs', 'utf8');
+ok("existe la funcion que las quita",
+   FUENTE_QUITA.indexOf("function quitarDeSinHouseEnCache(ss, guias)") !== -1);
+(function () {
+    let i = FUENTE_QUITA.indexOf("function quitarDeSinHouseEnCache");
+    let j = FUENTE_QUITA.indexOf("function guardarSinHouseEnCache", i);
+    let cuerpo = FUENTE_QUITA.substring(i, j);
+    // SOLO LAS RESUELTAS. Vaciar la lista entera haria desaparecer el aviso de
+    // guias que siguen sin house, que es lo que el aviso existe para decir.
+    ok("conserva las que siguen sin house",
+       cuerpo.indexOf("if (!fuera.has(g)) quedan.push(g)") !== -1);
+    ok("y guarda lo que queda",
+       cuerpo.indexOf("guardarSinHouseEnCache(ss, quedan)") !== -1);
+    // El Set en RAM tiene que caducar con el cache, o la siguiente consulta
+    // seguiria con la foto vieja: es el mismo fallo que ya costo una tarde.
+    ok("olvida el mapa en RAM", cuerpo.indexOf("olvidarMapaHouseEnRAM") !== -1);
+    ok("y el cache en RAM", cuerpo.indexOf("invalidarCacheRAM") !== -1);
+    // Sin nada que quitar no toca el cache: escribirlo igual seria una
+    // escritura por boton para dejarlo como estaba.
+    ok("sin nada que quitar no escribe",
+       cuerpo.indexOf("if (fuera.size === 0) return 0;") !== -1);
+})();
+
+// EL MISMO FALLO ESTABA EN LOS OTROS DOS BOTONES.
+//
+// `sinDatoVistas` se cosecha ANTES de rellenar, leyendo los «—» que habia en
+// las hojas. Una guia que llevaba el marcador y en esa misma pasada encuentra
+// su house seguia en la lista, asi que la fila quedaba con su house puesta en
+// la columna C y el aviso de «Sin informacion» encima.
+(function () {
+    let i = FUENTE_QUITA.indexOf("function rellenarHousesPendientes");
+    let j = FUENTE_QUITA.indexOf("function anotarRelleno", i);
+    let cuerpo = FUENTE_QUITA.substring(i, j > i ? j : i + 14000);
+    ok("el relleno quita las que resolvio en la misma pasada",
+       cuerpo.indexOf("resueltasAhora") !== -1);
+    ok("y las filtra de la lista cosechada",
+       cuerpo.indexOf("sinDatoVistas.filter(g => !resueltasAhora.has(g))") !== -1);
+})();
+(function () {
+    let i = FUENTE_QUITA.indexOf("function completarHousesDesdeFrio");
+    let cuerpo = FUENTE_QUITA.substring(i, i + 3500);
+    ok("el boton del frio tambien las quita",
+       cuerpo.indexOf("quitarDeSinHouseEnCache(ss, resueltasFrio)") !== -1);
 })();
 
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
