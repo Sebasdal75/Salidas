@@ -1379,9 +1379,14 @@ function procesarEdicion(e) {
   // nada, sin ningún error, hasta la próxima reconstrucción del caché.
   const tocaSinInfo = esHojaSinInfo(nombreHoja) && colInicial === 1;
   if (!tocaValida && !tocaMacho && !tocaSinInfo) return;
-  if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;
 
-  // ¿ES UN COMANDO DE CÓDIGO DE BARRAS? Va AQUÍ, antes de pedir el lock, y eso
+  // ¿ES UN COMANDO DE CÓDIGO DE BARRAS?
+  //
+  // VA ANTES DE LA PUERTA DE LAS PESTAÑAS DE SISTEMA, no después. Si fuera
+  // después, escanear un comando en la pestaña del informe no haría nada: es
+  // de sistema y la puerta la cierra. Y el informe es justo donde uno está
+  // mirando cuando quiere volver a cruzar. Quién puede y quién no lo decide
+  // `edicionEsComando`, que deja pasar los informes y nada más. Va AQUÍ, antes de pedir el lock, y eso
   // no es un detalle: las acciones que ejecuta son las mismas del menú y cada
   // una pide el lock del documento por su cuenta. Llamarlas con el lock ya
   // tomado sería un bloqueo contra uno mismo —el archivo entero parado hasta
@@ -1397,6 +1402,8 @@ function procesarEdicion(e) {
           if (cmd) { atenderComando(e.source, hoja, filaInicial, cmd); return; }
       }
   } catch (err) { /* un comando roto nunca puede impedir un escaneo */ }
+
+  if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;
 
   const lock = LockService.getDocumentLock();
   if (!intentarLock(lock)) {

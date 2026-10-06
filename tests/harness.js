@@ -6200,6 +6200,39 @@ ok("en una pestaña de sistema NO", !edicionEsComando("CACHE_SISTEMA", 1, 1, 1, 
 ok("en una M-S SI, que tambien se escanea",
    !!edicionEsComando("M-S T1", 1, 1, 1, "WMSACT"));
 
+// EN LOS INFORMES SI, Y ES LA EXCEPCION. Un informe se borra entero y se
+// vuelve a escribir cada vez que se genera, asi que la celda que ocupe el
+// comando no guarda nada que haga falta. Y es donde uno esta mirando cuando
+// quiere volver a cruzar, que es justo el momento de escanear «WMSCRUZA».
+ok("en la confronta SI", !!edicionEsComando("CONFRONTA REFERENCIAS", 1, 1, 1, "WMSCRUZA"));
+ok("en el de errores de house tambien",
+   !!edicionEsComando("ERRORES_HOUSE", 1, 1, 1, "WMSACT"));
+ok("y se reconocen como informes",
+   esHojaDeInforme("CONFRONTA REFERENCIAS") && esHojaDeInforme("ERRORES_HOUSE"));
+
+// LAS LISTAS TECLEADAS A MANO SE QUEDAN FUERA. El comando se borra solo al
+// atenderlo, asi que escanear encima de un renglon escrito lo borraria, y en
+// esas dos pestañas no hay forma de saber que habia.
+ok("en MACHO no", !edicionEsComando("MACHO", 1, 1, 1, "WMSACT"));
+ok("en SIN INFORMACION tampoco",
+   !edicionEsComando("SIN INFORMACION", 1, 1, 1, "WMSACT"));
+ok("ni en el motor",
+   !edicionEsComando("SIS_PEDIMENTOS", 1, 1, 1, "WMSACT") &&
+   !edicionEsComando("INDICE_HOUSE", 1, 1, 1, "WMSACT"));
+ok("una Global no es un informe", !esHojaDeInforme("GLOBAL 1"));
+
+// Y EN `procesarEdicion` EL COMANDO SE MIRA ANTES DE LA PUERTA DE SISTEMA. Si
+// fuera despues, escanear en la pestaña del informe no haria nada: es de
+// sistema y la puerta la cierra.
+(function () {
+    let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
+    let i = fuente.indexOf("function procesarEdicion");
+    let cuerpo = fuente.substring(i, fuente.indexOf("const lock = LockService.getDocumentLock()", i));
+    ok("el comando se mira antes de cerrar a las de sistema",
+       cuerpo.indexOf("edicionEsComando") <
+       cuerpo.indexOf("if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;"));
+})();
+
 // LA CELDA SE VACIA ANTES DE EJECUTAR NADA. Si la accion tarda o revienta, lo
 // que no puede quedar es el comando escrito en la columna A pareciendo una
 // guia: ahi lo recogeria el siguiente recalculo y lo contaria como bulto.

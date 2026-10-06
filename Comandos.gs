@@ -123,14 +123,33 @@ function comandoDeBarras(valor) {
     return null;
 }
 
+// Las pestañas de sistema donde SÍ se admite un comando: los INFORMES.
+//
+// Son las únicas de sistema donde escanear no puede costar nada. Un informe se
+// borra entero y se vuelve a escribir cada vez que se genera, así que la celda
+// que ocupe el comando no guarda nada que haga falta —y encima es donde uno
+// está mirando cuando quiere volver a cruzar, que es justo el momento de
+// escanear «WMSCRUZA»—.
+//
+// LAS DEMÁS SE QUEDAN FUERA, y cada una por su motivo:
+//   · CACHE_SISTEMA, SIS_* y los índices: el motor. Escribir ahí a mano es
+//     corromper datos que nadie va a saber reconstruir.
+//   · MACHO y SIN INFORMACIÓN: listas TECLEADAS A MANO. El comando se borra
+//     solo al atenderlo, así que escanear encima de un renglón escrito lo
+//     borraría, y en esas dos pestañas no hay forma de saber qué había.
+function esHojaDeInforme(nombreHoja) {
+    let n = claveHoja(nombreHoja);
+    return n.indexOf("CONFRONTA") === 0 || n.indexOf("ERRORES_") === 0;
+}
+
 // ¿Esta edición es un comando que hay que atender?
 //
-// SOLO UNA CELDA, SOLO EN LA COLUMNA A, y nunca en una pestaña de sistema. Un
-// pegado de varias filas no se mira: si alguien pega una columna entera que
-// casualmente lleva un comando dentro, lo que quiere es pegar datos.
+// SOLO UNA CELDA Y SOLO EN LA COLUMNA A. Un pegado de varias filas no se mira:
+// si alguien pega una columna entera que casualmente lleva un comando dentro,
+// lo que quiere es pegar datos.
 function edicionEsComando(nombreHoja, colInicial, numRows, numCols, valor) {
     if (colInicial !== 1 || numRows !== 1 || numCols !== 1) return null;
-    if (esHojaSistema(nombreHoja)) return null;
+    if (esHojaSistema(nombreHoja) && !esHojaDeInforme(nombreHoja)) return null;
     return comandoDeBarras(valor);
 }
 
