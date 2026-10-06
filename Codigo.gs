@@ -1962,6 +1962,22 @@ function esComandoEnColumnaA(valor) {
     } catch (err) { return false; }
 }
 
+// Una columna de la hoja lista para el caché, con los comandos vaciados.
+//
+// POR QUÉ HACE FALTA. La foto copia la columna A TAL CUAL, y el comando sigue
+// escrito ahí mientras la acción corre —se borra al terminar, no al empezar—.
+// O sea que el comando acaba dentro del caché, y a partir de ahí el siguiente
+// que se escanee choca contra esa copia: «⛔ DUPLICADO (En: GLOBAL 1 Fila 12)»
+// sobre una celda que ya ni existe. Escanear el mismo botón dos veces no puede
+// ser un duplicado.
+//
+// LA FILA SE CONSERVA, solo se vacía su valor. El caché se lee POR POSICIÓN
+// para reconstruir los bloques de las M-S: quitar la fila movería todas las de
+// abajo y el bloque entero apuntaría a renglones equivocados.
+function sinComandosEnColumna(valores) {
+    return (valores || []).map(f => [esComandoEnColumnaA(f[0]) ? "" : f[0]]);
+}
+
 function colorDeCapturaInvalida(valor) {
     try {
         if (typeof comandoDeBarras === 'function' && comandoDeBarras(valor)) {
@@ -2649,6 +2665,10 @@ function actualizarBloqueEnCache(source, hoja, nombreHoja, filaInicial, numRows,
             let valsToSet = [];
             for (let r = 0; r < numRows; r++) {
                 let val = valoresEditados[r][idxData];
+                // ANTES DE GUARDARLO EN NINGÚN SITIO. Un comando no entra al
+                // caché: ni a la pestaña, ni al array en RAM, ni al índice de
+                // duplicados. Ver `sinComandosEnColumna`.
+                if (esComandoEnColumnaA(val)) val = "";
                 valsToSet.push([val]);
 
                 if (!globalCacheData) continue;
@@ -2769,7 +2789,10 @@ function actualizarFotografiaMental(hoja, source) {
         if (colPreforma !== -1) cacheSheet.getRange(2, colPreforma, maxFilasCache - 1, 1).clearContent();
     }
 
-    cacheSheet.getRange(2, colFisico, lr, 1).setValues(hoja.getRange(1, 1, lr, 1).getValues());
+    // Con los comandos vaciados: ver `sinComandosEnColumna`. Si entraran al
+    // caché, el siguiente escaneo del mismo botón saldría como duplicado.
+    cacheSheet.getRange(2, colFisico, lr, 1)
+        .setValues(sinComandosEnColumna(hoja.getRange(1, 1, lr, 1).getValues()));
 
     if (colPreforma !== -1 && hoja.getMaxColumns() >= 15) {
         cacheSheet.getRange(2, colPreforma, lr, 1).setValues(hoja.getRange(1, 15, lr, 1).getValues());

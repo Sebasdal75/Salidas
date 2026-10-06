@@ -6330,6 +6330,41 @@ ok("null tampoco", !esComandoEnColumnaA(null));
        fuente.indexOf("coloresB[i][0] = colorDeCapturaInvalida(v);\n              if (bAAct) bAAct.conAlerta++;") === -1);
 })();
 
+// Y NO ENTRA AL CACHE, QUE ES LO QUE LO HACIA SALIR DUPLICADO.
+//
+// La foto copia la columna A TAL CUAL, y el comando sigue escrito ahi mientras
+// la accion corre -se borra al terminar, no al empezar-. Asi que acababa
+// dentro del cache, y a partir de ahi el siguiente que se escaneara chocaba
+// contra esa copia: «⛔ DUPLICADO (En: GLOBAL 1 Fila 12)» sobre una celda que
+// ya ni existe. Escanear el mismo boton dos veces no puede ser un duplicado.
+(function () {
+    let col = [['6113854'], ['1Z613V090403478612'], ['WMSACT'],
+               ['1ZXF00236795297221'], ['wms-house'], ['']];
+    let limpia = sinComandosEnColumna(col);
+    ok("el comando no llega al cache", limpia[2][0] === "");
+    ok("ni escrito de otra forma", limpia[4][0] === "");
+    // LO DEMAS PASA TAL CUAL: el cache guarda la columna A verbatim, pedimentos
+    // incluidos, y de ahi se reconstruyen los bloques de las M-S.
+    ok("el pedimento pasa tal cual", limpia[0][0] === "6113854");
+    ok("y las guias tambien",
+       limpia[1][0] === "1Z613V090403478612" && limpia[3][0] === "1ZXF00236795297221");
+    // LA FILA SE CONSERVA, solo se vacia su valor: el cache se lee POR POSICION
+    // para reconstruir los bloques, asi que quitar la fila moveria todas las de
+    // abajo y el bloque entero apuntaria a renglones equivocados.
+    ok("ninguna fila se pierde", limpia.length === col.length);
+    ok("sin datos no revienta", sinComandosEnColumna(null).length === 0);
+})();
+// Y en el camino incremental se vacia ANTES de guardarlo en ningun sitio: ni a
+// la pestaña del cache, ni al array en RAM, ni al indice de duplicados.
+(function () {
+    let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
+    ok("se vacia antes de escribir en el cache",
+       fuente.indexOf("if (esComandoEnColumnaA(val)) val = \"\";") <
+       fuente.indexOf("valsToSet.push([val]);"));
+    ok("y la foto completa tambien lo filtra",
+       fuente.indexOf("setValues(sinComandosEnColumna(hoja.getRange(1, 1, lr, 1).getValues()))") !== -1);
+})();
+
 // UN COMANDO NO SE PINTA DE ROJO, nunca. El rojo es «esto esta mal y hay que ir
 // a mirarlo», y un comando ni esta mal ni hay nada que mirar. Pintarlo igual
 // que una guia rota hace que el rojo deje de significar lo que significa, y el
