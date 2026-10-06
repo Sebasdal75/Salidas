@@ -6106,8 +6106,38 @@ console.log("\n=== 23j. Comandos por codigo de barras ===");
 // se deja para luego y la unidad sale con el conteo viejo.
 ok("hay comandos definidos", comandosDeBarras().length >= 1);
 ok("el de actualizar esta", !!comandoDeBarras("WMSACT"));
+ok("el de traer y cruzar", !!comandoDeBarras("WMSTRAE"));
+ok("el de solo cruzar", !!comandoDeBarras("WMSCRUZA"));
+ok("el de houses", !!comandoDeBarras("WMSHOUSE"));
+// El de limpiar se quito a peticion: un codigo que no se usa es uno mas que
+// alguien puede escanear por error, y ese borra filas.
+ok("el de limpiar ya no esta", !comandoDeBarras("WMSLIMPIA"));
 ok("y trae su accion",
    typeof comandoDeBarras("WMSACT").correr === 'function');
+
+// NINGUN CODIGO PUEDE SER PREFIJO DE OTRO. Un lector que corta el dato por el
+// largo —o una etiqueta a medio leer— ejecutaria el comando equivocado, y uno
+// de ellos escribe en todas las pestañas.
+(function () {
+    let cods = comandosDeBarras().map(c => c.codigo);
+    let choque = false;
+    cods.forEach(a => cods.forEach(b => {
+        if (a !== b && b.indexOf(a) === 0) choque = true;
+    }));
+    ok("ningun codigo es prefijo de otro", !choque);
+})();
+
+// LOS NUCLEOS QUE LLAMAN NO PUEDEN ABRIR DIALOGOS. Es la regla que hace que
+// esto no cuelgue el archivo, y por eso se comprueba sobre el codigo fuente y
+// no de palabra.
+(function () {
+    let fuente = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+    let i = fuente.indexOf("function correrLaConfronta");
+    ok("el nucleo de la confronta existe", i !== -1);
+    ok("y no abre ningun dialogo",
+       fuente.substring(i).indexOf("ui.") === -1 &&
+       fuente.substring(i).indexOf("getUi") === -1);
+})();
 
 // NINGUN CODIGO PUEDE MEDIR LO QUE MIDE UNA GUIA. Once y dieciocho son los dos
 // largos buenos: si un comando midiera eso, el dia que fallara la intercepcion

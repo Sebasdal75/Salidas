@@ -52,11 +52,28 @@ function comandosDeBarras() {
             }
         },
         {
-            codigo: "WMSLIMPIA",
-            titulo: "Quitar de esta pestaña lo que ya salió",
+            codigo: "WMSTRAE",
+            titulo: "Traer las guías nuevas y cruzar",
             correr: function (ss) {
-                limpiarGuiasMovidas();
-                return "Limpieza hecha";
+                if (typeof correrLaConfronta !== 'function') {
+                    return "El módulo de pedimentos no está instalado";
+                }
+                // EL NÚCLEO, no el botón: el botón enseña el informe largo en
+                // un diálogo, y un diálogo dentro de un disparador se queda
+                // esperando una respuesta que en un teléfono no llega.
+                let r = correrLaConfronta(true);
+                return r.ok ? r.corto : r.corto;
+            }
+        },
+        {
+            codigo: "WMSCRUZA",
+            titulo: "Volver a cruzar con lo que ya hay",
+            correr: function (ss) {
+                if (typeof correrLaConfronta !== 'function') {
+                    return "El módulo de pedimentos no está instalado";
+                }
+                let r = correrLaConfronta(false);
+                return r.ok ? r.corto : r.corto;
             }
         },
         {

@@ -1707,9 +1707,24 @@ function confrontarPedimentosConEscaneos() { hacerLaConfronta(true); }
 // EL DE ABAJO: cruza con lo que ya hay, sin tocar la carpeta ni mover nada.
 function cruzarConLoGuardado() { hacerLaConfronta(false); }
 
+// Los dos botones del menú: corren el núcleo y enseñan el informe largo.
 function hacerLaConfronta(trayendo) {
-    const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
+    let r = correrLaConfronta(trayendo);
+    ui.alert(r.titulo, r.msg, ui.ButtonSet.OK);
+}
+
+// EL NÚCLEO, SIN DIÁLOGOS. Devuelve {ok, titulo, msg, corto}.
+//
+// Se separa del botón porque también lo llama un COMANDO DE CÓDIGO DE BARRAS,
+// y un `ui.alert` dentro de un disparador espera una respuesta que en un
+// teléfono no va a llegar: se queda colgado, y con él el lock del documento.
+// Siete personas escaneando contra un archivo bloqueado.
+//
+// `corto` es la misma noticia en una línea, para el `toast` del muelle: ahí no
+// se lee un informe de treinta renglones, se mira si hay algo rojo.
+function correrLaConfronta(trayendo) {
+    const ss = obtenerArchivo();
 
     // LA MUDANZA VA PRIMERO, antes de leer nada: si quedan pestañas viejas, sus
     // listas tienen que estar ya en las columnas o esta pasada trabajaría con
@@ -1721,7 +1736,10 @@ function hacerLaConfronta(trayendo) {
 
     if (trayendo) ss.toast('⏳ Trayendo las guías…', 'Confronta', 10);
     let imp = trayendo ? traerLasGuias(ss) : guiasGuardadas(ss);
-    if (!imp.ok) { ui.alert(TITULO, imp.error, ui.ButtonSet.OK); return; }
+    if (!imp.ok) {
+        return { ok: false, titulo: TITULO, msg: imp.error,
+                 corto: "no se pudo: " + primeraLineaDe(imp.error) };
+    }
 
     // Se cruza contra lo que ACABA de traerse, no contra el texto empaquetado.
     // Volver a leer lo que se acaba de escribir sería pagar una lectura para
@@ -1842,5 +1860,22 @@ function hacerLaConfronta(trayendo) {
                "no saldrá hasta la próxima confronta.";
     }
 
-    ui.alert(TITULO, msg, ui.ButtonSet.OK);
+    // LA MISMA NOTICIA EN UNA LÍNEA. El informe largo no cabe en un `toast` y
+    // en el muelle tampoco se lee: lo que se mira es si hay algo rojo.
+    let corto = cuadro.length + " refs · ✅ " + completas +
+                " · ⏳ " + sinEmpezar +
+                (totMalas ? " · ❌ " + totMalas + " mal" : "") +
+                (totFaltan ? " · 🔻 " + totFaltan + " faltan" : "") +
+                (totSobran ? " · ⚠️ " + totSobran + " sobran" : "") +
+                (!totMalas && !totFaltan && !totSobran ? " · todo cuadra" : "");
+
+    return { ok: true, titulo: TITULO, msg: msg, corto: corto };
+}
+
+// La primera línea de un texto largo, para caber en un aviso de una línea.
+function primeraLineaDe(texto) {
+    let t = String(texto === undefined || texto === null ? "" : texto).trim();
+    let corte = t.indexOf("\n");
+    t = corte === -1 ? t : t.substring(0, corte);
+    return t.length > 120 ? t.substring(0, 117) + "…" : t;
 }
