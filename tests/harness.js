@@ -6109,6 +6109,7 @@ ok("el de actualizar esta", !!comandoDeBarras("WMSACT"));
 ok("el de traer y cruzar", !!comandoDeBarras("WMSTRAE"));
 ok("el de solo cruzar", !!comandoDeBarras("WMSCRUZA"));
 ok("el de houses", !!comandoDeBarras("WMSHOUSE"));
+ok("el de la app de 1Z", !!comandoDeBarras("WMSAPP"));
 // El de limpiar se quito a peticion: un codigo que no se usa es uno mas que
 // alguien puede escanear por error, y ese borra filas.
 ok("el de limpiar ya no esta", !comandoDeBarras("WMSLIMPIA"));
@@ -6137,6 +6138,28 @@ ok("y trae su accion",
     ok("y no abre ningun dialogo",
        fuente.substring(i).indexOf("ui.") === -1 &&
        fuente.substring(i).indexOf("getUi") === -1);
+})();
+
+// Lo mismo para el de la app: `exigirModoPrueba` abre un dialogo, asi que el
+// nucleo tiene que preguntar a secas por `moduloActivo`.
+(function () {
+    let fuente = require('fs').readFileSync('House.gs', 'utf8');
+    let i = fuente.indexOf("function correrTraerDeLaApp");
+    let j = fuente.indexOf("// Borra las marcas", i);
+    ok("el nucleo de la app existe", i !== -1 && j > i);
+    // SIN LOS COMENTARIOS. Buscando sobre el texto crudo, la propia linea que
+    // explica «exigirModoPrueba abre un dialogo» hacia fallar la prueba: el
+    // test cazaba su propia explicacion.
+    let cuerpo = fuente.substring(i, j).split("\n")
+        .filter(l => l.trim().indexOf("//") !== 0).join("\n");
+    ok("y no abre ningun dialogo",
+       cuerpo.indexOf("ui.") === -1 && cuerpo.indexOf("getUi") === -1);
+    ok("ni llama a exigirModoPrueba, que abre uno",
+       cuerpo.indexOf("exigirModoPrueba(") === -1);
+    ok("pero si comprueba que el modulo este encendido",
+       cuerpo.indexOf("moduloActivo(ss)") !== -1);
+    // Y devuelve la noticia en una linea, para el toast del muelle.
+    ok("devuelve un resumen corto", cuerpo.indexOf("corto:") !== -1);
 })();
 
 // NINGUN CODIGO PUEDE MEDIR LO QUE MIDE UNA GUIA. Once y dieciocho son los dos

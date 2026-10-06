@@ -77,6 +77,20 @@ function comandosDeBarras() {
             }
         },
         {
+            codigo: "WMSAPP",
+            titulo: "Traer las houses de la app de 1Z",
+            correr: function (ss) {
+                if (typeof correrTraerDeLaApp !== 'function') {
+                    return "El módulo de houses no está instalado";
+                }
+                // EL NÚCLEO, no el botón. Y es el comando más rápido de los
+                // cinco: mira solo la pestaña de la app —lo de hoy— y no el
+                // índice entero, así que puede escanearse después de cada
+                // lectura sin pensárselo.
+                return correrTraerDeLaApp().corto;
+            }
+        },
+        {
             codigo: "WMSHOUSE",
             titulo: "Poner ahora las houses que faltan",
             correr: function (ss) {

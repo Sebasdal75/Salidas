@@ -2472,21 +2472,37 @@ function completarHousesDesdeFrio() {
 // estaba», y es justo lo que la app viene a resolver: si no se reintentaran,
 // este botón solo serviría para guías recién escaneadas y no para las que
 // llevan toda la mañana esperando, que son las que importan.
+// El botón del menú: corre el núcleo y enseña el informe.
 function traerSoloLasDeLaApp() {
-    const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
-    if (!exigirModoPrueba(ss)) return;
+    let r = correrTraerDeLaApp();
+    ui.alert("📲 Houses de la app", r.msg, ui.ButtonSet.OK);
+}
+
+// EL NÚCLEO, SIN DIÁLOGOS. Devuelve {ok, msg, corto}.
+//
+// Se separa del botón porque también lo llama un COMANDO DE CÓDIGO DE BARRAS,
+// y un `ui.alert` dentro de un disparador espera una respuesta que en un
+// teléfono no va a llegar: se queda colgado, y con él el lock del documento.
+//
+// `corto` es la misma noticia en una línea, para el `toast` del muelle.
+function correrTraerDeLaApp() {
+    const ss = obtenerArchivo();
+
+    // `exigirModoPrueba` abre un diálogo, así que aquí se pregunta a secas.
+    if (!moduloActivo(ss)) {
+        return { ok: false, corto: "el módulo de houses está apagado",
+                 msg: "El índice de houses está apagado en este archivo." };
+    }
 
     let filas = leerIndice(ss, HOJA_INDICE_HOUSE_APP);
     if (filas.length === 0) {
-        ui.alert("📲 Houses de la app",
-            "La pestaña «" + HOJA_INDICE_HOUSE_APP + "» del archivo del índice " +
-            "está vacía o no existe.\n\n" +
+        return { ok: false, corto: "la pestaña de la app está vacía",
+            msg: "La pestaña «" + HOJA_INDICE_HOUSE_APP + "» del archivo del " +
+            "índice está vacía o no existe.\n\n" +
             "Ahí es donde escribe la aplicación de 1Z. Si acabas de escanear " +
             "con ella y no hay nada, lo que falla es el envío: comprueba que " +
-            "la app apunta a la implementación NUEVA del script.",
-            ui.ButtonSet.OK);
-        return;
+            "la app apunta a la implementación NUEVA del script." };
     }
 
     let mapa = mapaDeIndice(filas);
@@ -2527,18 +2543,20 @@ function traerSoloLasDeLaApp() {
     try { if (typeof olvidarMapaHouseEnRAM === 'function') olvidarMapaHouseEnRAM(); }
     catch (err) { /* no puede impedir el resultado */ }
 
-    ui.alert("📲 Houses de la app",
-        "De la pestaña «" + HOJA_INDICE_HOUSE_APP + "»: " +
-        filas.length.toLocaleString() + " pares.\n\n" +
-        "   · " + encontradas + " houses puestas\n" +
-        "   · " + siguenSinAparecer + " siguen sin house\n" +
-        (hojasTocadas.length
-            ? "\nPestañas tocadas: " + hojasTocadas.slice(0, 10).join(", ") +
-              (hojasTocadas.length > 10 ? " …y " + (hojasTocadas.length - 10) + " más" : "")
-            : "\nNo hizo falta tocar ninguna pestaña.") +
-        "\n\nEsto mira SOLO lo de la app. Para buscar en el índice completo usa " +
-        "«🏠 Poner AHORA las houses que faltan».",
-        ui.ButtonSet.OK);
+    return {
+        ok: true,
+        corto: encontradas + " puestas · " + siguenSinAparecer + " sin house",
+        msg: "De la pestaña «" + HOJA_INDICE_HOUSE_APP + "»: " +
+            filas.length.toLocaleString() + " pares.\n\n" +
+            "   · " + encontradas + " houses puestas\n" +
+            "   · " + siguenSinAparecer + " siguen sin house\n" +
+            (hojasTocadas.length
+                ? "\nPestañas tocadas: " + hojasTocadas.slice(0, 10).join(", ") +
+                  (hojasTocadas.length > 10 ? " …y " + (hojasTocadas.length - 10) + " más" : "")
+                : "\nNo hizo falta tocar ninguna pestaña.") +
+            "\n\nEsto mira SOLO lo de la app. Para buscar en el índice completo " +
+            "usa «🏠 Poner AHORA las houses que faltan»."
+    };
 }
 
 // Borra las marcas de «no está» para que el disparador vuelva a intentarlo.
