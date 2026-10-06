@@ -2445,6 +2445,94 @@ function completarHousesDesdeFrio() {
              ui.ButtonSet.OK);
 }
 
+// -------------------------------------------------------------------------
+// SOLO LO QUE MANDA LA APP DE 1Z
+// -------------------------------------------------------------------------
+
+// El botón de «trae solo lo de la app».
+//
+// POR QUÉ UN BOTÓN APARTE Y NO ESPERAR AL RELLENO. El relleno automático ya
+// mira esta pestaña, pero pasa cada cinco minutos y va por tandas. Cuando
+// alguien acaba de leer una etiqueta con el teléfono y está esperando a ver si
+// la house sale, cinco minutos son cinco minutos. Esto lo hace ahora.
+//
+// MIRA SOLO LA PESTAÑA DE LA APP, y por eso es rápido: son las de hoy, no las
+// cuarenta y cinco mil del índice ni las trescientas mil del archivo frío. Con
+// eso puede apretarse las veces que haga falta sin pensar en la cuota.
+//
+// SE REINTENTAN LAS MARCADAS CON «—». Esa marca significa «ya se buscó y no
+// estaba», y es justo lo que la app viene a resolver: si no se reintentaran,
+// este botón solo serviría para guías recién escaneadas y no para las que
+// llevan toda la mañana esperando, que son las que importan.
+function traerSoloLasDeLaApp() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    if (!exigirModoPrueba(ss)) return;
+
+    let filas = leerIndice(ss, HOJA_INDICE_HOUSE_APP);
+    if (filas.length === 0) {
+        ui.alert("📲 Houses de la app",
+            "La pestaña «" + HOJA_INDICE_HOUSE_APP + "» del archivo del índice " +
+            "está vacía o no existe.\n\n" +
+            "Ahí es donde escribe la aplicación de 1Z. Si acabas de escanear " +
+            "con ella y no hay nada, lo que falla es el envío: comprueba que " +
+            "la app apunta a la implementación NUEVA del script.",
+            ui.ButtonSet.OK);
+        return;
+    }
+
+    let mapa = mapaDeIndice(filas);
+    let encontradas = 0, siguenSinAparecer = 0, hojasTocadas = [];
+
+    ss.getSheets().forEach(hoja => {
+        let clave = claveHoja(hoja.getName());
+        if (!hojaLlevaHouse(clave)) return;
+        let lr = hoja.getLastRow();
+        if (lr < 1) return;
+        let pares = paresDeHouse(clave, hoja.getMaxColumns());
+        let datos = hoja.getRange(1, 1, lr, anchoParaHouses(pares)).getValues();
+        let tocada = false;
+        pares.forEach(par => {
+            let items = [];
+            for (let i = 0; i < datos.length; i++) {
+                let guia = esGuiaParaHouse(datos[i][par.guia - 1]);
+                let actual = String(datos[i][par.house - 1]).trim();
+                if (guia === "") continue;
+                // Vacía o con el marcador de «no estaba»: las dos se reintentan.
+                // Una house ya puesta NO se toca: lo que vino del inbound manda
+                // sobre una lectura hecha a mano con el teléfono.
+                if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;
+                let house = mapa.get(guia);
+                if (house) { items.push({ fila: i + 1, valor: house }); encontradas++; }
+                else if (actual === "") siguenSinAparecer++;
+            }
+            if (items.length) tocada = true;
+            bloquesContiguos(items).forEach(b => {
+                hoja.getRange(b.fila, par.house, b.valores.length, 1).setValues(b.valores);
+            });
+        });
+        if (tocada) hojasTocadas.push(hoja.getName());
+    });
+
+    // Lo encontrado va también al caché, para que el SIGUIENTE escaneo de esas
+    // guías —el de salida, normalmente— las tenga al instante y sin abrir nada.
+    try { if (typeof olvidarMapaHouseEnRAM === 'function') olvidarMapaHouseEnRAM(); }
+    catch (err) { /* no puede impedir el resultado */ }
+
+    ui.alert("📲 Houses de la app",
+        "De la pestaña «" + HOJA_INDICE_HOUSE_APP + "»: " +
+        filas.length.toLocaleString() + " pares.\n\n" +
+        "   · " + encontradas + " houses puestas\n" +
+        "   · " + siguenSinAparecer + " siguen sin house\n" +
+        (hojasTocadas.length
+            ? "\nPestañas tocadas: " + hojasTocadas.slice(0, 10).join(", ") +
+              (hojasTocadas.length > 10 ? " …y " + (hojasTocadas.length - 10) + " más" : "")
+            : "\nNo hizo falta tocar ninguna pestaña.") +
+        "\n\nEsto mira SOLO lo de la app. Para buscar en el índice completo usa " +
+        "«🏠 Poner AHORA las houses que faltan».",
+        ui.ButtonSet.OK);
+}
+
 // Borra las marcas de «no está» para que el disparador vuelva a intentarlo.
 // Se usa después de importar un CSV que faltaba.
 // Borra las marcas de «buscada y no está» y devuelve cuántas quitó.

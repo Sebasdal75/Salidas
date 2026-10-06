@@ -6251,6 +6251,43 @@ ok("y las herramientas usan la lista",
     ok("y esta dicho por que", cuerpo.indexOf("NO ES UN OLVIDO") !== -1);
 })();
 
+// EL BOTON DE «TRAE SOLO LO DE LA APP».
+//
+// El relleno automatico ya mira esa pestaña, pero pasa cada cinco minutos y va
+// por tandas. Cuando alguien acaba de leer una etiqueta con el telefono y esta
+// esperando a ver si la house sale, cinco minutos son cinco minutos.
+const FUENTE_APP = require('fs').readFileSync('House.gs', 'utf8');
+ok("existe el boton", FUENTE_APP.indexOf("function traerSoloLasDeLaApp()") !== -1);
+const FUENTE_MENU_APP = require('fs').readFileSync('Codigo.gs', 'utf8');
+ok("y esta en el menu de houses",
+   FUENTE_MENU_APP.indexOf("'traerSoloLasDeLaApp'") !== -1);
+
+(function () {
+    let i = FUENTE_APP.indexOf("function traerSoloLasDeLaApp");
+    let cuerpo = FUENTE_APP.substring(i, FUENTE_APP.indexOf("// Borra las marcas", i));
+    // MIRA SOLO LA PESTAÑA DE LA APP, y por eso es rapido: son las de hoy, no
+    // las cuarenta y cinco mil del indice ni las trescientas mil del frio.
+    ok("lee solo la pestaña de la app",
+       cuerpo.indexOf("leerIndice(ss, HOJA_INDICE_HOUSE_APP)") !== -1);
+    ok("y no abre el indice entero",
+       cuerpo.indexOf("hojasDelIndice()") === -1 &&
+       cuerpo.indexOf("HOJA_INDICE_HOUSE_FRIO") === -1);
+    // SE REINTENTAN LAS MARCADAS CON «—»: esa marca significa «ya se busco y no
+    // estaba», y es justo lo que la app viene a resolver. Sin reintentarlas, el
+    // boton solo serviria para guias recien escaneadas y no para las que llevan
+    // toda la mañana esperando, que son las que importan.
+    ok("reintenta las marcadas como «no estaba»",
+       cuerpo.indexOf("actual !== TXT_HOUSE_SIN_DATO") !== -1);
+    // UNA HOUSE YA PUESTA NO SE TOCA: lo que vino del inbound manda sobre una
+    // lectura hecha a mano con el telefono.
+    ok("no pisa una house que ya estaba",
+       cuerpo.indexOf('if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;') !== -1);
+    // Y el mapa en RAM tiene que caducar, o el siguiente escaneo serviria el de
+    // antes: es el mismo fallo que ya costo una tarde con las salidas.
+    ok("olvida el mapa en RAM al terminar",
+       cuerpo.indexOf("olvidarMapaHouseEnRAM") !== -1);
+})();
+
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 // LO QUE ESTO CAZA, Y YA PASO: `globalBlobPedimentos` estaba declarado con
 // `let` en Salidas.gs y en Pedimentos.gs. En Apps Script todos los archivos

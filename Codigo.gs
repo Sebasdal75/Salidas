@@ -5861,6 +5861,9 @@ function onOpen() {
               .addItem('⚡ Añadir solo las houses nuevas', 'anexarInboundDesdeOneDrive')
               .addItem('☁️ Importar inbound desde OneDrive (completo)', 'importarInboundDesdeOneDrive')
               .addItem('🏠 Poner AHORA las houses que faltan', 'rellenarHousesAhora')
+              // Solo la pestaña de la app: son las de hoy, no las cuarenta y
+              // cinco mil del índice. Se puede apretar las veces que haga falta.
+              .addItem('📲 Traer solo lo de la app de 1Z', 'traerSoloLasDeLaApp')
               .addItem('🏠 Buscar las que faltan (archivo frío)', 'completarHousesDesdeFrio')
               .addItem('🔁 Reintentar las no encontradas', 'reintentarHousesNoEncontradas')
               .addItem('🔎 Revisar houses contra su guía', 'revisarHousesContraSuGuia')
