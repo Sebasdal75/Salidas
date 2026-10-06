@@ -39,6 +39,7 @@ eval(fs.readFileSync(path.join(__dirname, '..', 'Salidas.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'UnirInventarios.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Costales.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Pedimentos.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'Comandos.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -6099,6 +6100,76 @@ ok("se dice que pestañas se miraron",
 ok("y cual es el alcance",
    FUENTE_ALCANCE.indexOf("POR AHORA SOLO ENTRAN LAS PESTAÑAS QUE EMPIEZAN") !== -1);
 
+console.log("\n=== 23j. Comandos por codigo de barras ===");
+// Para actualizar una pestaña habia que ir a la computadora y buscar el boton.
+// En el muelle eso son cincuenta metros de ida y vuelta, y por eso no se hace:
+// se deja para luego y la unidad sale con el conteo viejo.
+ok("hay comandos definidos", comandosDeBarras().length >= 1);
+ok("el de actualizar esta", !!comandoDeBarras("WMSACT"));
+ok("y trae su accion",
+   typeof comandoDeBarras("WMSACT").correr === 'function');
+
+// NINGUN CODIGO PUEDE MEDIR LO QUE MIDE UNA GUIA. Once y dieciocho son los dos
+// largos buenos: si un comando midiera eso, el dia que fallara la intercepcion
+// se contaria como un bulto. Midiendo otra cosa, lo peor es un «Guia Invalida».
+comandosDeBarras().forEach(function (c) {
+    ok(c.codigo + " no mide como una guia",
+       c.codigo.length !== 11 && c.codigo.length !== 18);
+    ok(c.codigo + " empieza por WMS", c.codigo.indexOf("WMS") === 0);
+    // Solo letras y digitos: Code 39 no admite simbolos dentro del dato, y es
+    // la simbologia que cualquier lector lee sin configurarle nada.
+    ok(c.codigo + " solo lleva letras y digitos", /^[A-Z0-9]+$/.test(c.codigo));
+    ok(c.codigo + " tiene titulo", String(c.titulo || "").length > 5);
+});
+
+// Se reconoce aunque el lector añada basura: un lector mal configurado mete un
+// espacio o un guion al final y nadie entenderia por que funciona en una
+// pistola y no en otra.
+ok("con espacios alrededor tambien", !!comandoDeBarras("  wmsact  "));
+ok("en minuscula tambien", !!comandoDeBarras("wmsact"));
+ok("con guiones tambien", !!comandoDeBarras("WMS-ACT"));
+// Y lo que NO es un comando no lo es.
+ok("una guia normal no es comando", !comandoDeBarras("1Z613V090403478612"));
+ok("una guia corta tampoco", !comandoDeBarras("V0264205381"));
+ok("un pedimento tampoco", !comandoDeBarras("6113854"));
+ok("una palabra parecida tampoco", !comandoDeBarras("WMSLOQUESEA"));
+ok("vacio tampoco", !comandoDeBarras(""));
+ok("null tampoco", !comandoDeBarras(null));
+
+// SOLO UNA CELDA, SOLO EN LA COLUMNA A. Un pegado de varias filas no se mira:
+// si alguien pega una columna entera que casualmente lleva un comando dentro,
+// lo que quiere es pegar datos.
+ok("en la columna A, una celda, SI", !!edicionEsComando("GLOBAL 1", 1, 1, 1, "WMSACT"));
+ok("en otra columna NO", !edicionEsComando("GLOBAL 1", 14, 1, 1, "WMSACT"));
+ok("un pegado de varias filas NO", !edicionEsComando("GLOBAL 1", 1, 20, 1, "WMSACT"));
+ok("de varias columnas NO", !edicionEsComando("GLOBAL 1", 1, 1, 3, "WMSACT"));
+ok("en una pestaña de sistema NO", !edicionEsComando("CACHE_SISTEMA", 1, 1, 1, "WMSACT"));
+ok("en una M-S SI, que tambien se escanea",
+   !!edicionEsComando("M-S T1", 1, 1, 1, "WMSACT"));
+
+// LA CELDA SE VACIA ANTES DE EJECUTAR NADA. Si la accion tarda o revienta, lo
+// que no puede quedar es el comando escrito en la columna A pareciendo una
+// guia: ahi lo recogeria el siguiente recalculo y lo contaria como bulto.
+const FUENTE_CMD = require('fs').readFileSync('Comandos.gs', 'utf8');
+ok("la celda se vacia antes de correr",
+   FUENTE_CMD.indexOf("clearContent()") < FUENTE_CMD.indexOf("cmd.correr(ss)"));
+// NINGUN COMANDO ABRE UN DIALOGO: un ui.alert dentro de un disparador espera
+// una respuesta que en un telefono no llega, y cuelga el lock del documento.
+ok("ningun comando abre un dialogo",
+   FUENTE_CMD.indexOf("comandosDeBarras()") !== -1 &&
+   FUENTE_CMD.substring(FUENTE_CMD.indexOf("function comandosDeBarras"),
+                        FUENTE_CMD.indexOf("function comandoDeBarras"))
+             .indexOf("getUi") === -1);
+// Y un comando que falla tiene que DECIRLO: callado, el operador se queda
+// mirando una pestaña que no cambio y repitiendo el escaneo.
+ok("un comando que falla avisa", FUENTE_CMD.indexOf("'❌ ' + cmd.titulo") !== -1);
+// SE ATIENDE ANTES DE TOMAR EL LOCK: las acciones piden el lock por su cuenta
+// y llamarlas con el lock tomado seria un bloqueo contra uno mismo.
+const FUENTE_EDIC = require('fs').readFileSync('Codigo.gs', 'utf8');
+ok("el comando se atiende antes del lock",
+   FUENTE_EDIC.indexOf("edicionEsComando") <
+   FUENTE_EDIC.indexOf("const lock = LockService.getDocumentLock()"));
+
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 // LO QUE ESTO CAZA, Y YA PASO: `globalBlobPedimentos` estaba declarado con
 // `let` en Salidas.gs y en Pedimentos.gs. En Apps Script todos los archivos
@@ -6115,7 +6186,7 @@ console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 const fsDup = require('fs');
 const pathDup = require('path');
 const ARCHIVOS_GS = ['Codigo.gs', 'House.gs', 'Salidas.gs', 'Costales.gs',
-                     'UnirInventarios.gs', 'Pedimentos.gs'];
+                     'UnirInventarios.gs', 'Pedimentos.gs', 'Comandos.gs'];
 let declarados = new Map();
 let colisiones = [];
 ARCHIVOS_GS.forEach(f => {

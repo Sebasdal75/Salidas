@@ -1381,6 +1381,23 @@ function procesarEdicion(e) {
   if (!tocaValida && !tocaMacho && !tocaSinInfo) return;
   if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;
 
+  // ¿ES UN COMANDO DE CÓDIGO DE BARRAS? Va AQUÍ, antes de pedir el lock, y eso
+  // no es un detalle: las acciones que ejecuta son las mismas del menú y cada
+  // una pide el lock del documento por su cuenta. Llamarlas con el lock ya
+  // tomado sería un bloqueo contra uno mismo —el archivo entero parado hasta
+  // que Google corte la ejecución—, que es el mismo fallo que ya costó una
+  // tarde con el cierre del día.
+  //
+  // `typeof` porque Comandos.gs es opcional: si no está pegado, esto no puede
+  // reventar el escaneo de nadie.
+  try {
+      if (typeof edicionEsComando === 'function') {
+          let cmd = edicionEsComando(nombreHoja, colInicial, numRows, numCols,
+                                     celda.getValue());
+          if (cmd) { atenderComando(e.source, hoja, filaInicial, cmd); return; }
+      }
+  } catch (err) { /* un comando roto nunca puede impedir un escaneo */ }
+
   const lock = LockService.getDocumentLock();
   if (!intentarLock(lock)) {
       // No se pudo entrar. Dejamos marca visible en vez de perder el escaneo
@@ -5897,6 +5914,7 @@ function onOpen() {
       .addItem('❓ ¿Por qué esta guía sale así?', 'diagnosticarGuia')
       .addItem('🚨 ¿Hay retenidas escaneadas?', 'buscarRetenidasEscaneadas')
       .addItem('🛑 Guías sin información (lista y marcadas)', 'prepararHojaSinInformacion')
+      .addItem('🏷️ Comandos por código de barras', 'prepararHojaDeComandos')
       .addSeparator()
       .addItem('🩺 Revisar los disparadores', 'revisarDisparadores')
       .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema'));
