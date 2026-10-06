@@ -1947,6 +1947,21 @@ function textoCapturaInvalida(valor) {
 // o es una celda que se borra. Pintarlo igual que una guía rota hace que el
 // rojo deje de significar lo que significa, y el rojo es lo que se mira
 // primero al llegar a una pestaña.
+// ¿Lo que hay en esta celda de la columna A es un comando de código de barras?
+//
+// Hace falta saberlo en el conteo del bloque. Un comando NO es una guía mal
+// leída: es una celda que está a punto de borrarse sola. Contándolo como
+// alerta, el PEDIMENTO de ese bloque salía con su aviso —«⚠️ 1 con alerta»—
+// mientras el comando corría, y el aviso desaparecía medio segundo después. El
+// operador mira el pedimento, ve una alerta, y para cuando va a buscarla ya no
+// está: eso enseña a desconfiar del resumen, que es lo único que se mira para
+// decidir si una unidad puede salir.
+function esComandoEnColumnaA(valor) {
+    try {
+        return typeof comandoDeBarras === 'function' && !!comandoDeBarras(valor);
+    } catch (err) { return false; }
+}
+
 function colorDeCapturaInvalida(valor) {
     try {
         if (typeof comandoDeBarras === 'function' && comandoDeBarras(valor)) {
@@ -4876,7 +4891,9 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
           } else if (!esGuiaUPSValida(v)) {
               resultadosB[i][0] = textoCapturaInvalida(v);
               coloresB[i][0] = colorDeCapturaInvalida(v);
-              if (bAAct) bAAct.conAlerta++;
+              // Un COMANDO no ensucia el resumen del pedimento: ver
+              // `esComandoEnColumnaA`.
+              if (bAAct && !esComandoEnColumnaA(v)) bAAct.conAlerta++;
           } else {
               if (bAAct) { bAAct.guias.push(v); bAAct.filasGuias.push(i); }
               else { bAAct = { pedimento: "SIN_CABECERA", filaPedimento: -1, guias: [v], filasGuias: [i], esErr: false, conAlerta: 0 }; }
@@ -5416,7 +5433,9 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
           } else if (!esGuiaUPSValida(v)) {
               resultadosB[i][0] = textoCapturaInvalida(v);
               coloresB[i][0] = colorDeCapturaInvalida(v);
-              if (bAAct) bAAct.conAlerta++;
+              // Un COMANDO no ensucia el resumen del pedimento: ver
+              // `esComandoEnColumnaA`.
+              if (bAAct && !esComandoEnColumnaA(v)) bAAct.conAlerta++;
           } else {
               guiasGlobales.add(v);
               if (bAAct) { bAAct.guias.push(v); bAAct.filasGuias.push(i); }

@@ -6304,6 +6304,32 @@ ok("un comando colgado se reconoce",
    textoCapturaInvalida("WMSACT").indexOf("sin terminar") !== -1);
 ok("y dice que hacer",
    textoCapturaInvalida("WMSACT").indexOf("borra esta celda") !== -1);
+// Y NO ENSUCIA EL RESUMEN DEL PEDIMENTO.
+//
+// Un comando NO es una guia mal leida: es una celda que esta a punto de
+// borrarse sola. Contandolo como alerta, el PEDIMENTO de ese bloque salia con
+// su aviso -«⚠️ 1 con alerta»- mientras el comando corria, y el aviso
+// desaparecia medio segundo despues. El operador mira el pedimento, ve una
+// alerta, y para cuando va a buscarla ya no esta: eso enseña a desconfiar del
+// resumen, que es lo unico que se mira para decidir si una unidad puede salir.
+ok("un comando no cuenta como alerta del bloque", esComandoEnColumnaA("WMSACT"));
+ok("ni otro de los cinco", esComandoEnColumnaA("WMSHOUSE"));
+// LO QUE SI ES UNA ALERTA SIGUE SIENDOLO: esto no puede servir de coladero.
+ok("una guia mal leida si cuenta", !esComandoEnColumnaA("1Z613V0904034786"));
+ok("un texto suelto tambien", !esComandoEnColumnaA("BASURA"));
+ok("y un pedimento tambien", !esComandoEnColumnaA("6113854"));
+ok("vacio no revienta", !esComandoEnColumnaA(""));
+ok("null tampoco", !esComandoEnColumnaA(null));
+// Los DOS constructores de bloques tienen que saltarselo: con uno solo, la
+// mitad de las pestañas seguiria enseñando la alerta fantasma.
+(function () {
+    let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
+    let veces = (fuente.match(/if \(bAAct && !esComandoEnColumnaA\(v\)\) bAAct\.conAlerta\+\+;/g) || []).length;
+    ok("los dos constructores de bloques lo saltan", veces === 2);
+    ok("y no queda ningun conAlerta++ suelto tras una captura invalida",
+       fuente.indexOf("coloresB[i][0] = colorDeCapturaInvalida(v);\n              if (bAAct) bAAct.conAlerta++;") === -1);
+})();
+
 // UN COMANDO NO SE PINTA DE ROJO, nunca. El rojo es «esto esta mal y hay que ir
 // a mirarlo», y un comando ni esta mal ni hay nada que mirar. Pintarlo igual
 // que una guia rota hace que el rojo deje de significar lo que significa, y el
