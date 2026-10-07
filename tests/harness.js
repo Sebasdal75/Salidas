@@ -6431,6 +6431,26 @@ ok("una celda vacia sigue en blanco",
     ok("y la hora de la columna L", borrado.indexOf('col12') !== -1);
 })();
 
+// Y LA CONFRONTA NO SE LEE A SI MISMA.
+//
+// «WMSCRUZA» corre la confronta con el codigo todavia escrito en la columna A.
+// La confronta recorre las Globales, se encontraba el codigo debajo de un
+// pedimento, lo tomaba por un bulto de ese pedimento y, como el archivo no lo
+// conoce, salia en el informe: «El archivo no tiene 1 de las guias escaneadas
+// aqui», con «WMSCRUZA» en la columna de la guia.
+(function () {
+    let rejilla = [['6116034', '', ''],
+                   ['1Z613V090403478612', '', '613V093STND'],
+                   ['WMSCRUZA', '⏳ Volver a cruzar…', '']];
+    let ssFalso = { getSheets: () => [{ getName: () => 'GLOBAL 1 20-AE-3H',
+        getLastRow: () => rejilla.length,
+        getRange: () => ({ getValues: () => rejilla }) }] };
+    let bultos = housesEscaneadasPorPedimento(ssFalso).get('6116034');
+    ok("la confronta no cuenta el comando como bulto", !bultos.has('WMSCRUZA'));
+    ok("pero si la guia de verdad", bultos.has('1Z613V090403478612'));
+    ok("y solo esa", bultos.size === 1);
+})();
+
 // UN COMANDO NO SE PINTA DE ROJO, nunca. El rojo es «esto esta mal y hay que ir
 // a mirarlo», y un comando ni esta mal ni hay nada que mirar. Pintarlo igual
 // que una guia rota hace que el rojo deje de significar lo que significa, y el

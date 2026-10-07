@@ -1425,6 +1425,18 @@ function housesEscaneadasPorPedimento(ss) {
             if (esMarcadorEstructural(a)) { pedActual = ""; continue; }
             if (a === "" || pedActual === "") continue;
 
+            // UN COMANDO NO ES UN BULTO. «WMSCRUZA» corre ESTA MISMA confronta,
+            // y lo hace con el código todavía escrito en la columna A —se borra
+            // al terminar, no al empezar—. Sin esto, la confronta se leía a sí
+            // misma: tomaba el código por una guía del pedimento de arriba y,
+            // como el archivo no lo conoce, lo reportaba como «el archivo no
+            // tiene 1 de las guías escaneadas aquí».
+            //
+            // Este es el ÚNICO lector de la columna A que acepta cualquier
+            // valor. Los del módulo de houses pasan por `esGuiaParaHouse`, que
+            // exige una guía válida, y un comando nunca lo es.
+            if (typeof esComandoEnColumnaA === 'function' && esComandoEnColumnaA(a)) continue;
+
             let g = claveHousePed(a);
             if (g === "") continue;
             let h = claveHousePed(datos[i][2]);
