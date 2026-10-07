@@ -5846,6 +5846,39 @@ ok("sin nada guardado manda al boton de traer",
        alertaDeEstadoParaConfronta("❌ Esa referencia va en el pedimento 6100001") === "");
     ok("vacio no", alertaDeEstadoParaConfronta("") === "" && alertaDeEstadoParaConfronta(null) === "");
 })();
+// LA GUIA QUE EL ARCHIVO NO TIENE TAMBIEN QUITA EL «COMPLETA».
+//
+// El detalle decia «⚠️ El archivo no tiene 1 de las guias escaneadas aqui» y el
+// cuadro, al lado, «✅ COMPLETA»: esa linea va por pedimento, sin referencia, y
+// el cuadro va por referencia, asi que no la veia.
+(function () {
+    const REF = 'REFY', PED = '6116008';
+    let piezas = ['1Z' + '0'.repeat(15) + '3', '1Z' + '0'.repeat(15) + '4'];
+    let ajena = '1Z' + '9'.repeat(16);
+    let porReferencia = new Map([[REF, piezas]]);
+    let refDe = new Map(piezas.map(g => [g, REF]));
+    let esc = new Map([[PED, new Map([
+        [piezas[0], { hoja: 'GLOBAL 1', fila: 2, house: '' }],
+        [piezas[1], { hoja: 'GLOBAL 1', fila: 3, house: '' }],
+        [ajena,     { hoja: 'GLOBAL 1', fila: 4, house: '' }]])]]);
+    let r = confrontarHouses(porReferencia, refDe, esc,
+                             { atadura: new Map([[REF, PED]]), repartidas: [] });
+    let fila = cuadroDeReferencias(r.porRef)[0];
+    ok("con una guia que el archivo no tiene ya NO dice COMPLETA", fila[5].indexOf("COMPLETA") === -1);
+    ok("dice que el pedimento lleva una que el archivo no tiene",
+       fila[5].indexOf("LLEVA 1 GUÍA QUE EL ARCHIVO NO TIENE") !== -1);
+    ok("y el detalle sigue diciendolo",
+       r.lineas.some(l => l[2].indexOf("El archivo no tiene 1") !== -1));
+    // Otra referencia en OTRO pedimento no se mancha.
+    let porRef2 = new Map([[REF, piezas], ['REFZ', ['1Z' + '0'.repeat(15) + '5']]]);
+    let refDe2 = new Map(refDe); refDe2.set('1Z' + '0'.repeat(15) + '5', 'REFZ');
+    esc.set('6116009', new Map([['1Z' + '0'.repeat(15) + '5', { hoja: 'GLOBAL 1', fila: 8, house: '' }]]));
+    let r2 = confrontarHouses(porRef2, refDe2, esc,
+                              { atadura: new Map([[REF, PED], ['REFZ', '6116009']]), repartidas: [] });
+    let otra = cuadroDeReferencias(r2.porRef).find(f => f[0] === 'REFZ');
+    ok("la de otro pedimento sigue COMPLETA", otra[5] === "✅ COMPLETA");
+})();
+
 // Y el lector de la hoja la recoge de la columna B, aunque la copia con error
 // sea la de abajo.
 (function () {

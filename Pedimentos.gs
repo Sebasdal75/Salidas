@@ -1689,6 +1689,14 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
         let n = lista.length;
         for (let k = 0; k < n; k++) anota(ped, 'sobran');
 
+        // Y LAS REFERENCIAS DE ESE PEDIMENTO SE ENTERAN. Esta línea no lleva
+        // referencia —el archivo no sabe de quién son esos bultos—, así que el
+        // cuadro, que va por referencia, no la veía: el detalle decía «el
+        // archivo no tiene 1 de las guías» y el cuadro, a su lado, «✅
+        // COMPLETA». La referencia puede tener sus piezas justas, pero el
+        // pedimento lleva algo que no es de nadie, y eso no está completo.
+        porRef.forEach(c => { if (c.pedimento === ped) c.ajenasEnPed = n; });
+
         let primera = lista[0];
         lineas.push([ped, "",
             "⚠️ El archivo no tiene " + n + " de las guías escaneadas aquí",
@@ -1745,6 +1753,9 @@ function cuadroDeReferencias(porRef) {
         if (c.enOtro) partes.push("❌ " + c.enOtro + " EN OTRO PEDIMENTO");
         // Va DELANTE: es lo más grave del cuadro y lo que hay que ver primero.
         if (c.conAlerta) partes.unshift("⛔ " + c.conAlerta + " CON ERROR");
+        if (c.ajenasEnPed) partes.push("⚠️ EL PEDIMENTO LLEVA " + c.ajenasEnPed +
+                                       (c.ajenasEnPed === 1 ? " GUÍA" : " GUÍAS") +
+                                       " QUE EL ARCHIVO NO TIENE");
 
         filas.push([c.referencia, c.pedimento, c.delArchivo, c.aqui, c.enOtro,
                     partes.length ? partes.join(" · ") : "✅ COMPLETA"]);
