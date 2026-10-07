@@ -38,6 +38,10 @@
 
 const TXT_COMANDO_OK = "✅ ";
 
+// La columna de la hora de la columna A —la L— en las tres familias de
+// pestañas: Globales, M-S e inventarios. Ver `aplicarCambiosOptimizado`.
+const COL_HORA_DE_A = 12;
+
 // ¿HAY UN COMANDO CORRIENDO AHORA MISMO?
 //
 // Esto existe por un detalle que no se ve venir: varios comandos RECALCULAN la
@@ -215,6 +219,11 @@ function atenderComando(ss, hoja, fila, cmd) {
     // SE LIMPIA PASE LO QUE PASE, incluso si la acción falló: el comando ya se
     // atendió y dejarlo escrito haría que el siguiente recálculo lo mirara.
     try { hoja.getRange(fila, 1, 1, 2).clearContent(); } catch (err) { /* sigue */ }
+    // Y LA HORA, en la columna L. El recálculo ya no se la pone a un comando,
+    // pero una hora estampada antes de ese arreglo se quedaría sola en una fila
+    // vacía. Las tres familias de pestañas usan la L para la hora de la A, así
+    // que no hay pestaña donde esa celda sea otra cosa.
+    try { hoja.getRange(fila, COL_HORA_DE_A).clearContent(); } catch (err) { /* sigue */ }
 
     if (fallo !== "") {
         // Un comando que falla tiene que DECIRLO. Callado, el operador se queda

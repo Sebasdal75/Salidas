@@ -4517,6 +4517,12 @@ function aplicarCambiosOptimizado(hoja, colStatus, colHora, idxStatusOriginal, i
 // bloque, borrando la trazabilidad de las filas vecinas.
 function horaPreservada(datosMasivos, i, idxHora, valorFila, horaActual) {
     if (String(valorFila).trim() === "") return '';
+    // UN COMANDO NO LLEVA HORA. La hora es «cuándo se escaneó este bulto», y un
+    // comando no es un bulto. Sin esto, el recálculo que lanza el propio
+    // comando —con el código todavía escrito en la columna A— le estampaba la
+    // hora en la columna L; luego el comando borraba A y B, y la hora se
+    // quedaba sola en una fila vacía, como si ahí hubiera habido algo.
+    if (esComandoEnColumnaA(valorFila)) return '';
     let previa = datosMasivos[i][idxHora];
     return String(previa).trim() !== "" ? previa : horaActual;
 }

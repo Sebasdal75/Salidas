@@ -6397,6 +6397,40 @@ ok("un pedimento sigue azul",
 ok("una celda vacia sigue en blanco",
    colorColumnaA("", "").toLowerCase() === "#ffffff");
 
+// Y NO LLEVA HORA.
+//
+// La hora es «cuando se escaneo este bulto», y un comando no es un bulto. El
+// recalculo que lanza el propio comando -con el codigo todavia en la columna
+// A- le estampaba la hora en la L; luego el comando borraba A y B, y la hora se
+// quedaba sola en una fila vacia, como si ahi hubiera habido algo.
+(function () {
+    let filas = [['WMSACT', '', '', '', '', '', '', '', '', '', '', ''],
+                 ['1Z613V090403478612', '', '', '', '', '', '', '', '', '', '', ''],
+                 ['1ZXF00236795297221', '', '', '', '', '', '', '', '', '', '', '09:10:00']];
+    ok("un comando no recibe hora",
+       horaPreservada(filas, 0, 11, 'WMSACT', '14:32:05') === '');
+    // LO DEMAS IGUAL: una guia nueva recibe la de ahora y una que ya tenia la
+    // conserva. La hora de un bulto es un dato de trazabilidad y no puede
+    // moverse porque se recalcule la hoja.
+    ok("una guia nueva si la recibe",
+       horaPreservada(filas, 1, 11, '1Z613V090403478612', '14:32:05') === '14:32:05');
+    ok("y una que ya la tenia la conserva",
+       horaPreservada(filas, 2, 11, '1ZXF00236795297221', '14:32:05') === '09:10:00');
+    ok("una fila vacia sigue sin hora",
+       horaPreservada(filas, 0, 11, '', '14:32:05') === '');
+})();
+// Y al terminar el comando se borra tambien la L, por si quedo una hora de
+// antes de este arreglo.
+(function () {
+    let borrado = [];
+    let hojaFalsa = { getRange: (f, c, nr, nc) => ({ setValue: () => {},
+        clearContent: () => borrado.push(nc === 2 ? 'AB' : 'col' + c) }) };
+    atenderComando({ toast: () => {} }, hojaFalsa, 5,
+                   { codigo: "WMSACT", titulo: "x", correr: () => "ok" });
+    ok("al terminar se borran A y B", borrado.indexOf('AB') !== -1);
+    ok("y la hora de la columna L", borrado.indexOf('col12') !== -1);
+})();
+
 // UN COMANDO NO SE PINTA DE ROJO, nunca. El rojo es «esto esta mal y hay que ir
 // a mirarlo», y un comando ni esta mal ni hay nada que mirar. Pintarlo igual
 // que una guia rota hace que el rojo deje de significar lo que significa, y el
