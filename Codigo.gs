@@ -886,12 +886,39 @@ const MINUTOS_SIN_LATIDO = 3;
 
 function onEdit(e) {
     if (instalableRespondiendo(Date.now())) return;
-    procesarEdicion(e);
+    // EL LATIDO VIEJO NO SIGNIFICA INSTALABLE MUERTO. Tras una pausa de más de
+    // tres minutos sin escanear —un descanso, el hueco entre dos camiones— el
+    // latido ya está viejo y el PRIMER escaneo de después lo procesaban los dos
+    // disparadores a la vez: el doble de trabajo peleando por el mismo lock,
+    // justo cuando vuelven todos a escanear de golpe. Era una de las fuentes de
+    // «⏳ Pendiente».
+    //
+    // Si el instalable está vivo, va a latir en un par de segundos por este
+    // mismo escaneo. Se le espera un poco antes de ponerse a trabajar.
+    if (instalableLateEnSeguida()) return;
+    procesarEdicion(e, false);
 }
 
 function alEditar(e) {
     latir();
-    procesarEdicion(e);
+    procesarEdicion(e, true);
+}
+
+// Cuánto espera el simple a que el instalable dé señales, y cada cuánto mira.
+// Seis segundos le dejan al simple casi todo su margen de 30 para trabajar si
+// de verdad el instalable no aparece.
+const ESPERA_LATIDO_MS = 6000;
+const PASO_LATIDO_MS = 1500;
+
+function instalableLateEnSeguida() {
+    if (!triggerInstalableActivo()) return false;
+    try {
+        for (let t = 0; t < ESPERA_LATIDO_MS; t += PASO_LATIDO_MS) {
+            Utilities.sleep(PASO_LATIDO_MS);
+            if (instalableRespondiendo(Date.now())) return true;
+        }
+    } catch (err) { /* ante la duda, procesar */ }
+    return false;
 }
 
 function latir() {
@@ -1363,7 +1390,7 @@ function desinstalarTriggerAvanzado() {
 // =========================================================================
 // MOTOR PRINCIPAL DE EDICIÓN
 // =========================================================================
-function procesarEdicion(e) {
+function procesarEdicion(e, esInstalable) {
   if (!e || !e.source) return;
 
   const hoja = e.source.getActiveSheet();
@@ -1419,10 +1446,14 @@ function procesarEdicion(e) {
   if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;
 
   const lock = LockService.getDocumentLock();
-  if (!intentarLock(lock)) {
+  if (!intentarLock(lock, esInstalable ? ESPERA_LOCK_INSTALABLE_MS : ESPERA_LOCK_SIMPLE_MS)) {
       // No se pudo entrar. Dejamos marca visible en vez de perder el escaneo
       // en silencio: el operador ve que esa fila no quedó validada.
       marcarPendiente(hoja, filaInicial, numRows, colInicial, numCols);
+      // Y se apunta la pestaña: esta guía NO entró al caché, y el siguiente
+      // escaneo que sí entre en esta pestaña tiene que meterla. Ver
+      // `hojaConPendientesAnotados`.
+      if (colInicial <= 1) anotarPendientesEnHoja(nombreHoja);
       return;
   }
 
@@ -1649,6 +1680,19 @@ function procesarEdicion(e) {
     if (guiasAfectadas === null) {
         // Hubo que reconstruir la fotografía de la hoja: recargamos el caché.
         cacheInfo = getCacheData(e.source);
+        // La foto entera ya metió también las que se quedaron pendientes.
+        if (hojaConPendientesAnotados(nombreHoja)) olvidarPendientesDeHoja(nombreHoja);
+    } else if (hojaConPendientesAnotados(nombreHoja)) {
+        // Un escaneo anterior de esta pestaña se rindió sin meter su guía en
+        // el caché. Se rehace la foto de la pestaña y se suman al lote las que
+        // cambiaron, para que las demás pestañas se enteren también.
+        olvidarPendientesDeHoja(nombreHoja);
+        let antes = conjuntoDeGuiasDeHoja(getCacheData(e.source), nombreHoja);
+        actualizarFotografiaMental(hoja, e.source);
+        invalidarCacheRAM();
+        cacheInfo = getCacheData(e.source);
+        diferenciaDeGuias(antes, conjuntoDeGuiasDeHoja(cacheInfo, nombreHoja))
+            .forEach(g => guiasAfectadas.add(g));
     }
 
     let tocoPreforma = tocaColO || (colInicial <= 14 && colInicial + numCols - 1 >= 14);
@@ -1717,13 +1761,88 @@ function procesarEdicion(e) {
   }
 }
 
-function intentarLock(lock) {
+// CUÁNTO ESPERA UN ESCANEO A QUE SE LIBERE EL ARCHIVO antes de rendirse y
+// escribir «⏳ Pendiente».
+//
+// Eran 10 segundos para todos, y con siete operadores era poco: bastaban tres
+// o cuatro escaneos en cola, o caer encima del repaso de cada cinco minutos,
+// para pasarse. Y esperar no le cuesta nada a nadie: la pistola ya escribió la
+// guía en la celda y el operador sigue con la siguiente; lo único que tarda un
+// poco más es el texto de la columna B.
+//
+// EL INSTALABLE TIENE SEIS MINUTOS por ejecución, así que puede esperar medio
+// minuto de sobra. El SIMPLE tiene treinta segundos EN TOTAL —esperar y
+// trabajar—, así que espera menos: quedarse sin tiempo a mitad de escribir es
+// peor que un «Pendiente».
+const ESPERA_LOCK_INSTALABLE_MS = 30000;
+const ESPERA_LOCK_SIMPLE_MS = 12000;
+
+function intentarLock(lock, ms) {
     try {
-        lock.waitLock(10000);
+        lock.waitLock(ms || ESPERA_LOCK_SIMPLE_MS);
         return true;
     } catch (err) {
         return false;
     }
+}
+
+// -------------------------------------------------------------------------
+// LAS GUÍAS QUE SE QUEDARON EN «⏳ PENDIENTE» TAMBIÉN TIENEN QUE ENTRAR AL CACHÉ
+// -------------------------------------------------------------------------
+//
+// El escaneo que no consiguió el lock escribe «⏳ Pendiente» y se va SIN
+// apuntar la guía en el caché. El siguiente escaneo de esa pestaña recalcula la
+// hoja entera y le pone su estado bueno a esa fila —el «⏳» desaparece—, pero el
+// caché sigue sin esa guía. A partir de ahí la red de los cinco minutos ya no la
+// ve —la fila tiene estado— y nadie la mete: si esa guía estaba también en otra
+// pestaña, el duplicado no salía nunca.
+//
+// Por eso quien se rinde DEJA UNA MARCA por pestaña, y el siguiente que entra
+// en ella rehace la foto de la pestaña entera. Solo cuesta una lectura del
+// caché de Google por escaneo; la foto, solo cuando hubo un pendiente.
+//
+// Es una marca de sí o no, y eso la hace segura sin lock: dos que se rinden a
+// la vez escriben lo mismo.
+const PREFIJO_PENDIENTES = 'WMS_PEND_';
+
+function anotarPendientesEnHoja(nombreHoja) {
+    try {
+        CacheService.getScriptCache().put(PREFIJO_PENDIENTES + claveHoja(nombreHoja), '1', 21600);
+    } catch (err) { /* sin la marca, el repaso de 5 min sigue recogiéndolo */ }
+}
+
+function hojaConPendientesAnotados(nombreHoja) {
+    try {
+        return CacheService.getScriptCache().get(PREFIJO_PENDIENTES + claveHoja(nombreHoja)) === '1';
+    } catch (err) { return false; }
+}
+
+function olvidarPendientesDeHoja(nombreHoja) {
+    try {
+        CacheService.getScriptCache().remove(PREFIJO_PENDIENTES + claveHoja(nombreHoja));
+    } catch (err) { /* nada */ }
+}
+
+// Las guías de la columna A de una pestaña según el caché, en un Set.
+function conjuntoDeGuiasDeHoja(cacheInfo, nombreHoja) {
+    let s = new Set();
+    if (!cacheInfo || !cacheInfo.headers || !cacheInfo.data) return s;
+    let col = cacheInfo.headers.indexOf(claveHoja(nombreHoja) + "_FISICO");
+    if (col === -1) return s;
+    for (let r = 1; r < cacheInfo.data.length; r++) {
+        let v = String((cacheInfo.data[r] || [])[col] || "").trim().toUpperCase();
+        if (v !== "") s.add(v);
+    }
+    return s;
+}
+
+// Lo que entró o salió de la pestaña entre dos fotos: son las guías que el
+// resto de pestañas tiene que volver a mirar.
+function diferenciaDeGuias(antes, despues) {
+    let d = new Set();
+    despues.forEach(g => { if (!antes.has(g)) d.add(g); });
+    antes.forEach(g => { if (!despues.has(g)) d.add(g); });
+    return d;
 }
 
 const TXT_PENDIENTE = "⏳ Pendiente (reintenta)";
@@ -3977,7 +4096,9 @@ function mapaSalidasDesdeCache(cacheInfo, hojaExcluida) {
     return salidas;
 }
 
-function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
+// `soloUna` ({hoja, clave}) barre ESA M-S y ninguna más. Es lo que usa el repaso
+// de cinco minutos para ir de una en una soltando el lock entre medias.
+function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas, soloUna) {
     if (!cacheInfo || !cacheInfo.headers) return;
 
     let colPorHoja = mapaColumnasFisico(cacheInfo);
@@ -3990,7 +4111,10 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas) {
     let objetivos = [];
     let porNombre = guiasAfectadas && guiasAfectadas.size > 0;
 
-    if (porNombre) {
+    if (soloUna && soloUna.hoja) {
+        objetivos = [{ hoja: soloUna.hoja, clave: soloUna.clave || claveHoja(soloUna.hoja.getName()) }];
+        porNombre = true;   // ya está elegida: que no entre al camino largo
+    } else if (porNombre) {
         let claves = hojasMSConGuias(cacheInfo, guiasAfectadas);
         if (claves.size === 0) return;   // ninguna M-S tiene esas guías
         claves.forEach(clave => {
@@ -7113,21 +7237,55 @@ function forzarActualizacionHojaActiva() {
   });
 }
 
+// EL REPASO YA NO TOMA EL ARCHIVO ENTERO DE UNA VEZ.
+//
+// Antes pedía el lock al principio y lo soltaba al final: leer todas las
+// pestañas, rehacer las que tenían pendientes y barrer todas las M-S, todo
+// seguido. Eso son fácilmente veinte o treinta segundos con el archivo cerrado
+// para los demás, cada cinco minutos. Cualquier escaneo que cayera en esa
+// ventana esperaba, se cansaba y salía «⏳ Pendiente»: era la fábrica de
+// pendientes, y además los fabricaba el mismo proceso que existe para
+// arreglarlos.
+//
+// Ahora va por trozos y suelta el lock entre uno y otro:
+//
+//   · MIRAR qué pestañas tienen pendientes es solo leer, y va SIN lock. Lo
+//     peor que puede pasar es ver algo un segundo tarde, y se arregla en la
+//     siguiente vuelta.
+//   · Cada pestaña que hay que rehacer, y cada M-S que hay que barrer, va con
+//     SU PROPIO lock, corto. Entre una y otra los escaneos que esperaban
+//     entran.
+//   · Si un trozo no consigue el lock, se lo salta y lo hará en cinco minutos.
+//     Es trabajo de fondo: el escaneo va primero.
+//
+// El caché se relee en cada trozo, con el lock tomado. Entre un trozo y el
+// siguiente han podido entrar escaneos, y trabajar con la foto de antes sería
+// barrer con datos viejos.
+const ESPERA_LOCK_REPASO_MS = 8000;
+
 function actualizadorAutomaticoGlobal() {
   const ss = obtenerArchivo();
   const lock = LockService.getDocumentLock();
-  if (!lock.tryLock(30000)) return;
 
-  try {
-    // Autocuración: quita del caché las pestañas renombradas o borradas antes
-    // de que empiecen a generar duplicados fantasma.
-    podarCacheHuerfano(ss);
+  let conTrozo = (fn) => {
+      if (!lock.tryLock(ESPERA_LOCK_REPASO_MS)) return false;
+      try { fn(); } finally { lock.releaseLock(); }
+      return true;
+  };
 
-    // PASADA 1: detectar hojas con filas sin validar (escaneos que se perdieron
-    // por un lock ocupado o un timeout) y re-fotografiarlas.
+  // Autocuración: quita del caché las pestañas renombradas o borradas antes
+  // de que empiecen a generar duplicados fantasma.
+  conTrozo(() => podarCacheHuerfano(ss));
+
+    // PASADA 1, SIN LOCK: detectar hojas con filas sin validar (escaneos que se
+    // perdieron por un lock ocupado o un timeout). Solo lee.
     let pendientes = [];
+    let todasLasMS = [];
     ss.getSheets().forEach(hoja => {
         let nombreHoja = claveHoja(hoja.getName());
+        if (esHojaMS(nombreHoja) && !esHojaSistema(nombreHoja)) {
+            todasLasMS.push({ hoja: hoja, clave: nombreHoja });
+        }
         let lr = hoja.getLastRow();
         if (esHojaSistema(nombreHoja) || lr <= 1) return;
 
@@ -7157,25 +7315,25 @@ function actualizadorAutomaticoGlobal() {
             }
         }
 
-        if (necesitaActualizar) {
-            actualizarFotografiaMental(hoja, ss);
-            pendientes.push(hoja);
-        }
+        if (necesitaActualizar) pendientes.push(hoja);
     });
 
-    // El caché se recarga UNA sola vez, no una por hoja (antes era O(n²)).
-    invalidarCacheRAM();
-    let cacheInfo = getCacheData(ss);
+    // PASADA 2: una pestaña cada vez, cada una con su lock. La foto y el
+    // recálculo van juntos dentro del mismo trozo: separados, un escaneo
+    // podría colarse entre los dos y el recálculo trabajaría con una foto que
+    // ya no es la de la hoja.
+    pendientes.forEach(hoja => conTrozo(() => {
+        actualizarFotografiaMental(hoja, ss);
+        olvidarPendientesDeHoja(hoja.getName());
+        invalidarCacheRAM();
+        recalcularHoja(hoja, ss, getCacheData(ss), null);
+    }));
 
-    // PASADA 2: recalcular. Los recálculos solo escriben estados, horas y
-    // colores; nunca tocan las columnas A ni O, así que el caché sigue válido.
-    pendientes.forEach(hoja => recalcularHoja(hoja, ss, cacheInfo, null));
-
-    // Barrido completo de "movidos" fuera del camino crítico del escaneo.
-    sincronizarSalidasMS(ss, cacheInfo, null);
-  } finally {
-    lock.releaseLock();
-  }
+    // PASADA 3: barrido de "movidos", una M-S cada vez.
+    todasLasMS.forEach(obj => conTrozo(() => {
+        invalidarCacheRAM();
+        sincronizarSalidasMS(ss, getCacheData(ss), null, obj);
+    }));
 
   // El relleno de houses viaja con este disparador en vez de tener el suyo.
   //

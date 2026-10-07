@@ -1727,6 +1727,113 @@ ok("si no puede leer nada, procesa igual", !instalableRespondiendo(ahora));
 global.PropertiesService = { getScriptProperties: () => ({ getProperty: () => null }) };
 globalTriggerInstalable = null;
 
+// EL LATIDO VIEJO TRAS UNA PAUSA. Despues de mas de tres minutos sin escanear
+// el latido ya esta viejo, y el primer escaneo lo procesaban los DOS
+// disparadores, peleando por el mismo lock. Ahora el simple espera un poco a
+// ver si el instalable late por este mismo escaneo.
+(function () {
+    let UtilitiesDelBanco = global.Utilities;
+    let reloj = ahora;
+    let latido = ahora - 10 * MIN;          // viejo: hubo una pausa
+    let esperas = 0;
+    let DateReal = Date.now;
+    global.Utilities = { sleep: (ms) => {
+        esperas++; reloj += ms;
+        if (esperas === 2) latido = reloj;   // el instalable arranca y late
+    } };
+    Date.now = () => reloj;
+    global.PropertiesService = { getScriptProperties: () => ({
+        getProperty: (k) => (k === 'TRIGGER_EDICION_INSTALADO' ? '1'
+                           : k === 'TRIGGER_ULTIMO_LATIDO' ? String(latido) : null) }) };
+    globalTriggerInstalable = null;
+    ok("tras una pausa el simple espera y se aparta si el instalable late",
+       instalableLateEnSeguida() === true);
+    ok("y no espera de mas", esperas === 2);
+
+    // Si el instalable de verdad no aparece, el simple trabaja, y sin pasarse
+    // de los seis segundos.
+    esperas = 0; latido = 0; reloj = ahora;
+    global.Utilities = { sleep: (ms) => { esperas++; reloj += ms; } };
+    globalTriggerInstalable = null;
+    ok("si el instalable no late, el simple trabaja", instalableLateEnSeguida() === false);
+    ok("tras esperar como mucho seis segundos", reloj - ahora <= 6000);
+
+    // Sin instalable declarado no espera nada. Se mira en el codigo: la
+    // variable que lo recuerda vive dentro del archivo cargado y desde aqui no
+    // se puede poner a cero.
+    let fuenteLat = require('fs').readFileSync('Codigo.gs', 'utf8');
+    let iLat = fuenteLat.indexOf("function instalableLateEnSeguida");
+    ok("sin instalable no espera",
+       /^\s*if \(!triggerInstalableActivo\(\)\) return false;/m.test(
+           fuenteLat.substring(iLat, fuenteLat.indexOf("Utilities.sleep", iLat))));
+
+    Date.now = DateReal;
+    global.Utilities = UtilitiesDelBanco;
+    globalTriggerInstalable = null;
+})();
+
+// CUANTO ESPERA UN ESCANEO EL LOCK: el instalable mas, el simple menos.
+(function () {
+    let pedido = [];
+    let lockFalso = { waitLock: (ms) => pedido.push(ms) };
+    intentarLock(lockFalso, 30000);
+    intentarLock(lockFalso, 12000);
+    intentarLock(lockFalso);
+    ok("el instalable espera 30 s", pedido[0] === 30000);
+    ok("el simple 12 s", pedido[1] === 12000);
+    ok("sin decir nada, lo del simple", pedido[2] === 12000);
+    ok("si no lo consigue, dice que no",
+       intentarLock({ waitLock: () => { throw new Error("ocupado"); } }, 5) === false);
+    let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
+    ok("alEditar se presenta como instalable",
+       /function alEditar\(e\) \{[\s\S]*?procesarEdicion\(e, true\)/.test(fuente));
+    ok("onEdit como simple",
+       /function onEdit\(e\) \{[\s\S]*?procesarEdicion\(e, false\)/.test(fuente));
+    ok("y procesarEdicion elige la espera segun quien lo llama",
+       fuente.indexOf("esInstalable ? ESPERA_LOCK_INSTALABLE_MS : ESPERA_LOCK_SIMPLE_MS") !== -1);
+
+    // EL REPASO NO TOMA EL ARCHIVO ENTERO: un lock por trozo.
+    let i = fuente.indexOf("function actualizadorAutomaticoGlobal");
+    let cuerpo = fuente.substring(i, fuente.indexOf("\n}\n", i));
+    ok("el repaso ya no pide un lock largo al principio", cuerpo.indexOf("tryLock(30000)") === -1);
+    ok("va por trozos", (cuerpo.match(/conTrozo\(/g) || []).length >= 3);
+    ok("y barre las M-S de una en una",
+       cuerpo.indexOf("sincronizarSalidasMS(ss, getCacheData(ss), null, obj)") !== -1);
+})();
+
+// LAS GUIAS QUE SE QUEDARON PENDIENTES ENTRAN AL CACHE en el siguiente escaneo.
+(function () {
+    let guardado = new Map();
+    global.CacheService = { getScriptCache: () => ({
+        put: (k, v) => guardado.set(k, v), get: (k) => guardado.has(k) ? guardado.get(k) : null,
+        remove: (k) => guardado.delete(k) }) };
+    ok("sin marca no hay pendientes", !hojaConPendientesAnotados("GLOBAL 1"));
+    anotarPendientesEnHoja("GLOBAL 1");
+    ok("el que se rinde deja la marca", hojaConPendientesAnotados("GLOBAL 1"));
+    ok("solo en su pestaña", !hojaConPendientesAnotados("GLOBAL 2"));
+    olvidarPendientesDeHoja("GLOBAL 1");
+    ok("y se quita al meterlas", !hojaConPendientesAnotados("GLOBAL 1"));
+    global.CacheService = { getScriptCache: () => { throw new Error("sin cache"); } };
+    ok("si el cache de Google falla, no revienta", hojaConPendientesAnotados("X") === false);
+    anotarPendientesEnHoja("X"); olvidarPendientesDeHoja("X");
+    delete global.CacheService;
+
+    let ci = { headers: ['GLOBAL 1_FISICO', 'GLOBAL 2_FISICO'],
+               data: [['GLOBAL 1_FISICO', 'GLOBAL 2_FISICO'], ['1ZA', '1ZZ'], ['1zb', ''], ['', '']] };
+    let s = conjuntoDeGuiasDeHoja(ci, 'GLOBAL 1');
+    ok("lee las guias de su columna", s.size === 2 && s.has('1ZA') && s.has('1ZB'));
+    ok("sin columna, vacio", conjuntoDeGuiasDeHoja(ci, 'NO EXISTE').size === 0);
+    ok("sin cache, vacio", conjuntoDeGuiasDeHoja(null, 'GLOBAL 1').size === 0);
+    let d = diferenciaDeGuias(new Set(['1ZA', '1ZB']), new Set(['1ZA', '1ZC']));
+    ok("la diferencia trae la que entro y la que salio", d.size === 2 && d.has('1ZB') && d.has('1ZC'));
+
+    let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
+    ok("procesarEdicion rehace la foto si hubo pendientes",
+       /hojaConPendientesAnotados\(nombreHoja\)\) \{[\s\S]{0,500}actualizarFotografiaMental\(hoja, e\.source\)/.test(fuente));
+    ok("y el que se rinde la anota",
+       /marcarPendiente\(hoja, filaInicial[\s\S]{0,300}anotarPendientesEnHoja\(nombreHoja\)/.test(fuente));
+})();
+
 console.log("\n=== 6. Índice de houses (módulo en pruebas) ===");
 // Cinco guías reales con dígito verificador bueno: si el fixture llevara guías
 // inválidas, `filasDeInbound` las tiraría y los tests pasarían por el motivo
@@ -6846,6 +6953,26 @@ ok("ningun nombre de nivel superior se repite entre archivos" +
    (colisiones.length ? ": " + colisiones.join(", ") : ""),
    colisiones.length === 0);
 ok("y se revisaron todos los archivos", declarados.size > 200);
+
+// Y DENTRO DEL MISMO ARCHIVO. Dos `function` con el mismo nombre no dan ningun
+// error: la de abajo pisa a la de arriba en silencio, y quien llama a la de
+// arriba recibe otra cosa. Paso al escribir el arreglo de los pendientes:
+// `guiasDeHojaEnCache` ya existia mil lineas mas abajo con otro significado.
+let repetidasDentro = [];
+ARCHIVOS_GS.forEach(f => {
+    let ruta = pathDup.join(__dirname, '..', f);
+    if (!fsDup.existsSync(ruta)) return;
+    let vistos = new Set();
+    let re = /^(?:const|let|var|function)\s+([A-Za-z_][A-Za-z0-9_]*)/gm;
+    let m, texto = fsDup.readFileSync(ruta, 'utf8');
+    while ((m = re.exec(texto)) !== null) {
+        if (vistos.has(m[1])) repetidasDentro.push(m[1] + " (" + f + ")");
+        vistos.add(m[1]);
+    }
+});
+ok("ningun nombre se repite dentro de un mismo archivo" +
+   (repetidasDentro.length ? ": " + repetidasDentro.join(", ") : ""),
+   repetidasDentro.length === 0);
 
 console.log("\n" + (fallos === 0 ? "✅ TODOS LOS TESTS PASARON" : "❌ " + fallos + " FALLOS"));
 process.exit(fallos === 0 ? 0 : 1);
