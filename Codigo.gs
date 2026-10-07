@@ -5960,7 +5960,11 @@ function onOpen() {
           menu.addSubMenu(ui.createMenu('🏠 Houses')
               .addItem('⚡ Añadir solo las houses nuevas', 'anexarInboundDesdeOneDrive')
               .addItem('☁️ Importar inbound desde OneDrive (completo)', 'importarInboundDesdeOneDrive')
-              .addItem('🏠 Poner AHORA las houses que faltan', 'rellenarHousesAhora')
+              // Una pestaña o todas: casi siempre se aprieta con alguien
+              // esperando delante de UNA unidad, y recorrer las quince es
+              // hacerle esperar por las otras catorce.
+              .addItem('🏠 Poner AHORA las houses de ESTA pestaña', 'rellenarHousesDeEstaHoja')
+              .addItem('🏠 Poner AHORA las houses de TODAS las pestañas', 'rellenarHousesAhora')
               // Solo la pestaña de la app: son las de hoy, no las cuarenta y
               // cinco mil del índice. Se puede apretar las veces que haga falta.
               .addItem('📲 Traer solo lo de la app de 1Z', 'traerSoloLasDeLaApp')

@@ -107,16 +107,19 @@ function comandosDeBarras() {
         },
         {
             codigo: "WMSHOUSE",
-            titulo: "Poner ahora las houses que faltan",
-            correr: function (ss) {
+            titulo: "Poner las houses de esta pestaña",
+            correr: function (ss, hoja) {
+                // SOLO LA PESTAÑA DONDE SE ESCANEA. Quien escanea esto está
+                // delante de UNA unidad esperando; recorrer las quince
+                // pestañas es hacerle esperar por las otras catorce. Para
+                // todas está el botón del menú.
+                //
                 // El NÚCLEO, no el botón: el botón enseña un diálogo y un
                 // diálogo dentro de un disparador cuelga el archivo.
-                if (typeof rellenarHousesPendientes !== 'function') {
+                if (typeof correrRellenoDeHouses !== 'function') {
                     return "El módulo de houses no está instalado";
                 }
-                let seg = (typeof SEGUNDOS_MAX_RELLENO_A_MANO === 'number')
-                        ? SEGUNDOS_MAX_RELLENO_A_MANO : 240;
-                return String(rellenarHousesPendientes(true, seg) || "sin cambios");
+                return correrRellenoDeHouses(hoja ? hoja.getName() : "").corto;
             }
         }
     ];
@@ -198,7 +201,9 @@ function atenderComando(ss, hoja, fila, cmd) {
     let resultado, fallo = "";
     globalComandoEnCurso = true;
     try {
-        resultado = cmd.correr(ss);
+        // Se pasa la HOJA donde se escaneó: hay comandos que trabajan solo
+        // sobre esa. Los que no la usan, la ignoran.
+        resultado = cmd.correr(ss, hoja);
     } catch (err) {
         fallo = err.message;
     } finally {

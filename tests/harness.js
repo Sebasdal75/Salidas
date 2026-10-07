@@ -6559,13 +6559,17 @@ const FUENTE_QUITA = require('fs').readFileSync('House.gs', 'utf8');
 ok("existe la funcion que las quita",
    FUENTE_QUITA.indexOf("function quitarDeSinHouseEnCache(ss, guias)") !== -1);
 (function () {
-    let i = FUENTE_QUITA.indexOf("function quitarDeSinHouseEnCache");
+    // `quitarDeSinHouseEnCache` es ahora un atajo de `ajustarSinHouseEnCache`,
+    // que ademas sabe AÑADIR: lo necesita la pasada de una sola pestaña.
+    ok("quitar es un atajo de ajustar",
+       FUENTE_QUITA.indexOf("return ajustarSinHouseEnCache(ss, guias, []);") !== -1);
+    let i = FUENTE_QUITA.indexOf("function ajustarSinHouseEnCache");
     let j = FUENTE_QUITA.indexOf("function guardarSinHouseEnCache", i);
     let cuerpo = FUENTE_QUITA.substring(i, j);
     // SOLO LAS RESUELTAS. Vaciar la lista entera haria desaparecer el aviso de
     // guias que siguen sin house, que es lo que el aviso existe para decir.
     ok("conserva las que siguen sin house",
-       cuerpo.indexOf("if (!fuera.has(g)) quedan.push(g)") !== -1);
+       cuerpo.indexOf("if (!fuera.has(g) && !dentro.has(g)) quedan.push(g)") !== -1);
     ok("y guarda lo que queda",
        cuerpo.indexOf("guardarSinHouseEnCache(ss, quedan)") !== -1);
     // El Set en RAM tiene que caducar con el cache, o la siguiente consulta
@@ -6574,8 +6578,8 @@ ok("existe la funcion que las quita",
     ok("y el cache en RAM", cuerpo.indexOf("invalidarCacheRAM") !== -1);
     // Sin nada que quitar no toca el cache: escribirlo igual seria una
     // escritura por boton para dejarlo como estaba.
-    ok("sin nada que quitar no escribe",
-       cuerpo.indexOf("if (fuera.size === 0) return 0;") !== -1);
+    ok("sin nada que quitar ni añadir no escribe",
+       cuerpo.indexOf("if (fuera.size === 0 && dentro.size === 0) return 0;") !== -1);
 })();
 
 // EL MISMO FALLO ESTABA EN LOS OTROS DOS BOTONES.
@@ -6599,6 +6603,100 @@ ok("existe la funcion que las quita",
     ok("el boton del frio tambien las quita",
        cuerpo.indexOf("quitarDeSinHouseEnCache(ss, resueltasFrio)") !== -1);
 })();
+
+console.log("\n=== 23l. Poner las houses de UNA pestaña ===");
+// Casi siempre se aprieta con alguien esperando delante de UNA unidad, y
+// recorrer las quince pestañas es hacerle esperar por las otras catorce.
+(function () {
+    let i = FUENTE_QUITA.indexOf("function rellenarHousesPendientes");
+    let j = FUENTE_QUITA.indexOf("function anotarRelleno", i);
+    let cuerpo = FUENTE_QUITA.substring(i, j > i ? j : i + 16000);
+    ok("el relleno admite una sola pestaña",
+       FUENTE_QUITA.indexOf("function rellenarHousesPendientes(forzar, segundosMax, soloHoja)") !== -1);
+    ok("y se salta las demas",
+       cuerpo.indexOf('if (claveSola !== "" && clave !== claveSola) continue;') !== -1);
+
+    // LA TRAMPA. Las dos listas del cache se REESCRIBEN ENTERAS con lo que se
+    // cosecha, porque la pasada normal mira todas las hojas. Una pasada de una
+    // sola hoja que las reescribiera dejaria en el cache solo lo de esa hoja:
+    // todas las demas perderian de golpe su house instantanea y su aviso de
+    // «sin informacion», sin ningun error.
+    let reescrituras = cuerpo.match(/guardar(House|SinHouse)sEnCache\(ss, |guardarSinHouseEnCache\(ss, |guardarHousesEnCache\(ss, /g) || [];
+    ok("hay reescrituras de las listas", reescrituras.length >= 3);
+    // Cada una tiene que estar dentro de un `if (claveSola === "")`.
+    let protegidas = (cuerpo.match(/if \(claveSola === ""\) \{\s*\n\s*try \{ (enCacheYa = )?(enCache = )?guardar/g) || []).length;
+    ok("todas protegidas por «solo en la pasada completa»", protegidas >= 3);
+    // Con una sola hoja se AJUSTA, no se reescribe.
+    ok("con una sola hoja se ajusta la lista",
+       cuerpo.indexOf("ajustarSinHouseEnCache(ss, Array.from(resueltasAhora), marcadasAhora)") !== -1);
+
+    // Y NO SE APUNTA LA HORA: si una pasada de una sola hoja retrasara el
+    // relleno automatico, apretar el boton en una unidad dejaria a las demas
+    // cinco minutos mas sin houses.
+    let k = cuerpo.indexOf("PROP_TS_RELLENO, String(Date.now())");
+    ok("la hora solo la apunta la pasada completa",
+       k !== -1 && cuerpo.lastIndexOf('if (claveSola === "") {', k) !== -1 &&
+       k - cuerpo.lastIndexOf('if (claveSola === "") {', k) < 200);
+})();
+
+// AÑADIR AL MAPA SIN BORRAR LO QUE HABIA. Una pasada de una sola hoja no puede
+// reescribir el mapa con solo esa hoja, pero tampoco puede dejar fuera lo que
+// acaba de resolver: una guia con su house recien puesta en la M-S no la
+// tendria al instante al escanearla en la de salidas, que es el camino de
+// siempre. La pasada de todas lo hacia, asi que no hacerlo aqui seria ir a peor.
+(function () {
+    let guardado = null;
+    let getCacheDataReal = getCacheData, guardarReal = guardarHousesEnCache;
+    try {
+        getCacheData = () => ({ headers: ['__HOUSE_GUIA', '__HOUSE_VALOR'],
+            data: [['__HOUSE_GUIA', '__HOUSE_VALOR'],
+                   ['1ZVIEJA000000000001', 'H-VIEJA'],
+                   ['1ZCAMBIA00000000001', 'H-ANTES']] });
+        guardarHousesEnCache = (ss, pares) => { guardado = pares; return pares.length; };
+        anadirHousesAlCache({}, [{ guia: '1ZNUEVA000000000001', house: 'H-NUEVA' },
+                                 { guia: '1ZCAMBIA00000000001', house: 'H-DESPUES' }]);
+        let m = new Map(); guardado.forEach(p => m.set(p.guia, p.house));
+        ok("lo que ya habia en el mapa se queda", m.get('1ZVIEJA000000000001') === 'H-VIEJA');
+        ok("lo nuevo entra", m.get('1ZNUEVA000000000001') === 'H-NUEVA');
+        // Lo nuevo gana: si una guia cambio de house, la de ahora es la buena.
+        ok("y si una guia cambio de house, gana la nueva",
+           m.get('1ZCAMBIA00000000001') === 'H-DESPUES');
+        guardado = null;
+        ok("sin nada que añadir no escribe",
+           anadirHousesAlCache({}, []) === 0 && guardado === null);
+    } finally {
+        getCacheData = getCacheDataReal;
+        guardarHousesEnCache = guardarReal;
+    }
+})();
+ok("la pasada de una hoja añade al mapa en vez de saltarselo",
+   FUENTE_QUITA.indexOf("try { enCache = anadirHousesAlCache(ss, nuevos); }") !== -1);
+
+// LOS DOS BOTONES Y EL CODIGO DE BARRAS, sobre el mismo nucleo.
+ok("boton de ESTA pestaña", FUENTE_QUITA.indexOf("function rellenarHousesDeEstaHoja()") !== -1);
+ok("boton de TODAS", FUENTE_QUITA.indexOf("function rellenarHousesAhora()") !== -1);
+ok("el nucleo existe", FUENTE_QUITA.indexOf("function correrRellenoDeHouses(soloHoja)") !== -1);
+(function () {
+    let i = FUENTE_QUITA.indexOf("function correrRellenoDeHouses");
+    let j = FUENTE_QUITA.indexOf("function primeraLineaDeRelleno", i);
+    let cuerpo = FUENTE_QUITA.substring(i, j).split("\n")
+        .filter(l => l.trim().indexOf("//") !== 0).join("\n");
+    // Sin dialogos: tambien lo llama el codigo de barras.
+    ok("el nucleo no abre dialogos",
+       cuerpo.indexOf("ui.") === -1 && cuerpo.indexOf("getUi") === -1);
+})();
+const FUENTE_MENU_H = require('fs').readFileSync('Codigo.gs', 'utf8');
+ok("los dos estan en el menu",
+   FUENTE_MENU_H.indexOf("'rellenarHousesDeEstaHoja'") !== -1 &&
+   FUENTE_MENU_H.indexOf("'rellenarHousesAhora'") !== -1);
+
+// WMSHOUSE: SOLO LA PESTAÑA DONDE SE ESCANEA.
+const FUENTE_CMD_H = require('fs').readFileSync('Comandos.gs', 'utf8');
+ok("WMSHOUSE trabaja sobre la pestaña donde se escanea",
+   FUENTE_CMD_H.indexOf("correrRellenoDeHouses(hoja ? hoja.getName() : \"\")") !== -1);
+ok("y a los comandos se les pasa la hoja",
+   FUENTE_CMD_H.indexOf("cmd.correr(ss, hoja)") !== -1);
+ok("el titulo lo dice", comandoDeBarras("WMSHOUSE").titulo.indexOf("esta pestaña") !== -1);
 
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 // LO QUE ESTO CAZA, Y YA PASO: `globalBlobPedimentos` estaba declarado con

@@ -2091,9 +2091,28 @@ function bajarInboundDeOneDrive(soloNuevas) {
 // pasada pedida a mano desde el menú no gasta cuota de disparadores y tiene seis
 // minutos de reloj, así que puede permitirse terminar el archivo entero en vez
 // de cortarse a los treinta segundos y dejar houses sin poner sin avisar.
-function rellenarHousesPendientes(forzar, segundosMax) {
+// `soloHoja` (opcional): el nombre de UNA pestaña. Si viene, solo se mira esa.
+//
+// POR QUÉ HACE FALTA. El botón y el código de barras se usan con alguien
+// esperando delante de UNA unidad. Recorrer las quince pestañas para poner las
+// houses de una es hacerle esperar por las otras catorce.
+//
+// LO QUE CAMBIA, Y NO ES OBVIO: con una sola pestaña NO se reemplazan las dos
+// listas del caché —la de houses y la de «se buscó y no estaba»—. Esas listas
+// se REESCRIBEN ENTERAS con lo que se cosecha, porque la pasada normal mira
+// todas las hojas. Una pasada de una sola hoja que las reescribiera dejaría en
+// el caché solo lo de esa hoja: todas las demás perderían de golpe su house
+// instantánea y su aviso de «sin información», sin ningún error. Aquí solo se
+// AJUSTA: se quitan las que se resolvieron y se añaden las que se marcaron.
+//
+// Y tampoco se apunta la hora de la pasada: el relleno automático tiene que
+// seguir pasando a su hora por TODAS las pestañas. Si una pasada de una sola lo
+// retrasara, apretar el botón en una unidad dejaría a las demás cinco minutos
+// más sin houses.
+function rellenarHousesPendientes(forzar, segundosMax, soloHoja) {
     const ss = obtenerArchivo();
     const presupuesto = segundosMax || SEGUNDOS_MAX_RELLENO;
+    const claveSola = soloHoja ? claveHoja(soloHoja) : "";
 
     // Puede llamarlo el actualizador automático en cada una de sus vueltas; el
     // intervalo lo pone este módulo, no quien lo invoca.
@@ -2105,10 +2124,12 @@ function rellenarHousesPendientes(forzar, segundosMax) {
         } catch (err) { ultimo = 0; }
         if (!tocaRellenar(Date.now(), ultimo, MINUTOS_ENTRE_RELLENOS)) return;
     }
-    try {
-        PropertiesService.getScriptProperties()
-            .setProperty(PROP_TS_RELLENO, String(Date.now()));
-    } catch (err) { /* marcar la hora nunca puede tumbar el relleno */ }
+    if (claveSola === "") {
+        try {
+            PropertiesService.getScriptProperties()
+                .setProperty(PROP_TS_RELLENO, String(Date.now()));
+        } catch (err) { /* marcar la hora nunca puede tumbar el relleno */ }
+    }
 
     // `moduloActivo`, NO `esArchivoDePrueba`: en el archivo real el módulo se
     // enciende con el interruptor, no por el nombre. Mirar el nombre aquí hacía
@@ -2141,6 +2162,7 @@ function rellenarHousesPendientes(forzar, segundosMax) {
         }
         let hoja = hojas[h];
         let clave = claveHoja(hoja.getName());
+        if (claveSola !== "" && clave !== claveSola) continue;
         if (!hojaLlevaHouse(clave)) continue;
         let lr = hoja.getLastRow();
         if (lr < 1) continue;
@@ -2192,8 +2214,11 @@ function rellenarHousesPendientes(forzar, segundosMax) {
     // La cosecha va al caché SIEMPRE, aunque no haya nada que rellenar: es lo
     // que hace que el próximo escaneo de esas guías tenga la house al instante.
     let enCacheYa = 0;
-    try { enCacheYa = guardarHousesEnCache(ss, cosechados); } catch (err) { enCacheYa = 0; }
-    try { guardarSinHouseEnCache(ss, sinDatoVistas); } catch (err) { /* nunca tumba el relleno */ }
+    // Solo la pasada COMPLETA reescribe estas listas: ver la nota de arriba.
+    if (claveSola === "") {
+        try { enCacheYa = guardarHousesEnCache(ss, cosechados); } catch (err) { enCacheYa = 0; }
+        try { guardarSinHouseEnCache(ss, sinDatoVistas); } catch (err) { /* nunca tumba el relleno */ }
+    }
 
     let faltanTotal = pendientes.reduce((n, p) => n + p.faltan.length, 0);
     if (faltanTotal === 0) {
@@ -2248,7 +2273,21 @@ function rellenarHousesPendientes(forzar, segundosMax) {
         if (h) paraCache.push({ guia: f.guia, house: h });
     }));
     let enCache = 0;
-    try { enCache = guardarHousesEnCache(ss, paraCache); } catch (err) { enCache = 0; }
+    if (claveSola === "") {
+        try { enCache = guardarHousesEnCache(ss, paraCache); } catch (err) { enCache = 0; }
+    } else {
+        // Una sola hoja: AÑADIR al mapa lo que se acaba de resolver, sin tocar
+        // el resto. Sin esto, una guía con su house recién puesta en la M-S no
+        // la tendría al instante al escanearla en la de salidas —que es justo
+        // el camino de siempre— hasta la siguiente pasada completa. La pasada de
+        // todas las hojas sí lo hacía, así que no hacerlo aquí sería ir a peor.
+        let nuevos = [];
+        pendientes.forEach(p => p.faltan.forEach(f => {
+            let h = mapa.get(f.guia);
+            if (h) nuevos.push({ guia: f.guia, house: h });
+        }));
+        try { enCache = anadirHousesAlCache(ss, nuevos); } catch (err) { enCache = 0; }
+    }
 
     // Y las que se acaban de marcar con «—»: es EN ESTA PASADA cuando se sabe
     // que no tienen house, y es la lista que hace que el aviso salga al instante
@@ -2266,10 +2305,17 @@ function rellenarHousesPendientes(forzar, segundosMax) {
         if (mapa.get(f.guia)) resueltasAhora.add(f.guia);
     }));
     let sinDatoAhora = sinDatoVistas.filter(g => !resueltasAhora.has(g));
+    let marcadasAhora = [];
     pendientes.forEach(p => p.faltan.forEach(f => {
-        if (!mapa.get(f.guia)) sinDatoAhora.push(f.guia);
+        if (!mapa.get(f.guia)) { sinDatoAhora.push(f.guia); marcadasAhora.push(f.guia); }
     }));
-    try { guardarSinHouseEnCache(ss, sinDatoAhora); } catch (err) { /* nunca tumba el relleno */ }
+    if (claveSola === "") {
+        try { guardarSinHouseEnCache(ss, sinDatoAhora); } catch (err) { /* nunca tumba el relleno */ }
+    } else {
+        // Una sola hoja: AJUSTAR, no reescribir. Ver la nota de la firma.
+        try { ajustarSinHouseEnCache(ss, Array.from(resueltasAhora), marcadasAhora); }
+        catch (err) { /* nunca tumba el relleno */ }
+    }
 
     let segundos = (Date.now() - arranque) / 1000;
     try {
@@ -2380,30 +2426,45 @@ const SEGUNDOS_MAX_RELLENO_A_MANO = 240;
 function accesoSegundosAMano() { return SEGUNDOS_MAX_RELLENO_A_MANO; }
 function accesoSegundosAutomatico() { return SEGUNDOS_MAX_RELLENO; }
 
-function rellenarHousesAhora() {
+// DOS BOTONES Y UN CÓDIGO DE BARRAS, sobre el mismo núcleo.
+//
+//   · «🏠 … de ESTA pestaña»  y  WMSHOUSE  → solo la unidad donde estás.
+//   · «🏠 … de TODAS las pestañas»         → el archivo entero, como antes.
+//
+// Se separaron porque casi siempre se aprieta con alguien esperando delante de
+// UNA unidad, y recorrer las quince pestañas para poner las houses de una es
+// hacerle esperar por las otras catorce. La de todas sigue existiendo para el
+// final del día o después de importar el inbound.
+//
+// LO QUE NO SE AHORRA: leer el índice. Las houses están ahí, y el índice se lee
+// entero una vez por pasada, sea de una pestaña o de quince. Lo que sí se ahorra
+// es leer y escribir las otras catorce, que es donde se iba el tiempo.
+
+// El NÚCLEO, sin diálogos. Devuelve {ok, corto, msg}.
+//
+// Sin diálogos porque también lo llama el código de barras, y un `ui.alert`
+// dentro de un disparador espera una respuesta que en un teléfono no llega: se
+// queda colgado, y con él el lock del documento.
+function correrRellenoDeHouses(soloHoja) {
     const ss = obtenerArchivo();
-    const ui = SpreadsheetApp.getUi();
-
     if (!moduloActivo(ss)) {
-        ui.alert("🏠 Poner las houses que faltan",
-                 "El módulo de houses está apagado en este archivo.", ui.ButtonSet.OK);
-        return;
+        return { ok: false, corto: "el módulo de houses está apagado",
+                 msg: "El módulo de houses está apagado en este archivo." };
     }
-
-    ss.toast('⏳ Buscando las houses que faltan. No cierres el archivo.', 'Houses', 20);
 
     let resumen = "";
     try {
-        resumen = rellenarHousesPendientes(true, SEGUNDOS_MAX_RELLENO_A_MANO) || "";
+        resumen = rellenarHousesPendientes(true, SEGUNDOS_MAX_RELLENO_A_MANO,
+                                           soloHoja || "") || "";
     } catch (err) {
-        ui.alert("🏠 Poner las houses que faltan", "Falló:\n" + err, ui.ButtonSet.OK);
-        return;
+        return { ok: false, corto: "falló: " + err.message, msg: "Falló:\n" + err };
     }
 
     // El texto crudo de la pasada ya dice los números. Lo que se añade aquí es
     // QUÉ HACER con ellos, que es lo que no se deduce solo: «sin dato» no es un
     // fallo del relleno, son guías que todavía no están en el índice.
-    let msg = resumen === "" ? "No hubo nada que hacer." : resumen;
+    let msg = (soloHoja ? "Pestaña «" + soloHoja + "»:\n\n" : "TODAS las pestañas:\n\n") +
+              (resumen === "" ? "No hubo nada que hacer." : resumen);
     if (resumen.indexOf("sin dato") !== -1 && resumen.indexOf("sin dato: 0") === -1) {
         msg += "\n\n«Sin dato» son guías que NO están en el índice: llevan «" +
                TXT_HOUSE_SIN_DATO + "» y no es un fallo del relleno. Importa el " +
@@ -2418,7 +2479,47 @@ function rellenarHousesAhora() {
         msg += "\n\nQuedó a medias por tiempo. Vuelve a apretarlo: sigue por donde " +
                "se quedó.";
     }
-    ui.alert("🏠 Poner las houses que faltan", msg, ui.ButtonSet.OK);
+
+    // La noticia en una línea, para el `toast` del muelle: los dos números que
+    // importan —cuántas se pusieron y cuántas siguen sin house—.
+    let puestas = (resumen.match(/houses puestas: (\d+)/) || [])[1];
+    let sinDato = (resumen.match(/sin dato: (\d+)/) || [])[1];
+    let corto = (puestas !== undefined)
+        ? puestas + " puestas" + (sinDato !== undefined ? " · " + sinDato + " sin house" : "")
+        : (resumen === "" || resumen.indexOf("nada que rellenar") !== -1
+              ? "no faltaba ninguna" : primeraLineaDeRelleno(resumen));
+    return { ok: true, corto: corto, msg: msg };
+}
+
+function primeraLineaDeRelleno(t) {
+    let s = String(t || "").split("\n")[0];
+    return s.length > 100 ? s.substring(0, 97) + "…" : s;
+}
+
+// «🏠 Poner AHORA las houses de ESTA pestaña»
+function rellenarHousesDeEstaHoja() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    let nombre = ss.getActiveSheet().getName();
+    if (!hojaLlevaHouse(claveHoja(nombre))) {
+        ui.alert("🏠 Houses de esta pestaña",
+            "«" + nombre + "» no lleva houses. Colócate en una pestaña de " +
+            "escaneo y vuelve a apretarlo.", ui.ButtonSet.OK);
+        return;
+    }
+    ss.toast('⏳ Buscando las houses de «' + nombre + '»…', 'Houses', 20);
+    let r = correrRellenoDeHouses(nombre);
+    ui.alert("🏠 Houses de esta pestaña", r.msg, ui.ButtonSet.OK);
+}
+
+// «🏠 Poner AHORA las houses de TODAS las pestañas» — el de siempre.
+function rellenarHousesAhora() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    ss.toast('⏳ Buscando las houses que faltan en TODAS las pestañas. ' +
+             'No cierres el archivo.', 'Houses', 20);
+    let r = correrRellenoDeHouses("");
+    ui.alert("🏠 Houses de todas las pestañas", r.msg, ui.ButtonSet.OK);
 }
 
 // Las que quedaron con la marca de «no está»: se buscan en el archivo frío, que
@@ -2785,20 +2886,51 @@ function guiaSinHouseConocida(cacheInfo, guia) {
 // Se quitan SOLO las que se acaban de resolver; las demás se quedan, que para
 // eso están.
 function quitarDeSinHouseEnCache(ss, guias) {
+    return ajustarSinHouseEnCache(ss, guias, []);
+}
+
+// Quita unas guías de la lista y añade otras, sin tocar el resto. Es lo que
+// usa una pasada que NO ha mirado todas las hojas y por tanto no puede
+// reescribir la lista entera. Devuelve cuántas se quitaron.
+// Añade pares guía→house al mapa del caché SIN BORRAR los que ya había.
+//
+// `guardarHousesEnCache` reescribe el mapa entero con lo que recibe, que es lo
+// correcto cuando quien llama ha mirado TODAS las hojas. Una pasada de una sola
+// hoja no puede usarla tal cual: dejaría el mapa con solo esa hoja. Aquí se lee
+// lo que hay, se le suma lo nuevo —y lo nuevo gana si una guía cambió de
+// house— y se guarda todo junto.
+function anadirHousesAlCache(ss, nuevos) {
+    if (!nuevos || nuevos.length === 0) return 0;
+    let actuales = [];
+    try {
+        mapaHouseDelCache(getCacheData(ss)).forEach((h, g) => actuales.push({ guia: g, house: h }));
+    } catch (err) { return 0; }
+    let n = guardarHousesEnCache(ss, actuales.concat(nuevos));
+    try { olvidarMapaHouseEnRAM(); } catch (err) { /* puede no existir */ }
+    return n;
+}
+
+function ajustarSinHouseEnCache(ss, quitar, anadir) {
     let fuera = new Set();
-    (guias || []).forEach(g => {
+    (quitar || []).forEach(g => {
         let k = claveGuiaHouse(g);
         if (k !== "") fuera.add(k);
     });
-    if (fuera.size === 0) return 0;
+    let dentro = new Set();
+    (anadir || []).forEach(g => {
+        let k = claveGuiaHouse(g);
+        if (k !== "" && !fuera.has(k)) dentro.add(k);
+    });
+    if (fuera.size === 0 && dentro.size === 0) return 0;
 
     let quedan = [];
     try {
         let info = getCacheData(ss);
         sinHouseDelCache(info.data, info.headers).forEach(g => {
-            if (!fuera.has(g)) quedan.push(g);
+            if (!fuera.has(g) && !dentro.has(g)) quedan.push(g);
         });
     } catch (err) { return 0; }
+    dentro.forEach(g => quedan.push(g));
 
     guardarSinHouseEnCache(ss, quedan);
     try { olvidarMapaHouseEnRAM(); } catch (err) { /* puede no existir */ }
