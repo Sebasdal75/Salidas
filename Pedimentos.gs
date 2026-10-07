@@ -1442,10 +1442,46 @@ function housesEscaneadasPorPedimento(ss) {
             let h = claveHousePed(datos[i][2]);
             if (!porPedimento.has(pedActual)) porPedimento.set(pedActual, new Map());
             let m = porPedimento.get(pedActual);
-            if (!m.has(g)) m.set(g, { hoja: hoja.getName(), fila: i + 1, house: h });
+            // LA ALERTA DE LA COLUMNA B VIAJA CON EL BULTO. Sin ella, una pieza
+            // con «⛔ DUPLICADO» o «🛑 RETENIDA» contaba como escaneada igual
+            // que una buena, y la referencia salía «✅ COMPLETA» con el error
+            // en la hoja.
+            let alerta = alertaDeEstadoParaConfronta(datos[i][1]);
+            if (!m.has(g)) {
+                m.set(g, { hoja: hoja.getName(), fila: i + 1, house: h, alerta: alerta });
+            } else if (alerta !== "" && !m.get(g).alerta) {
+                // La misma guía otra vez en el mismo pedimento: si la copia de
+                // abajo es la que lleva la alerta, es esa la que hay que ver.
+                m.set(g, { hoja: hoja.getName(), fila: i + 1, house: h, alerta: alerta });
+            }
         }
     });
     return porPedimento;
+}
+
+// ¿El estado de la columna B es un ERROR que impide dar la pieza por buena?
+// Devuelve la cabeza del estado, o "" si no lo es.
+//
+// DE «❌» PARA ARRIBA: ❌, ⛔ y 🛑 —duplicado en otra pestaña o pedimento, ya
+// salió, retenida, va en otro pedimento, inválida—. Los «⚠️» no: «Sobra
+// (Ajena)» o «Sin registrar en M-S» los cuenta la propia confronta a su
+// manera, y el duplicado discreto del mismo pedimento no bloquea el cierre ni
+// en la hoja.
+//
+// «❌ Esa referencia va en el pedimento …» TAMPOCO: es este mismo cruce dicho
+// en la hoja, y ya se cuenta como «EN OTRO PEDIMENTO». Contarlo aquí también
+// sería el mismo bulto dos veces.
+function alertaDeEstadoParaConfronta(textoB) {
+    let t = String(textoB === undefined || textoB === null ? "" : textoB).trim();
+    if (t === "") return "";
+    try {
+        if (typeof sinMarcaCostal === 'function') t = sinMarcaCostal(t);
+        if (typeof cabezaEstado === 'function') t = cabezaEstado(t);
+    } catch (err) { /* sin el motor, se mira el texto tal cual */ }
+    t = String(t).trim();
+    if (t.indexOf(TXT_HOUSE_OTRO_PED) === 0) return "";
+    if (/^(❌|⛔|🛑)/.test(t)) return t;
+    return "";
 }
 
 // ATAR CADA REFERENCIA A SU PEDIMENTO, que es la regla que se pidió: se lee un
@@ -1516,7 +1552,7 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
 
     let anota = (ped, campo) => {
         if (!resumen.has(ped)) {
-            resumen.set(ped, { revisadas: 0, malas: 0, faltan: 0, sobran: 0 });
+            resumen.set(ped, { revisadas: 0, malas: 0, faltan: 0, sobran: 0, conAlerta: 0 });
         }
         resumen.get(ped)[campo]++;
     };
@@ -1538,7 +1574,7 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
     atadura.forEach((ped, ref) => {
         porRef.set(ref, { referencia: ref, pedimento: ped,
                           delArchivo: (piezasDe.get(ref) || new Set()).size,
-                          aqui: 0, enOtro: 0, sobran: 0, faltan: 0 });
+                          aqui: 0, enOtro: 0, sobran: 0, faltan: 0, conAlerta: 0 });
     });
 
     // TODAS LAS REFERENCIAS DEL ARCHIVO ENTRAN AL CUADRO, no solo las
@@ -1558,7 +1594,7 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
         if (cuentaDe.get(ref)) cuentaDe.get(ref).forEach(n => { vistas += n; });
         porRef.set(ref, { referencia: ref, pedimento: "",
                           delArchivo: (lista || []).length,
-                          aqui: 0, enOtro: 0, sobran: 0, faltan: 0,
+                          aqui: 0, enOtro: 0, sobran: 0, faltan: 0, conAlerta: 0,
                           sinAtar: true, vistas: vistas });
     });
 
@@ -1596,6 +1632,16 @@ function confrontarHouses(porReferencia, refDeClave, escaneado, atado) {
             if (!escaneadasPorRef.has(ref)) escaneadasPorRef.set(ref, new Set());
             escaneadasPorRef.get(ref).add(g);
             if (cuenta) cuenta.aqui++;
+
+            // ESTÁ EN SU PEDIMENTO, PERO LA HOJA DICE QUE ALGO VA MAL. Sigue
+            // contando como escaneada —el bulto está ahí— pero la referencia ya
+            // no puede decir «COMPLETA», y el detalle nombra cuál y por qué.
+            if (info.alerta) {
+                anota(ped, 'conAlerta');
+                if (cuenta) cuenta.conAlerta++;
+                lineas.push([ped, ref, "⛔ CON ERROR EN LA HOJA: " + info.alerta,
+                             info.hoja, info.fila, g]);
+            }
 
             // EL SOBRANTE QUE NO SE DECÍA. Está en el pedimento correcto y su
             // referencia cuadra, pero el archivo NO le da esta pieza a esa
@@ -1697,6 +1743,8 @@ function cuadroDeReferencias(porRef) {
         if (c.faltan) partes.push("🔻 FALTAN " + c.faltan);
         if (c.sobran) partes.push("⚠️ SOBRAN " + c.sobran);
         if (c.enOtro) partes.push("❌ " + c.enOtro + " EN OTRO PEDIMENTO");
+        // Va DELANTE: es lo más grave del cuadro y lo que hay que ver primero.
+        if (c.conAlerta) partes.unshift("⛔ " + c.conAlerta + " CON ERROR");
 
         filas.push([c.referencia, c.pedimento, c.delArchivo, c.aqui, c.enOtro,
                     partes.length ? partes.join(" · ") : "✅ COMPLETA"]);
@@ -1811,9 +1859,9 @@ function correrLaConfronta(trayendo) {
     hoja.setFrozenRows(1);
     ss.setActiveSheet(hoja);
 
-    let totMalas = 0, totFaltan = 0, totSobran = 0, totRevisadas = 0;
+    let totMalas = 0, totFaltan = 0, totSobran = 0, totRevisadas = 0, totConAlerta = 0;
     r.resumen.forEach(v => {
-        totMalas += v.malas; totFaltan += v.faltan;
+        totMalas += v.malas; totFaltan += v.faltan; totConAlerta += (v.conAlerta || 0);
         totSobran += v.sobran; totRevisadas += v.revisadas;
     });
     let completas = cuadro.filter(f => String(f[5]).indexOf("✅") === 0).length;
@@ -1839,6 +1887,7 @@ function correrLaConfronta(trayendo) {
         "   · ⏳ " + sinEmpezar + " sin empezar (ninguna pieza escaneada)\n" +
         (sinDecidir ? "   · ⚠️ " + sinDecidir + " repartidas sin decidir\n" : "") +
         "   · " + totRevisadas + " bultos revisados\n" +
+        "   · ⛔ " + totConAlerta + " con error en la hoja (duplicado, ya salió, retenida…)\n" +
         "   · ❌ " + totMalas + " en el pedimento equivocado\n" +
         "   · 🔻 " + totFaltan + " piezas del archivo sin escanear\n" +
         "   · ⚠️ " + totSobran + " escaneadas que el archivo no tiene";
@@ -1876,10 +1925,11 @@ function correrLaConfronta(trayendo) {
     // en el muelle tampoco se lee: lo que se mira es si hay algo rojo.
     let corto = cuadro.length + " refs · ✅ " + completas +
                 " · ⏳ " + sinEmpezar +
+                (totConAlerta ? " · ⛔ " + totConAlerta + " con error" : "") +
                 (totMalas ? " · ❌ " + totMalas + " mal" : "") +
                 (totFaltan ? " · 🔻 " + totFaltan + " faltan" : "") +
                 (totSobran ? " · ⚠️ " + totSobran + " sobran" : "") +
-                (!totMalas && !totFaltan && !totSobran ? " · todo cuadra" : "");
+                (!totMalas && !totFaltan && !totSobran && !totConAlerta ? " · todo cuadra" : "");
 
     return { ok: true, titulo: TITULO, msg: msg, corto: corto };
 }

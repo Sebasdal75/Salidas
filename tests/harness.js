@@ -5697,6 +5697,62 @@ ok("sin nada guardado manda al boton de traer",
 // no decia cuantas: enterarse de que sobra algo sin saber cuanto obliga a
 // contar a mano la columna de al lado.
 //
+// UNA REFERENCIA CON UN ERROR EN LA HOJA NO ES «COMPLETA».
+//
+// Lo vio el usuario: el cuadro decia «✅ COMPLETA» en todas mientras la Global
+// tenia piezas con ⛔ en la columna B. El cuadro solo contaba piezas, y una
+// pieza duplicada o que ya salio cuenta igual que una buena.
+(function () {
+    const REF = 'REFX', PED = '6116004';
+    let piezas = ['1Z' + '0'.repeat(15) + '1', '1Z' + '0'.repeat(15) + '2'];
+    let porReferencia = new Map([[REF, piezas]]);
+    let refDe = new Map(piezas.map(g => [g, REF]));
+    let conError = (alerta) => {
+        let esc = new Map([[PED, new Map([
+            [piezas[0], { hoja: 'GLOBAL 1', fila: 2, house: '', alerta: '' }],
+            [piezas[1], { hoja: 'GLOBAL 1', fila: 3, house: '', alerta: alerta }]])]]);
+        return confrontarHouses(porReferencia, refDe, esc,
+                                { atadura: new Map([[REF, PED]]), repartidas: [] });
+    };
+    let bien = conError('');
+    ok("sin errores sigue saliendo COMPLETA",
+       cuadroDeReferencias(bien.porRef)[0][5] === "✅ COMPLETA");
+    let mal = conError('⛔ DUPLICADO (En: GLOBAL 2 Fila 9)');
+    let filaMal = cuadroDeReferencias(mal.porRef)[0];
+    ok("con un ⛔ en la hoja ya NO dice COMPLETA", filaMal[5].indexOf("COMPLETA") === -1);
+    ok("dice cuantas con error", filaMal[5].indexOf("⛔ 1 CON ERROR") === 0);
+    ok("la pieza sigue contando como escaneada", filaMal[3] === 2);
+    ok("y el detalle nombra cual y por que",
+       mal.lineas.some(l => l[5] === piezas[1] && l[2].indexOf("DUPLICADO") !== -1 && l[4] === 3));
+    ok("el resumen la cuenta", mal.resumen.get(PED).conAlerta === 1);
+
+    ok("un ⛔ cuenta como error", alertaDeEstadoParaConfronta("⛔ YA SALIÓ el 06/10") !== "");
+    ok("un 🛑 tambien", alertaDeEstadoParaConfronta("🛑 RETENIDA (FEMAD)") !== "");
+    ok("un ❌ Va en tambien", alertaDeEstadoParaConfronta("❌ Va en: 6100166") !== "");
+    ok("con la marca de costal delante tambien",
+       alertaDeEstadoParaConfronta("📦 COSTAL · ⛔ DUPLICADO (En: X Fila 2)") !== "");
+    ok("un ✅ no", alertaDeEstadoParaConfronta("✅ Ok · Sin información") === "");
+    ok("un ⚠️ no", alertaDeEstadoParaConfronta("⚠️ Sobra (Ajena)") === "");
+    ok("el ⏳ de falta pedimento no",
+       alertaDeEstadoParaConfronta("⏳ FALTA EL PEDIMENTO · ref ABC") === "");
+    ok("el aviso de este mismo cruce no se cuenta dos veces",
+       alertaDeEstadoParaConfronta("❌ Esa referencia va en el pedimento 6100001") === "");
+    ok("vacio no", alertaDeEstadoParaConfronta("") === "" && alertaDeEstadoParaConfronta(null) === "");
+})();
+// Y el lector de la hoja la recoge de la columna B, aunque la copia con error
+// sea la de abajo.
+(function () {
+    let rejilla = [['6116004', '', ''],
+                   ['1Z613V090403478612', '✅ Ok', ''],
+                   ['1Z613V090403478612', '⛔ DUPLICADO (ya escaneada en la fila 2)', '']];
+    let ssFalso = { getSheets: () => [{ getName: () => 'GLOBAL 1',
+        getLastRow: () => rejilla.length,
+        getRange: () => ({ getValues: () => rejilla }) }] };
+    let b = housesEscaneadasPorPedimento(ssFalso).get('6116004').get('1Z613V090403478612');
+    ok("el lector trae la alerta de la columna B", b.alerta.indexOf("⛔ DUPLICADO") === 0);
+    ok("y apunta a la fila que la lleva", b.fila === 3);
+})();
+
 // Y LO MAS GORDO: el cuadro llevaba su propia cuenta y el detalle otra. Por eso
 // el cuadro decia «SOBRAN 2» y en el detalle no aparecian esas dos. Dos cuentas
 // del mismo muelle y ninguna forma de saber cual creer. Ahora el cuadro se arma
