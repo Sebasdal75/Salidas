@@ -2710,6 +2710,37 @@ ok("un marcador de bloque tampoco",
 olvidarMapaHouseEnRAM();
 ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
 
+// PERO SI SU PROPIA C YA TIENE HOUSE, NO. Lo vio el usuario: las houses que
+// pone la app de 1Z seguian pintadas «Sin informacion», porque la lista del
+// cache todavia tenia la guia y el aviso no miraba la fila.
+(function () {
+    invalidarCacheRAM();
+    let filas = [[G4, '', 'H-DE-LA-APP'], [G4, '', ''], [G4, '', '—']];
+    let rB = [['✅ Ok'], ['✅ Ok'], ['✅ Ok']];
+    let cB = [['#07c369'], ['#07c369'], ['#07c369']];
+    marcarFilasSinInfo(filas, rB, cB, cacheSinHouse, 3, 0);
+    ok("con su house puesta en la C ya no dice Sin informacion",
+       rB[0][0] === '✅ Ok' && cB[0][0] === '#07c369');
+    ok("con la C vacia sigue avisando al instante", esAvisoSinInfo(rB[1][0]));
+    ok("y con el «—» tambien", esAvisoSinInfo(rB[2][0]));
+    ok("houseDeFilaVacia mira dos columnas a la derecha de la guia",
+       !houseDeFilaVacia(filas, 0, 0) && houseDeFilaVacia(filas, 1, 0));
+    invalidarCacheRAM();
+})();
+// Y el boton de la app repinta tambien las filas que YA tenian house y seguian
+// marcadas: apretarlo otra vez tiene que arreglarlo.
+(function () {
+    let f = require('fs').readFileSync('House.gs', 'utf8');
+    let i = f.indexOf("function correrTraerDeLaApp");
+    let cuerpo = f.substring(i, f.indexOf("\n}\n", i));
+    ok("la app repinta las que ya tenian house y siguen marcadas",
+       /estadoDiceSinInfo\(datos\[i\]\[par\.guia\]\)\) \{\s*resueltas\.push\(guia\);\s*tocada = true;/.test(cuerpo));
+    ok("y repinta aunque no haya puesto ninguna nueva",
+       cuerpo.indexOf("if (hojasTocadas.length > 0) {") !== -1);
+    ok("estadoDiceSinInfo reconoce el aviso", estadoDiceSinInfo("✅ Ok · Sin información") &&
+       !estadoDiceSinInfo("✅ Ok"));
+})();
+
 // EL MISMO FALLO QUE YA COSTO UNA VEZ: un Set guardado en RAM se queda con la
 // primera foto que ve. Si no caduca con el cache, la limpieza -que vuelve a
 // leer el cache de cero- trabajaria con la lista de la pasada anterior.
@@ -6783,8 +6814,14 @@ ok("y esta en el menu de houses",
        cuerpo.indexOf("actual !== TXT_HOUSE_SIN_DATO") !== -1);
     // UNA HOUSE YA PUESTA NO SE TOCA: lo que vino del inbound manda sobre una
     // lectura hecha a mano con el telefono.
-    ok("no pisa una house que ya estaba",
-       cuerpo.indexOf('if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;') !== -1);
+    // Ahora ese bloque repinta las que siguen marcadas «Sin informacion», pero
+    // sigue sin ESCRIBIR nada en la celda: no hay ningun items.push dentro.
+    (function () {
+        let k = cuerpo.indexOf('if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) {');
+        let bloque = k === -1 ? "" : cuerpo.substring(k, cuerpo.indexOf("continue;", k) + 9);
+        ok("no pisa una house que ya estaba",
+           k !== -1 && bloque.indexOf("items.push") === -1 && bloque.indexOf("continue;") !== -1);
+    })();
     // EL FALLO QUE DESTAPO LA FOTO: la fila YA tenia su house en la columna C y
     // seguia diciendo «Sin informacion», porque ese aviso no mira la fila, mira
     // el cache. Y forzar la actualizacion no arreglaba nada: lo que estaba mal

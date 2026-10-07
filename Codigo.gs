@@ -3611,7 +3611,15 @@ function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ulti
         // estaba. El aviso sale al instante en la de salidas en vez de esperar
         // a que el relleno de cada cinco minutos llegue a este renglón, que es
         // tarde: para entonces el bulto ya va en el camión.
-        else if (avisoDeSinHouseYaSabida(cacheInfo, v) !== "") texto = TXT_SIN_HOUSE;
+        //
+        // SOLO SI LA HOUSE DE ESTA FILA ESTÁ VACÍA, que es lo que ese comentario
+        // ya decía y el código no comprobaba. Una fila con su house puesta en la
+        // C TIENE la información, diga lo que diga la lista del caché: esa lista
+        // solo se rehace entera con el relleno automático, y hasta entonces —o
+        // para siempre, si el relleno está quitado— seguía marcando como «Sin
+        // información» guías a las que la app de 1Z ya les había puesto house.
+        else if (houseDeFilaVacia(datosMasivos, i, c) &&
+                 avisoDeSinHouseYaSabida(cacheInfo, v) !== "") texto = TXT_SIN_HOUSE;
         if (texto === "") continue;
 
         // Se AÑADE al final de lo que ya había, no lo sustituye. Lo que estaba
@@ -3625,6 +3633,14 @@ function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ulti
         n++;
     }
     return n;
+}
+
+// ¿La columna de la house de esta fila está vacía? La house va dos columnas a
+// la derecha de la guía: la C para la A.
+function houseDeFilaVacia(datosMasivos, i, colGuia) {
+    let fila = (datosMasivos || [])[i] || [];
+    let h = fila[(colGuia || 0) + 2];
+    return String(h === undefined || h === null ? "" : h).trim() === "";
 }
 
 function marcaDeSinHouse() {

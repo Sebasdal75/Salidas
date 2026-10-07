@@ -2646,7 +2646,18 @@ function correrTraerDeLaApp() {
                 // Vacía o con el marcador de «no estaba»: las dos se reintentan.
                 // Una house ya puesta NO se toca: lo que vino del inbound manda
                 // sobre una lectura hecha a mano con el teléfono.
-                if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) continue;
+                if (actual !== "" && actual !== TXT_HOUSE_SIN_DATO) {
+                    // PERO SI YA TIENE HOUSE Y SIGUE DICIENDO «SIN INFORMACIÓN»,
+                    // se repinta. Pasa con las que se pusieron en una vuelta
+                    // anterior, o en otra pestaña: la house llegó y el aviso se
+                    // quedó. Apretar el botón otra vez tiene que arreglarlo, no
+                    // contestar «0 puestas» y dejarlo igual.
+                    if (estadoDiceSinInfo(datos[i][par.guia])) {
+                        resueltas.push(guia);
+                        tocada = true;
+                    }
+                    continue;
+                }
                 let house = mapa.get(guia);
                 if (house) {
                     items.push({ fila: i + 1, valor: house });
@@ -2674,7 +2685,7 @@ function correrTraerDeLaApp() {
     // Y se repintan SOLO las pestañas tocadas. Repintarlas todas costaría
     // minutos para arreglar dos filas.
     let repintadas = 0;
-    if (encontradas > 0) {
+    if (hojasTocadas.length > 0) {
         try {
             let cacheInfo = getCacheData(ss);
             hojasTocadas.forEach(nombre => {
@@ -2703,6 +2714,15 @@ function correrTraerDeLaApp() {
             "\n\nEsto mira SOLO lo de la app. Para buscar en el índice completo " +
             "usa «🏠 Poner AHORA las houses que faltan»."
     };
+}
+
+// ¿La celda de estado lleva el aviso de «Sin información»? Vive en Codigo.gs;
+// si no estuviera, se mira el texto a mano.
+function estadoDiceSinInfo(txt) {
+    try {
+        if (typeof esAvisoSinInfo === 'function') return esAvisoSinInfo(txt);
+    } catch (err) { /* abajo */ }
+    return String(txt === undefined || txt === null ? "" : txt).indexOf("Sin información") !== -1;
 }
 
 // Borra las marcas de «no está» para que el disparador vuelva a intentarlo.
