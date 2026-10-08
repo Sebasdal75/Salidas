@@ -66,6 +66,7 @@
 //   B  house                   → referencia        del archivo
 //   C  referencia              → pedimento         APRENDIDO de los escaneos
 //   D  ids de los archivos de Drive ya leídos
+//   E  referencia              → día en que se cargó    (aaaammdd)
 //
 // A y B van SEPARADAS y eso no es cosmético: una guía corta y una house tienen
 // las dos once caracteres, así que juntas no hay forma de saber cuál es cuál.
@@ -75,6 +76,12 @@ const COL_SIS_PIEZAS = 1;
 const COL_SIS_HOUSES = 2;
 const COL_SIS_ATADURAS = 3;
 const COL_SIS_ARCHIVOS = 4;
+// EL DÍA DE CADA REFERENCIA. La confronta es por día, y la lista se acumula:
+// sin la fecha no había forma de borrar lo de ayer sin llevarse también lo de
+// hoy. Se apunta el día en que la referencia apareció en un archivo, y si
+// vuelve a venir en uno de hoy, pasa a ser de hoy.
+const COL_SIS_FECHAS = 5;
+const COL_SIS_ULTIMA = COL_SIS_FECHAS;
 
 // Los nombres VIEJOS, solo para la mudanza. En cuanto se vacían se borran.
 const HOJAS_VIEJAS_PEDIMENTOS = [
@@ -368,7 +375,7 @@ function mudarHojasDePedimentos(ss) {
             // nuevo. Pisarlo sería resucitar una lista vieja encima de la buena.
             if (leerTextoDeColumna(ss, v.col) === "") {
                 asegurarFilas(destino, trozos.length + 1);
-                asegurarColumnas(destino, COL_SIS_ARCHIVOS);
+                asegurarColumnas(destino, COL_SIS_ULTIMA);
                 destino.getRange(1, v.col, trozos.length, 1).setValues(trozos);
             }
         }
@@ -379,7 +386,7 @@ function mudarHojasDePedimentos(ss) {
 
 function guardarTextoEnColumna(ss, col, trozos) {
     let h = hojaSisPedimentos(ss, true);
-    asegurarColumnas(h, COL_SIS_ARCHIVOS);
+    asegurarColumnas(h, COL_SIS_ULTIMA);
     let maxFilas = h.getMaxRows();
     // SOLO SU COLUMNA. Un `clear()` de la hoja se llevaría por delante las otras
     // tres listas, que es justo lo que no puede pasar al juntarlas.
@@ -412,6 +419,96 @@ function guardarBlobReferencias(ss, piezas, houses) {
 
 function guardarBlobAtaduras(ss, atadura) {
     return guardarTextoEnColumna(ss, COL_SIS_ATADURAS, empaquetarAtaduras(atadura));
+}
+
+// -------------------------------------------------------------------------
+// EL DÍA DE CADA REFERENCIA
+// -------------------------------------------------------------------------
+
+function fechasDeReferencias(ss) {
+    return mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_FECHAS));
+}
+
+function guardarFechasDeReferencias(ss, fechas) {
+    let pares = [];
+    (fechas || new Map()).forEach((dia, ref) => pares.push({ clave: ref, valor: dia }));
+    return guardarTextoEnColumna(ss, COL_SIS_FECHAS, empaquetarClaveValor(pares));
+}
+
+// «20261008», en la zona horaria del archivo y no en la del servidor de
+// Google: a las once de la noche en México el servidor ya va por mañana, y
+// todo lo cargado a última hora habría salido como de un día que no es.
+function diaDeHoyPed(ss) {
+    let zona = "";
+    try { zona = ss.getSpreadsheetTimeZone(); } catch (err) { zona = ""; }
+    if (!zona) { try { zona = Session.getScriptTimeZone(); } catch (err) { zona = "GMT"; } }
+    return Utilities.formatDate(new Date(), zona, "yyyyMMdd");
+}
+
+// «20261007» → «07/10/2026», para enseñarlo.
+function textoDeDiaPed(dia) {
+    let d = String(dia || "");
+    if (!/^\d{8}$/.test(d)) return d;
+    return d.substring(6, 8) + "/" + d.substring(4, 6) + "/" + d.substring(0, 4);
+}
+
+// Apunta HOY a todas las referencias de una lista de {clave, referencia}.
+function fecharReferencias(fechas, entradas, hoy) {
+    (entradas || []).forEach(e => { if (e && e.referencia) fechas.set(e.referencia, hoy); });
+    return fechas;
+}
+
+// SEPARA LO DE HOY DE LO DE DÍAS ANTERIORES. Puro, para poder probarlo.
+//
+// Se quita la REFERENCIA ENTERA: sus piezas, sus houses, su atadura y su fecha.
+// Quitar solo unas piezas dejaría referencias a medias, y el cuadro diría que
+// les faltan bultos que en realidad salieron ayer.
+//
+// Las que no tienen fecha se cargaron antes de que existiera esto, y no hay
+// forma de saber de qué día son. `sinFechaEsDeHoy` decide qué hacer con ellas:
+// lo decide la persona, no el programa.
+function separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, sinFechaEsDeHoy) {
+    let refs = new Set();
+    [piezas, houses].forEach(m => (m || new Map()).forEach(ref => refs.add(ref)));
+    (ataduras || new Map()).forEach((ped, ref) => refs.add(ref));
+
+    let quitadas = new Set(), quedan = new Set(), porDia = new Map(), sinFecha = 0;
+    let fechasQuedan = new Map();
+    refs.forEach(ref => {
+        let dia = String((fechas && fechas.get(ref)) || "");
+        if (dia === "") sinFecha++;
+        let esDeHoy = dia === "" ? !!sinFechaEsDeHoy : dia >= hoy;
+        if (esDeHoy) {
+            quedan.add(ref);
+            fechasQuedan.set(ref, dia === "" ? hoy : dia);
+            return;
+        }
+        quitadas.add(ref);
+        let k = dia === "" ? "sin fecha" : dia;
+        porDia.set(k, (porDia.get(k) || 0) + 1);
+    });
+
+    let filtrar = m => {
+        let out = new Map();
+        (m || new Map()).forEach((ref, clave) => { if (!quitadas.has(ref)) out.set(clave, ref); });
+        return out;
+    };
+    let atQuedan = new Map();
+    (ataduras || new Map()).forEach((ped, ref) => { if (!quitadas.has(ref)) atQuedan.set(ref, ped); });
+
+    let clavesQuitadas = 0;
+    [piezas, houses].forEach(m => (m || new Map()).forEach(ref => { if (quitadas.has(ref)) clavesQuitadas++; }));
+
+    return { piezas: filtrar(piezas), houses: filtrar(houses), ataduras: atQuedan,
+             fechas: fechasQuedan, quitadas: quitadas, quedan: quedan,
+             porDia: porDia, sinFecha: sinFecha, clavesQuitadas: clavesQuitadas };
+}
+
+// Un Map clave → referencia vuelto a la lista de {clave, referencia}.
+function entradasDesdeMapa(m) {
+    let out = [];
+    (m || new Map()).forEach((ref, clave) => out.push({ clave: clave, referencia: ref }));
+    return out;
 }
 
 // ¿La lista guardada es de ANTES de separar piezas y houses?
@@ -637,6 +734,13 @@ function traerPedimentosDelArchivo(ss) {
     }
 
     let celdas = guardarBlobReferencias(ss, mejor.r.piezas, mejor.r.houses);
+    // Este camino reemplaza la lista entera con lo que dice el archivo, así que
+    // todo lo que queda cargado es de hoy.
+    let hoyArch = diaDeHoyPed(ss);
+    let fechasArch = new Map();
+    fecharReferencias(fechasArch, mejor.r.piezas, hoyArch);
+    fecharReferencias(fechasArch, mejor.r.houses, hoyArch);
+    guardarFechasDeReferencias(ss, fechasArch);
     olvidarBlobPedimentosDeHouseEnRAM();
 
     return { ok: true, entradas: mejor.r.entradas,
@@ -729,6 +833,116 @@ function importarPedimentos() {
         "Esto trae QUÉ GUÍAS forman cada referencia. El pedimento de cada " +
         "referencia se aprende de los escaneos, y eso lo hace «🔎 Confrontar " +
         "con los pedimentos».",
+        ui.ButtonSet.OK);
+}
+
+// -------------------------------------------------------------------------
+// BORRAR LO DE DÍAS ANTERIORES
+// -------------------------------------------------------------------------
+//
+// LA CONFRONTA ES POR DÍA, y la lista se acumula: cada Excel que entra se suma
+// a lo que ya había. Al día siguiente, el cuadro seguía enseñando las
+// referencias de ayer —ya cargadas y despachadas— mezcladas con las de hoy, y
+// las de ayer salían como «SIN EMPEZAR» o «FALTAN» porque sus bultos ya no
+// están en las pestañas.
+//
+// QUÉ SE BORRA: las referencias de antes de hoy, enteras —piezas, houses,
+// atadura a su pedimento y fecha—. QUÉ NO SE TOCA: ninguna pestaña de escaneo,
+// y la lista de archivos ya leídos. Esa última es a propósito: si se olvidara,
+// los Excel de ayer que sigan en la carpeta se volverían a cargar en la
+// siguiente pasada y todo lo borrado volvería.
+//
+// Pregunta antes, y dice cuántas son y de qué día. Borrar es irreversible:
+// para recuperarlo habría que volver a pasar los Excel.
+function borrarReferenciasDeDiasAnteriores() {
+    const ss = obtenerArchivo();
+    const ui = SpreadsheetApp.getUi();
+    const TITULO = "🗑️ Borrar lo de días anteriores";
+
+    try { mudarHojasDePedimentos(ss); } catch (err) { /* se reintenta sola */ }
+
+    let piezas = mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_PIEZAS));
+    let houses = mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_HOUSES));
+    let ataduras = mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_ATADURAS));
+    let fechas = fechasDeReferencias(ss);
+    let hoy = diaDeHoyPed(ss);
+
+    let prueba = separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, false);
+    if (prueba.quitadas.size === 0) {
+        ui.alert(TITULO, prueba.quedan.size === 0
+            ? "No hay nada cargado."
+            : "No hay nada de días anteriores: las " + prueba.quedan.size +
+              " referencias cargadas son de hoy (" + textoDeDiaPed(hoy) + ").",
+            ui.ButtonSet.OK);
+        return;
+    }
+
+    // LAS SIN FECHA LAS DECIDE LA PERSONA. Solo pasa con lo que se cargó antes
+    // de que existiera este botón: no se sabe si es de ayer o de esta mañana,
+    // y adivinar mal borraría lo de hoy.
+    let sinFechaEsDeHoy = false;
+    if (prueba.sinFecha > 0) {
+        let r0 = ui.alert(TITULO,
+            "Hay " + prueba.sinFecha + " referencias SIN FECHA: se cargaron antes " +
+            "de que existiera este botón, así que no sé de qué día son.\n\n" +
+            "   · SÍ: bórralas también. Es lo normal si HOY todavía no has " +
+            "traído ningún Excel.\n" +
+            "   · NO: consérvalas y cuéntalas como de hoy.\n" +
+            "   · CANCELAR: no borres nada.",
+            ui.ButtonSet.YES_NO_CANCEL);
+        if (r0 === ui.Button.CANCEL || r0 === ui.Button.CLOSE) return;
+        sinFechaEsDeHoy = (r0 === ui.Button.NO);
+    }
+
+    let s = separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, sinFechaEsDeHoy);
+    if (s.quitadas.size === 0) {
+        // Solo había sin fecha y se decidió conservarlas: se fechan hoy para
+        // no volver a preguntar.
+        guardarFechasDeReferencias(ss, s.fechas);
+        ui.alert(TITULO, "No se borró nada. Las " + s.quedan.size +
+                 " referencias quedan como de hoy.", ui.ButtonSet.OK);
+        return;
+    }
+
+    let dias = Array.from(s.porDia.keys()).sort().reverse()
+        .map(k => "   · " + (k === "sin fecha" ? "sin fecha" : textoDeDiaPed(k)) +
+                  ": " + s.porDia.get(k) + " referencias")
+        .join("\n");
+
+    let r = ui.alert(TITULO,
+        "Voy a borrar " + s.quitadas.size + " referencias de días anteriores (" +
+        s.clavesQuitadas.toLocaleString() + " guías y houses):\n" + dias + "\n\n" +
+        "Se quedan " + s.quedan.size + " de hoy (" + textoDeDiaPed(hoy) + ").\n\n" +
+        "NO se toca ninguna pestaña de escaneo. Para recuperar lo borrado habría " +
+        "que volver a pasar sus Excel.\n\n¿Las borro?",
+        ui.ButtonSet.YES_NO);
+    if (r !== ui.Button.YES) return;
+
+    guardarBlobReferencias(ss, entradasDesdeMapa(s.piezas), entradasDesdeMapa(s.houses));
+    guardarBlobAtaduras(ss, s.ataduras);
+    guardarFechasDeReferencias(ss, s.fechas);
+    olvidarBlobPedimentosDeHouseEnRAM();
+
+    // EL INFORME SE REHACE CON LO QUE QUEDA. Dejarlo como estaba enseñaría
+    // justo lo que se acaba de borrar, y parecería que el botón no hizo nada.
+    let informe;
+    if (s.quedan.size > 0) {
+        let rc = { ok: false, corto: "" };
+        try { rc = correrLaConfronta(false); } catch (err) { rc = { ok: false, corto: String(err) }; }
+        informe = rc.ok
+            ? "La pestaña «" + HOJA_CONFRONTA_HOUSE + "» se volvió a cruzar con lo de hoy: " + rc.corto
+            : "No pude volver a cruzar (" + rc.corto + "). Usa «♻️ Solo volver a cruzar».";
+    } else {
+        let h = ss.getSheetByName(HOJA_CONFRONTA_HOUSE);
+        if (h) h.clear();
+        informe = "No queda nada cargado, así que la pestaña «" + HOJA_CONFRONTA_HOUSE +
+                  "» se vació. Trae lo de hoy con «🔎 Confrontar con los pedimentos».";
+    }
+
+    ui.alert(TITULO,
+        "Listo: " + s.quitadas.size + " referencias borradas.\n\n" + informe + "\n\n" +
+        "Si en alguna pestaña de escaneo quedó un aviso de esas referencias en la " +
+        "columna B, se quita al actualizarla (WMSACT).",
         ui.ButtonSet.OK);
 }
 
@@ -1140,6 +1354,9 @@ function traerGuiasDeLaCarpeta(ss) {
     let acumHouses = vieja ? new Map()
                            : mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_HOUSES));
     let antes = acumulado.size + acumHouses.size;
+    // El día de cada referencia. Con la lista vieja tirada, sus fechas también.
+    let fechas = vieja ? new Map() : fechasDeReferencias(ss);
+    let hoy = diaDeHoyPed(ss);
 
     // Con la lista vieja tirada hay que volver a leer TODOS los archivos, o la
     // carpeta diría «ningún archivo nuevo» y se quedaría sin nada.
@@ -1176,6 +1393,10 @@ function traerGuiasDeLaCarpeta(ss) {
                 if (!r || r.entradas.length === 0) return;
                 encontro = true;
                 invalidas += r.contradicciones.length;
+                // TODAS las de este archivo pasan a ser de hoy, también las que
+                // ya estaban cargadas de ayer: si vuelven a venir, siguen vivas.
+                fecharReferencias(fechas, r.piezas, hoy);
+                fecharReferencias(fechas, r.houses, hoy);
                 // Las piezas y las houses se acumulan POR SEPARADO: una guía
                 // corta y una house tienen los dos once caracteres, y juntas no
                 // habría forma de saber cuál es cuál al recomponer la lista.
@@ -1239,6 +1460,7 @@ function traerGuiasDeLaCarpeta(ss) {
     acumulado.forEach((ref, clave) => entradas.push({ clave: clave, referencia: ref }));
     acumHouses.forEach((ref, clave) => houses.push({ clave: clave, referencia: ref }));
     let celdas = guardarBlobReferencias(ss, entradas, houses);
+    guardarFechasDeReferencias(ss, fechas);
     apuntarArchivosLeidos(ss, nuevosIds);
     olvidarBlobPedimentosDeHouseEnRAM();
 

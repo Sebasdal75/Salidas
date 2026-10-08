@@ -6243,9 +6243,67 @@ console.log("\n--- 23i. Menos pestañas de sistema ---");
 const FUENTE_SIS = require('fs').readFileSync('Pedimentos.gs', 'utf8');
 ok("hay una sola pestaña del modulo",
    FUENTE_SIS.indexOf('const HOJA_SIS_PEDIMENTOS = "SIS_PEDIMENTOS"') !== -1);
-ok("con sus cuatro columnas",
-   ["COL_SIS_PIEZAS", "COL_SIS_HOUSES", "COL_SIS_ATADURAS", "COL_SIS_ARCHIVOS"]
+ok("con sus columnas",
+   ["COL_SIS_PIEZAS", "COL_SIS_HOUSES", "COL_SIS_ATADURAS", "COL_SIS_ARCHIVOS", "COL_SIS_FECHAS"]
    .every(c => FUENTE_SIS.indexOf("const " + c + " =") !== -1));
+ok("y se asegura hasta la ultima, la de las fechas",
+   FUENTE_SIS.indexOf("asegurarColumnas(h, COL_SIS_ULTIMA)") !== -1 &&
+   FUENTE_SIS.indexOf("asegurarColumnas(h, COL_SIS_ARCHIVOS)") === -1);
+
+// LA CONFRONTA ES POR DIA: BORRAR LO DE AYER.
+//
+// La lista se acumula, asi que al dia siguiente el cuadro enseñaba las
+// referencias de ayer mezcladas con las de hoy. Ahora cada referencia lleva el
+// dia en que se cargo, y se puede quitar lo anterior.
+(function () {
+    const HOY = '20261008';
+    let piezas = new Map([['1ZA', 'R-AYER'], ['1ZB', 'R-AYER'], ['1ZC', 'R-HOY'],
+                          ['1ZD', 'R-VIEJA'], ['1ZE', 'R-SINFECHA']]);
+    let houses = new Map([['HAYER', 'R-AYER'], ['HHOY', 'R-HOY']]);
+    let ataduras = new Map([['R-AYER', '6116004'], ['R-HOY', '6116008']]);
+    let fechas = new Map([['R-AYER', '20261007'], ['R-HOY', HOY], ['R-VIEJA', '20261001']]);
+
+    let s = separarReferenciasPorDia(piezas, houses, ataduras, fechas, HOY, false);
+    ok("se quitan las de dias anteriores", s.quitadas.has('R-AYER') && s.quitadas.has('R-VIEJA'));
+    ok("las de hoy se quedan", s.quedan.has('R-HOY') && !s.quitadas.has('R-HOY'));
+    ok("se quita la referencia ENTERA: sus piezas",
+       !s.piezas.has('1ZA') && !s.piezas.has('1ZB') && s.piezas.has('1ZC'));
+    ok("sus houses", !s.houses.has('HAYER') && s.houses.has('HHOY'));
+    ok("y su atadura", !s.ataduras.has('R-AYER') && s.ataduras.get('R-HOY') === '6116008');
+    ok("cuenta por dia", s.porDia.get('20261007') === 1 && s.porDia.get('20261001') === 1);
+    ok("y cuantas claves se van", s.clavesQuitadas === 5);
+    ok("sin fecha y sin decir que es de hoy, se quita", s.quitadas.has('R-SINFECHA'));
+    ok("y se cuenta aparte", s.sinFecha === 1 && s.porDia.get('sin fecha') === 1);
+
+    let s2 = separarReferenciasPorDia(piezas, houses, ataduras, fechas, HOY, true);
+    ok("si la persona dice que las sin fecha son de hoy, se quedan",
+       s2.quedan.has('R-SINFECHA') && s2.piezas.has('1ZE'));
+    ok("y se fechan hoy para no volver a preguntar", s2.fechas.get('R-SINFECHA') === HOY);
+    ok("las de ayer se quitan igual", s2.quitadas.has('R-AYER'));
+
+    ok("no deja fechas de lo borrado", !s.fechas.has('R-AYER') && s.fechas.get('R-HOY') === HOY);
+    ok("sin nada no revienta",
+       separarReferenciasPorDia(null, null, null, null, HOY, false).quitadas.size === 0);
+
+    let f = fecharReferencias(new Map([['R-AYER', '20261007']]),
+                              [{ clave: '1ZA', referencia: 'R-AYER' }], HOY);
+    ok("una referencia que vuelve a venir hoy pasa a ser de hoy", f.get('R-AYER') === HOY);
+    ok("el dia se enseña como dd/mm/aaaa", textoDeDiaPed('20261007') === '07/10/2026');
+    ok("de vuelta a entradas", entradasDesdeMapa(new Map([['1ZA', 'R']]))[0].referencia === 'R');
+
+    // Y LO QUE NO SE TOCA: la lista de archivos ya leidos. Si se olvidara, los
+    // Excel de ayer que siguen en la carpeta se volverian a cargar.
+    let i = FUENTE_SIS.indexOf("function borrarReferenciasDeDiasAnteriores");
+    let cuerpo = FUENTE_SIS.substring(i, FUENTE_SIS.indexOf("\n}\n", i));
+    ok("borrar no olvida los archivos ya leidos", cuerpo.indexOf("COL_SIS_ARCHIVOS") === -1);
+    ok("pregunta antes de borrar", cuerpo.indexOf("ui.ButtonSet.YES_NO)") !== -1);
+    ok("y rehace el informe con lo que queda", cuerpo.indexOf("correrLaConfronta(false)") !== -1);
+    ok("traer de la carpeta apunta el dia",
+       FUENTE_SIS.indexOf("guardarFechasDeReferencias(ss, fechas);") !== -1);
+    ok("el boton esta en el menu",
+       require('fs').readFileSync('Codigo.gs', 'utf8')
+           .indexOf("'borrarReferenciasDeDiasAnteriores'") !== -1);
+})();
 // AL ESCRIBIR UNA COLUMNA NO SE PUEDEN LLEVAR LAS OTRAS TRES. Un `clear()` de
 // la hoja seria exactamente el fallo que juntarlas podria introducir.
 ok("se limpia solo la columna que se escribe",

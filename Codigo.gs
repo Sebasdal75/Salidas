@@ -6073,6 +6073,8 @@ function onOpen() {
               // algo que no ha cambiado.
               .addItem('♻️ Solo volver a cruzar (sin traer)', 'cruzarConLoGuardado')
               .addItem('📥 Solo traer las guías (sin cruzar)', 'importarPedimentos')
+              // La confronta es por día: esto quita lo cargado antes de hoy.
+              .addItem('🗑️ Borrar lo de días anteriores', 'borrarReferenciasDeDiasAnteriores')
               .addSeparator()
               // Los dos orígenes. Manda la carpeta si está configurada; el
               // vínculo al archivo se queda para poder volver atrás.
