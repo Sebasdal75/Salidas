@@ -6399,6 +6399,15 @@ ok("y se asegura hasta la ultima, la de las fechas",
     let c3 = tipoDeCeldaFinal(CAMPOS.map(x => x.trim()).join(""));
     ok("y todo pegado, sin separadores", c3.tipo === "pedimento" && c3.valor === "6114956" && c3.rfc === "UPS891122HV8");
     ok("un numero de 11 cualquiera no es un codigo", tipoDeCeldaFinal("12345678901").tipo === "error");
+    // LA CADENA EXACTA QUE MANDO EL USUARIO, con los separadores escritos como
+    // texto, los espacios detras de «T1» y del RFC, y el separador final.
+    const EXACTA = "6087<CR><LF>6114956<CR><LF>T1 <CR><LF>UPS891122HV8 <CR><LF>0000000000000<CR><LF>" +
+        "QAQPV2YX<CR><LF>00000000150.000<CR><LF>000000003921<CR><LF>000000000000<CR><LF>" +
+        "0000000000000<CR><LF>0000<CR><LF>00000000.000<CR><LF>";
+    let ce = tipoDeCeldaFinal(EXACTA);
+    ok("la cadena exacta del usuario da su pedimento", ce.tipo === "pedimento" && ce.valor === "6114956" &&
+       ce.patente === "6087" && ce.clave === "T1" && ce.rfc === "UPS891122HV8");
+    ok("y no se confunde con un comando", comandoDeBarras(EXACTA) === null);
 
     // 2. UNA FILA POR DATO: cada salto de linea funciona como un Enter.
     let colA = [["T"], ["GLOBAL 1"]].concat(CAMPOS.map(x => [x])).concat([["GLOBAL 3"], ["6116099"]]);
