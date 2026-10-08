@@ -402,7 +402,7 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
         }
         bloque.filas.forEach(f => {
             if (f.tipo === "pedimento") {
-                out.set(f.idx, { estado: bloque.filaUnidad === -1
+                out.set(f.idx, { pedimento: f.valor, estado: bloque.filaUnidad === -1
                                           ? "⚠️ FALTA LA UNIDAD ARRIBA"
                                           : "⚠️ CORRIGE LA UNIDAD DE ARRIBA",
                                  color: COLOR_FINAL_ERRORES,
@@ -426,6 +426,7 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
         if (vistos.has(f.valor)) {
             repetidos++;
             out.set(f.idx, { estado: "🔄 REPETIDO EN LA LISTA", color: COLOR_FINAL_REPETIDO,
+                             pedimento: f.valor,
                              detalle: "Ya está en la fila " + (vistos.get(f.valor) + 1) });
             return;
         }
@@ -444,7 +445,7 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
               (f.rfc ? " · " + f.rfc : "")
             : "";
         let detalle = [ev.detalle, delCodigo].filter(x => x !== "").join(" · ");
-        out.set(f.idx, { estado: ev.estado, color: ev.color, detalle: detalle });
+        out.set(f.idx, { estado: ev.estado, color: ev.color, detalle: detalle, pedimento: f.valor });
     });
 
     // LO QUE NO ESTÁ EN LA LISTA: escaneado en la unidad y sin papel.
@@ -581,10 +582,14 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
         let textos = [], colores = [];
         for (let i = b.desde; i <= b.hasta; i++) {
             let r = ev.resultados.get(i) || { estado: "", color: COLOR_FINAL_NEUTRO, detalle: "" };
-            textos.push([r.estado, r.detalle]);
+            // La D lleva SOLO el número de pedimento, limpio. Cuando se escanea
+            // el código de barras la columna A trae doce datos (en una celda o
+            // en varias filas) y lo que interesa es uno: aquí queda a la vista,
+            // listo para copiar o filtrar.
+            textos.push([r.estado, r.detalle, r.pedimento || ""]);
             colores.push([r.estado === "" ? COLOR_FINAL_NEUTRO : r.color]);
         }
-        hoja.getRange(b.desde + 1, 2, n, 2).setValues(textos);
+        hoja.getRange(b.desde + 1, 2, n, 3).setValues(textos);
         hoja.getRange(b.desde + 1, 2, n, 1).setBackgrounds(colores);
     });
     return bloques.filter(b => b.filaUnidad !== -1).length;
@@ -649,6 +654,20 @@ function escribirCodigosDeUnidades(ss, hoja) {
     return filas.length - 1;
 }
 
+// Los títulos y el formato de las columnas que se escriben. Se puede llamar las
+// veces que haga falta: no toca nada de lo escaneado.
+function ponerTitulosFinales(hoja) {
+    hoja.getRange(1, 1, 1, 4)
+        .setValues([["UNIDAD Y SUS PEDIMENTOS", "RESULTADO", "ERRORES Y DETALLE", "PEDIMENTO"]])
+        .setFontWeight("bold");
+    // COMO TEXTO, la A y la D: un número que empiece por cero perdería el
+    // cero al convertirse en número, y dejaría de tener siete dígitos.
+    let filas = hoja.getMaxRows();
+    hoja.getRange(1, 1, filas, 1).setNumberFormat("@");
+    hoja.getRange(1, 4, filas, 1).setNumberFormat("@");
+    hoja.setColumnWidth(4, 110);
+}
+
 // Lo llama `procesarEdicion` cuando se escribe en la columna A de esta pestaña.
 //
 // UNA FILA DE RELLENO NO RECALCULA NADA. Un código de barras repartido en
@@ -669,7 +688,7 @@ function atenderPedimentosFinales(ss, hoja, fila, numFilas) {
         let celdas = clasificarFilasFinales(ventana, desde);
         let mia = celdas[celdas.length - 1];
         if (mia && mia.tipo === "relleno") {
-            hoja.getRange(fila, 2, 1, 2).setValues([[textoDeRellenoFinal(mia), ""]]);
+            hoja.getRange(fila, 2, 1, 3).setValues([[textoDeRellenoFinal(mia), "", ""]]);
             hoja.getRange(fila, 2).setBackground(COLOR_FINAL_RELLENO);
             return;
         }
@@ -695,18 +714,14 @@ function prepararPedimentosFinales() {
     let creada = false;
     if (!hoja) {
         hoja = ss.insertSheet(NOMBRE, ss.getNumSheets());
-        hoja.getRange(1, 1, 1, 3)
-            .setValues([["UNIDAD Y SUS PEDIMENTOS", "RESULTADO", "ERRORES Y DETALLE"]])
-            .setFontWeight("bold");
         hoja.setFrozenRows(1);
         hoja.setColumnWidth(1, 200);
         hoja.setColumnWidth(2, 340);
         hoja.setColumnWidth(3, 620);
-        // COMO TEXTO: un pedimento que empiece por cero perdería el cero al
-        // convertirse en número, y dejaría de tener siete dígitos.
-        hoja.getRange(1, 1, hoja.getMaxRows(), 1).setNumberFormat("@");
         creada = true;
     }
+    // También en una pestaña que ya existía: así le aparece la columna D.
+    ponerTitulosFinales(hoja);
     if (hoja.getMaxColumns() < COL_CODIGOS_UNIDAD + 1) {
         hoja.insertColumnsAfter(hoja.getMaxColumns(), COL_CODIGOS_UNIDAD + 1 - hoja.getMaxColumns());
     }

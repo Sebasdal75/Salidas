@@ -6480,6 +6480,7 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("la fila de relleno no recalcula el bloque", !fallo);
     ok("solo escribe su etiqueta", escrito.length === 1 && escrito[0].f === 5 &&
        escrito[0].v[0][0] === "↳ clave de pedimento");
+    ok("y deja la D vacia", escrito[0].v[0].length === 3 && escrito[0].v[0][2] === "");
 })();
 
 // Y EL RECORRIDO ENTERO contra hojas simuladas: lee, cuadra y escribe B y C.
@@ -6516,6 +6517,23 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("la unidad dice el que falta",
        String(finales.escrito.valores[2][1]).indexOf("SIN PAPEL: 6116010") !== -1);
     ok("y pinta", finales.escrito.fondos[3] === '#07c369');
+    // LA D LLEVA EL NUMERO DE PEDIMENTO, limpio, aunque en la A venga el codigo
+    // de barras entero.
+    ok("la D lleva el numero de pedimento", finales.escrito.valores[3][2] === "6116004");
+    ok("la fila de la unidad no lleva pedimento en la D", finales.escrito.valores[2][2] === "");
+    let conCodigo = hojaFalsa("PEDIMENTOS FINALES", [["T", "", ""], ["global 1", "", ""],
+        ["6087<CR><LF>6116004<CR><LF>T1 <CR><LF>UPS891122HV8 <CR><LF>0000<CR><LF>"]]);
+    let ss2 = { getSheets: () => [unidad, conCodigo], getSheetByName: () => null };
+    recalcularPedimentosFinales(ss2, conCodigo, 3, 3);
+    ok("con el codigo entero en la A, la D saca solo el pedimento",
+       conCodigo.escrito.valores[3][2] === "6116004");
+    let enFilas = hojaFalsa("PEDIMENTOS FINALES", [["T", "", ""], ["global 1", "", ""],
+        ["6087"], ["6116004"], ["T1"], ["UPS891122HV8"]]);
+    let ss3 = { getSheets: () => [unidad, enFilas], getSheetByName: () => null };
+    recalcularPedimentosFinales(ss3, enFilas, 4, 4);
+    ok("repartido en filas: la D del pedimento lleva el numero", enFilas.escrito.valores[4][2] === "6116004");
+    ok("y las de relleno la dejan vacia",
+       enFilas.escrito.valores[3][2] === "" && enFilas.escrito.valores[5][2] === "");
 })();
 
 // LA CONFRONTA ES POR DIA: BORRAR LO DE AYER.
