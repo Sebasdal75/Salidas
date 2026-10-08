@@ -6362,6 +6362,117 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("esta en el menu", fuente.indexOf("'prepararPedimentosFinales'") !== -1);
 })();
 
+// LA UNIDAD POR CODIGO DE BARRAS: el codigo mas corto que la distinga, para
+// que la etiqueta sirva todos los dias aunque cambien las placas.
+(function () {
+    let U = [{ nombre: "GLOBAL 1 20-AE-3H" }, { nombre: "GLOBAL 10 77-14-ZP" },
+             { nombre: "GLOBAL 3 11-BB-2C" }, { nombre: "A1 PENDIENTE" }];
+    ok("GLOBAL 1 sin las placas", codigoCortoDeUnidad("GLOBAL 1 20-AE-3H", U) === "GLOBAL 1");
+    ok("GLOBAL 10 no choca con GLOBAL 1", codigoCortoDeUnidad("GLOBAL 10 77-14-ZP", U) === "GLOBAL 10");
+    ok("A1 basta", codigoCortoDeUnidad("A1 PENDIENTE", U) === "A1");
+    let U2 = [{ nombre: "GLOBAL 1 20-AE-3H" }, { nombre: "GLOBAL 1 PENDIENTE" }];
+    ok("si hay dos GLOBAL 1, va entero",
+       codigoCortoDeUnidad("GLOBAL 1 20-AE-3H", U2) === "GLOBAL 1 20-AE-3H");
+    let U3 = [{ nombre: "2026 SALIDA" }, { nombre: "2027 SALIDA" }];
+    ok("nunca solo digitos (seria un pedimento)", !/^\d+$/.test(codigoCortoDeUnidad("2026 SALIDA", U3)));
+    ok("el codigo corto encuentra su pestaña al escanearlo",
+       U.every(u => resolverUnidad(codigoCortoDeUnidad(u.nombre, U), U).unidad.nombre === u.nombre));
+    ok("cabe en Code 39", cabeEnCode39("GLOBAL 1") && cabeEnCode39("GLOBAL 1 20-AE-3H"));
+    ok("lo que no cabe se avisa", !cabeEnCode39("GLOBAL Ñ") && !cabeEnCode39("A_1"));
+    // Escaneada en la columna A, la etiqueta es una unidad, no un error.
+    ok("la etiqueta escaneada es una unidad", tipoDeCeldaFinal("GLOBAL 1").tipo === "unidad");
+})();
+
+// EL CODIGO DE BARRAS DEL PEDIMENTO, tal cual lo lee la pistola (foto del
+// usuario): doce datos separados por CR LF.
+(function () {
+    const CAMPOS = ["6087", "6114956", "T1 ", "UPS891122HV8 ", "0000000000000", "QAQPV2YX",
+                    "00000000150.000", "000000003921", "000000000000", "0000000000000",
+                    "0000", "00000000.000"];
+    // 1. Todo en UNA celda.
+    let c1 = tipoDeCeldaFinal(CAMPOS.join("\r\n") + "\r\n");
+    ok("en una celda: se queda con el pedimento", c1.tipo === "pedimento" && c1.valor === "6114956");
+    ok("y con la patente, la clave y el RFC",
+       c1.patente === "6087" && c1.clave === "T1" && c1.rfc === "UPS891122HV8");
+    let c2 = tipoDeCeldaFinal(CAMPOS.map(x => x.trim()).join("<CR><LF>"));
+    ok("tambien con los separadores escritos como texto", c2.tipo === "pedimento" && c2.valor === "6114956");
+    let c3 = tipoDeCeldaFinal(CAMPOS.map(x => x.trim()).join(""));
+    ok("y todo pegado, sin separadores", c3.tipo === "pedimento" && c3.valor === "6114956" && c3.rfc === "UPS891122HV8");
+    ok("un numero de 11 cualquiera no es un codigo", tipoDeCeldaFinal("12345678901").tipo === "error");
+
+    // 2. UNA FILA POR DATO: cada salto de linea funciona como un Enter.
+    let colA = [["T"], ["GLOBAL 1"]].concat(CAMPOS.map(x => [x])).concat([["GLOBAL 3"], ["6116099"]]);
+    let celdas = clasificarFilasFinales(colA, 1);
+    ok("la patente es relleno", celdas[2].tipo === "relleno" && celdas[2].campo === "patente");
+    ok("el pedimento sigue siendo pedimento", celdas[3].tipo === "pedimento" && celdas[3].valor === "6114956");
+    ok("y recoge la patente, la clave y el RFC",
+       celdas[3].patente === "6087" && celdas[3].clave === "T1" && celdas[3].rfc === "UPS891122HV8");
+    ok("T1 NO se toma por una unidad", celdas[4].tipo === "relleno");
+    ok("el RFC tampoco", celdas[5].tipo === "relleno");
+    ok("ni el acuse", celdas[7].tipo === "relleno");
+    ok("los ceros tampoco son pedimentos mal escaneados",
+       celdas.slice(2, 14).every(c => c.tipo === "relleno" || c.tipo === "pedimento"));
+    ok("la unidad de despues SI es unidad", celdas[14].tipo === "unidad");
+    let bl = bloquesDePedimentosFinales(colA);
+    ok("quedan dos bloques, no uno por cada dato", bl.length === 2);
+    ok("con un solo pedimento en la primera unidad",
+       bl[0].filas.filter(f => f.tipo === "pedimento").length === 1);
+
+    // Con una fila vacia entre dato y dato (el CR y el LF como dos Enter).
+    let conHuecos = [["T"], ["GLOBAL 1"]];
+    CAMPOS.forEach(x => { conHuecos.push([x]); conHuecos.push([""]); });
+    let ch = clasificarFilasFinales(conHuecos, 1);
+    ok("con filas vacias en medio tambien", ch[2].tipo === "relleno" && ch[4].tipo === "pedimento" &&
+       ch.filter(c => c && c.tipo === "unidad").length === 1);
+
+    // Dos codigos seguidos: el segundo empieza bien aunque el primero venga corto.
+    let dos = [["T"], ["GLOBAL 1"], ["6087"], ["6114956"], ["T1"], ["6087"], ["6114957"], ["T1"]];
+    let cd = clasificarFilasFinales(dos, 1);
+    ok("dos codigos seguidos dan dos pedimentos",
+       cd.filter(c => c && c.tipo === "pedimento").map(c => c.valor).join(",") === "6114956,6114957");
+
+    // Mientras llega: la patente sola al final no sale en rojo.
+    let llegando = clasificarFilasFinales([["T"], ["GLOBAL 1"], ["6087"]], 1);
+    ok("una patente sola al final espera, no es error", llegando[2].tipo === "relleno");
+    // Pero cuatro digitos que NO van seguidos de un pedimento son un error.
+    let mal = clasificarFilasFinales([["T"], ["GLOBAL 1"], ["6114"], ["GLOBAL 3"]], 1);
+    ok("cuatro digitos sueltos siguen siendo error", mal[2].tipo === "error");
+
+    // El trozo que mira una sola fila editada da lo mismo que la columna entera.
+    let ventana = colA.slice(5, 7);   // filas 6 y 7: "UPS..." y "0000..."
+    let ventanaLarga = colA.slice(1, 7);
+    let cv = clasificarFilasFinales(ventanaLarga, 2);
+    ok("mirando hacia arriba, la fila del RFC sale como relleno", cv[cv.length - 1].tipo === "relleno");
+
+    // Y el resultado del pedimento lleva lo del codigo al final del detalle.
+    let U = [{ nombre: "GLOBAL 1 20-AE-3H" }];
+    let enU = pedimentosDeHojaDeUnidad([["6114956", "Bultos: 1 | ✅ M-S T1", ""],
+                                        ["1Z0000000000000001", "✅ Ok", "H1"]]);
+    let ev = evaluarBloqueFinal(bl[0], U, () => enU, new Map([["6114956", ["GLOBAL 1 20-AE-3H"]]]), () => []);
+    ok("el pedimento del codigo cuadra", ev.resultados.get(3).estado.indexOf("✅ CUADRA") === 0);
+    ok("y dice patente, clave y RFC",
+       ev.resultados.get(3).detalle === "Patente 6087 · clave T1 · UPS891122HV8");
+    ok("las filas de relleno se etiquetan", ev.resultados.get(4).estado === "↳ clave de pedimento");
+    ok("y la unidad cuadra con un solo pedimento",
+       ev.resultados.get(1).estado === "✅ UNIDAD CUADRA: 1 pedimentos");
+})();
+
+// Una fila de relleno solo se etiqueta: no relee la unidad ni recalcula.
+(function () {
+    let escrito = [];
+    let rejilla = [["T"], ["GLOBAL 1"], ["6087"], ["6114956"], ["T1"]];
+    let hoja = { getRange: (f, c, nf, nc) => ({
+        getValues: () => rejilla.slice(f - 1, f - 1 + nf).map(r => [r[0]]),
+        setValues: (v) => escrito.push({ f: f, v: v }),
+        setBackground: () => {} }),
+        getLastRow: () => { throw new Error("no deberia recalcular"); } };
+    let fallo = false;
+    try { atenderPedimentosFinales({}, hoja, 5, 1); } catch (err) { fallo = true; }
+    ok("la fila de relleno no recalcula el bloque", !fallo);
+    ok("solo escribe su etiqueta", escrito.length === 1 && escrito[0].f === 5 &&
+       escrito[0].v[0][0] === "↳ clave de pedimento");
+})();
+
 // Y EL RECORRIDO ENTERO contra hojas simuladas: lee, cuadra y escribe B y C.
 (function () {
     function hojaFalsa(nombre, rejilla) {

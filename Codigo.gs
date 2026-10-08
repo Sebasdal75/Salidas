@@ -7255,6 +7255,9 @@ function forzarActualizacionHojaActiva() {
 
     // En la de pedimentos finales, «actualizar» es volver a cuadrarla entera.
     if (esHojaPedimentosFinales(nombreHoja) && typeof recalcularPedimentosFinales === 'function') {
+        // De paso se rehacen los códigos de las unidades: si hoy se abrió una
+        // pestaña nueva, su código aparece sin ir al menú.
+        try { escribirCodigosDeUnidades(ss, hoja); } catch (err) { /* da igual */ }
         let n = recalcularPedimentosFinales(ss, hoja);
         ss.toast('✅ Revisadas ' + n + ' unidades.', 'Pedimentos finales', 4);
         return;
