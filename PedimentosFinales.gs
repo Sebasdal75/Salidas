@@ -311,15 +311,48 @@ function cabezaParaFinales(estado) {
 // ¿El resumen de la fila del pedimento dice que algo va mal? El resumen
 // empieza por «Bultos: N» y lo que importa viene detrás.
 function problemaEnResumenDePedimento(estado) {
+    return resumenDePedimentoEnUnidad(estado).errores.join(" · ");
+}
+
+// LO QUE ES AVISO Y NO ERROR. Salen en la columna C para que se sepan, pero NO
+// cambian el resultado a «CON ERRORES».
+//
+// «Sin registrar en M-S» es el caso que destapó esto: en las GLOBAL lo lleva
+// casi cualquier pedimento en el que UN bulto no pasó por una M-S —un costal,
+// uno que llegó tarde—. Dice algo del recorrido del bulto, no del papel, y
+// contándolo como error salían «CON ERRORES» pedimentos perfectamente
+// cuadrados. Un aviso que sale en todos deja de leerse, y con él los de verdad.
+const AVISOS_DEL_RESUMEN = ["SIN REGISTRAR EN M-S"];
+
+// La fila del pedimento en la unidad, partida en errores y avisos. Puro.
+//
+// El resumen es «Bultos: N | lo que pasa | otra cosa», y «lo que pasa» puede
+// juntar dos con « y »: «❌ Faltan 2 (…) y ⚠️ Sobran 1».
+function resumenDePedimentoEnUnidad(estado) {
+    let out = { errores: [], avisos: [], bultos: null };
     let t = String(estado || "").trim();
-    if (t === "") return "la fila del pedimento no tiene estado (actualiza la unidad)";
-    if (/^(❌|⛔|🛑|⚠️)/.test(t)) return t;
-    if (/^Bultos:\s*0(\s|$)/.test(t)) return "sin bultos debajo";
-    let corte = t.indexOf("|");
-    if (corte === -1) return "";
-    let cola = t.substring(corte + 1).trim();
-    if (/(❌|⛔|🛑|⚠️)/.test(cola)) return cola;
-    return "";
+    if (t === "") {
+        out.errores.push("la fila del pedimento no tiene estado (actualiza la unidad)");
+        return out;
+    }
+    let m = /^Bultos:\s*(\d+)/.exec(t);
+    if (m) out.bultos = Number(m[1]);
+    let partes;
+    if (/^(❌|⛔|🛑|⚠️)/.test(t)) partes = [t];
+    else {
+        let corte = t.indexOf("|");
+        partes = corte === -1 ? [] : t.substring(corte + 1).split("|");
+    }
+    partes.forEach(p => {
+        p.split(/ y (?=❌|⛔|🛑|⚠️)/).forEach(trozo => {
+            let x = trozo.trim();
+            if (x === "" || !/(❌|⛔|🛑|⚠️)/.test(x)) return;
+            let esAviso = AVISOS_DEL_RESUMEN.some(a => x.toUpperCase().indexOf(a) !== -1);
+            (esAviso ? out.avisos : out.errores).push(x);
+        });
+    });
+    if (out.bultos === 0) out.errores.unshift("sin bultos debajo");
+    return out;
 }
 
 // Lo que se sabe de UN pedimento escaneado como papel de una unidad. Puro.
@@ -339,9 +372,7 @@ function evaluarPedimentoFinal(ped, enUnidad, otras, refsMal) {
                  cuadra: false, ajeno: true };
     }
 
-    let errores = [];
-    let res = problemaEnResumenDePedimento(enUnidad.estado);
-    if (res !== "") errores.push(res);
+    let res = resumenDePedimentoEnUnidad(enUnidad.estado);
 
     let conError = [], sinInfo = 0;
     enUnidad.guias.forEach(g => {
@@ -351,6 +382,13 @@ function evaluarPedimentoFinal(ped, enUnidad, otras, refsMal) {
         try { tieneSinInfo = esAvisoSinInfo(g.estado); } catch (err) { tieneSinInfo = false; }
         if (tieneSinInfo) sinInfo++;
     });
+
+    // «⚠️ 1 con alerta» del resumen es la MISMA guía que se lista abajo con su
+    // fila y su motivo. Si se lista, el «con alerta» sobra: diría dos veces lo
+    // mismo y parecería que son dos problemas.
+    let errores = conError.length
+        ? res.errores.filter(e => !/con alerta/i.test(e))
+        : res.errores.slice();
     if (conError.length) {
         errores.push(conError.length + (conError.length === 1 ? " guía con error: " : " guías con error: ") +
                      conError.slice(0, EJEMPLOS_FINALES).join("; ") +
@@ -360,16 +398,22 @@ function evaluarPedimentoFinal(ped, enUnidad, otras, refsMal) {
     if (otrasU.length) errores.push("también escaneado en " + otrasU.join(", "));
     (refsMal || []).forEach(r => errores.push("referencia " + r));
 
-    let bultos = "";
-    let m = /^Bultos:\s*(\d+)/.exec(String(enUnidad.estado || "").trim());
-    if (m) bultos = " · Bultos: " + m[1];
+    let avisos = res.avisos.map(a => "Aviso (no es error): " + a.replace(/^⚠️\s*/, ""));
+    let bultos = res.bultos === null ? "" : res.bultos + (res.bultos === 1 ? " bulto" : " bultos");
 
     if (errores.length === 0) {
-        return { estado: "✅ CUADRA" + bultos, color: COLOR_FINAL_OK, detalle: "",
-                 cuadra: true, ajeno: false };
+        return { estado: "✅ CUADRA" + (bultos ? " · " + bultos : ""), color: COLOR_FINAL_OK,
+                 detalle: avisos.join(" · "), cuadra: true, ajeno: false };
     }
-    return { estado: "⚠️ CON ERRORES" + bultos, color: COLOR_FINAL_ERRORES,
-             detalle: errores.join(" · "), cuadra: false, ajeno: false };
+    // LOS BULTOS NO VAN EN LA B CUANDO HAY ERRORES. «⚠️ CON ERRORES · Bultos:
+    // 47» se leía como «error en los bultos», aunque el error fuera una guía
+    // duplicada. La B dice cuántos errores hay; la C dice cuáles, y al final
+    // cuántos bultos tiene en la unidad.
+    let detalle = errores.concat(avisos);
+    if (bultos) detalle.push("en la unidad: " + bultos);
+    return { estado: "⚠️ CON ERRORES (" + errores.length + ") · mira la columna C",
+             color: COLOR_FINAL_ERRORES, detalle: detalle.join(" · "),
+             cuadra: false, ajeno: false };
 }
 
 // El bloque entero: la fila de la unidad y la de cada pedimento. Puro.

@@ -6303,10 +6303,10 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("lee los pedimentos de la unidad", enU.size === 3 && enU.get("6116008").guias.length === 2);
 
     let ok1 = evaluarPedimentoFinal("6116004", enU.get("6116004"), [], []);
-    ok("sin nada raro CUADRA", ok1.cuadra && ok1.estado === "✅ CUADRA · Bultos: 2");
+    ok("sin nada raro CUADRA", ok1.cuadra && ok1.estado === "✅ CUADRA · 2 bultos");
     let mal = evaluarPedimentoFinal("6116008", enU.get("6116008"), [], []);
     ok("con errores no cuadra", !mal.cuadra && mal.estado.indexOf("⚠️ CON ERRORES") === 0);
-    ok("dice el resumen de la unidad", mal.detalle.indexOf("1 con alerta") !== -1);
+    ok("la guia del «1 con alerta» se dice con su motivo", mal.detalle.indexOf("DUPLICADO") !== -1);
     ok("la guia con error y su fila", mal.detalle.indexOf("fila 5 ⛔ DUPLICADO") !== -1);
     ok("y las sin informacion", mal.detalle.indexOf("1 guía sin información") !== -1);
     let ajeno = evaluarPedimentoFinal("6116099", null, ["GLOBAL 3 11-BB-2C"], []);
@@ -6321,6 +6321,26 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("escaneado tambien en otra unidad es error", !doble.cuadra &&
        doble.detalle.indexOf("también escaneado en GLOBAL 3") !== -1);
     ok("un resumen con 0 bultos es error", problemaEnResumenDePedimento("Bultos: 0") !== "");
+    // «SIN REGISTRAR EN M-S» ES AVISO, NO ERROR. Lo pregunto el usuario: «¿por
+    // que me pone con errores de bultos?». En las GLOBAL casi cualquier
+    // pedimento lo lleva en cuanto un bulto no paso por una M-S, y eso salia
+    // como «CON ERRORES · Bultos: 47» en pedimentos que cuadraban.
+    let conAviso = { fila: 1, estado: "Bultos: 47 | ⚠️ Sin registrar en M-S", guias: [] };
+    let ea = evaluarPedimentoFinal("6116004", conAviso, [], []);
+    ok("sin registrar en M-S: sigue CUADRANDO", ea.cuadra && ea.estado === "✅ CUADRA · 47 bultos");
+    ok("pero se dice en la C como aviso", ea.detalle === "Aviso (no es error): Sin registrar en M-S");
+    let rp = resumenDePedimentoEnUnidad("Bultos: 8 | ❌ Faltan 2 (1ZA, 1ZB) y ⚠️ Sobran 1");
+    ok("faltan y sobran se separan en dos errores", rp.errores.length === 2 && rp.bultos === 8);
+    let mixto = resumenDePedimentoEnUnidad("Bultos: 5 | ⚠️ Sin registrar en M-S | ⚠️ 1 con alerta");
+    ok("aviso y error juntos se separan", mixto.avisos.length === 1 && mixto.errores.length === 1);
+    ok("un resumen con un ✅ no tiene nada", resumenDePedimentoEnUnidad("Bultos: 3 | ✅ M-S T1").errores.length === 0);
+    // LOS BULTOS YA NO VAN JUNTO A «CON ERRORES».
+    ok("con errores la B no habla de bultos", mal.estado.indexOf("ultos") === -1 &&
+       mal.estado.indexOf("mira la columna C") !== -1);
+    ok("los bultos van al final de la C", /en la unidad: 2 bultos$/.test(mal.detalle));
+    // El «1 con alerta» es la misma guia que se lista: no se dice dos veces.
+    ok("el con alerta no se repite si ya se lista la guia", mal.detalle.indexOf("con alerta") === -1);
+    ok("y cuenta los errores de verdad", mal.estado.indexOf("(2)") !== -1);
     ok("un resumen bueno no", problemaEnResumenDePedimento("Bultos: 12 | ✅ COMPLETO") === "");
 
     // El bloque entero, con lo que falta: escaneado en la unidad y sin papel.
