@@ -91,7 +91,6 @@ const HOJAS_VIEJAS_PEDIMENTOS = [
     { nombre: "GUIAS_LEIDAS",       col: COL_SIS_ARCHIVOS }
 ];
 const HOJA_CONFRONTA_HOUSE = "CONFRONTA REFERENCIAS";
-function nombreHojaConfronta() { return HOJA_CONFRONTA_HOUSE; }
 const PROP_ID_PEDIMENTOS = 'PEDIMENTOS_ID_ARCHIVO';
 
 // Caracteres por celda. Bajo a propósito, igual que en el índice de salidas: la

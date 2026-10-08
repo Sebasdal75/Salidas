@@ -11,32 +11,26 @@
 // CÓMO SE USA, en la pestaña «PEDIMENTOS FINALES»:
 //
 //     A                     B                                  C
-//     GLOBAL 1              ✅ UNIDAD CUADRA: 12 pedimentos
-//     6116004               ✅ CUADRA · Bultos: 47
-//     6116008               ⚠️ CON ERRORES                     2 guías con error: …
-//     6116099               ❌ NO ES DE ESTA UNIDAD             Está en GLOBAL 3
+//     GLOBAL 1              ❌ NO CUADRA · 1 no está · …       SIN PAPEL: 6116010
+//     6116004               ✅ ESTÁ EN LA UNIDAD                Patente 6087 · clave T1
+//     6116099               ❌ NO ESTÁ EN ESTA UNIDAD
 //     GLOBAL 2              …
 //
-//   · Se escribe la UNIDAD —el nombre de su pestaña, o solo un trozo que la
-//     distinga: «GLOBAL 1», o las placas— y debajo se escanean sus pedimentos.
-//   · Cada pedimento dice si es de esa unidad y qué errores tiene ahí.
-//   · La fila de la unidad dice el total y, sobre todo, QUÉ PEDIMENTOS ESTÁN
-//     ESCANEADOS EN LA UNIDAD Y NO TIENEN PAPEL. Eso es lo que no se ve
-//     mirando la lista: lo que no está en ella.
+//   · Se escanea (o se escribe) la UNIDAD y debajo sus pedimentos.
+//   · Cada pedimento dice si está en la columna A de ESA unidad. Nada más.
+//   · La fila de la unidad dice el total y QUÉ PEDIMENTOS ESTÁN EN LA UNIDAD
+//     Y NO TIENEN PAPEL. Eso es lo que no se ve mirando la lista: lo que no
+//     está en ella.
 //
-// QUÉ CUENTA COMO ERROR de un pedimento que sí es de la unidad:
-//   · el resumen de su fila en la unidad: faltan, sobran, con alerta, 0 bultos;
-//   · las guías de su bloque con un estado de «❌» para arriba —duplicada, ya
-//     salió, retenida, va en otro pedimento, inválida—;
-//   · las guías marcadas «Sin información»;
-//   · que esté escaneado TAMBIÉN en otra unidad;
-//   · sus referencias que no estén completas según el último cruce de la
-//     confronta (pestaña «CONFRONTA REFERENCIAS»).
+// SOLO LA UNIDAD QUE SE ESCANEA, Y SOLO SUS NÚMEROS DE PEDIMENTO. Se pidió así,
+// después de una primera versión que además contaba bultos, miraba las M-S,
+// las guías con alerta y la confronta. Todo eso sale de la pestaña de la
+// unidad y no del pedimento, y lo que se quiere aquí es cuadrar papeles contra
+// números, sin mezclar. Lo de los bultos ya lo dice la propia unidad.
 //
-// NO ESCRIBE EN NINGUNA OTRA PESTAÑA. Solo lee la unidad, el caché y el informe
-// de la confronta, y contesta en las columnas B y C de la suya. Por eso no toma
-// el lock del documento: no puede pisar un escaneo, y así tampoco lo hace
-// esperar.
+// NO ESCRIBE EN NINGUNA OTRA PESTAÑA. Solo lee la columna A de la unidad y
+// contesta en B, C y D de la suya. Por eso no toma el lock del documento: no
+// puede pisar un escaneo, y así tampoco lo hace esperar.
 // =========================================================================
 
 // La fila 1 lleva los títulos; se escanea desde la 2.
@@ -44,14 +38,9 @@ const FILA_INICIO_FINALES = 2;
 
 const COLOR_FINAL_OK = '#07c369';
 const COLOR_FINAL_ERRORES = '#ffc107';
-const COLOR_FINAL_AJENO = '#f5c6cb';
 const COLOR_FINAL_MAL = '#df5f6b';
 const COLOR_FINAL_REPETIDO = '#acacac';
 const COLOR_FINAL_NEUTRO = '#FFFFFF';
-
-// Cuántos ejemplos se enseñan de cada error. La columna C se lee de un vistazo:
-// con tres se sabe dónde mirar, con treinta ya no se lee nada.
-const EJEMPLOS_FINALES = 3;
 
 // ¿Qué pestañas son UNIDADES? Las de salida: todo lo que se escanea como una
 // Global, menos el rezago, el histórico y la hoja de los comandos.
@@ -273,155 +262,31 @@ function resolverUnidad(texto, unidades) {
     return { error: "ninguna", candidatos: [] };
 }
 
-// Los pedimentos de una pestaña de unidad, con el estado de su fila y el de
-// cada guía de su bloque. Puro: recibe A:C ya leído.
-function pedimentosDeHojaDeUnidad(datos) {
-    let mapa = new Map();
-    let actual = null;
-    (datos || []).forEach((fila, i) => {
-        let a = String(fila[0] === undefined || fila[0] === null ? "" : fila[0]).trim().toUpperCase();
-        if (a === "") return;
-        if (/^\d{7}$/.test(a)) {
-            // Un pedimento repetido en la unidad: se queda la PRIMERA fila, y
-            // el aviso de repetido ya lo lleva su estado en la columna B.
-            if (!mapa.has(a)) {
-                mapa.set(a, { fila: i + 1, estado: String(fila[1] || ""), guias: [] });
-            }
-            actual = mapa.get(a);
-            return;
-        }
-        if (esMarcadorEstructural(a)) { actual = null; return; }
-        try { if (esComandoEnColumnaA(a)) return; } catch (err) { /* sigue */ }
-        if (!actual) return;
-        actual.guias.push({ fila: i + 1, guia: a, estado: String(fila[1] || ""),
-                            house: String(fila[2] === undefined || fila[2] === null ? "" : fila[2]).trim() });
+// Los pedimentos de una pestaña de unidad: los 7 dígitos de su columna A, con
+// la fila donde está cada uno. Puro. De la unidad no hace falta nada más.
+function pedimentosDeLaUnidad(valoresA) {
+    let m = new Map();
+    (valoresA || []).forEach((f, i) => {
+        let v = Array.isArray(f) ? f[0] : f;
+        let a = String(v === undefined || v === null ? "" : v).trim();
+        if (/^\d{7}$/.test(a) && !m.has(a)) m.set(a, i + 1);
     });
-    return mapa;
+    return m;
 }
 
-// La cabeza del estado de una guía, sin la marca de costal ni el resumen del
-// bloque, que son de otra cosa.
-function cabezaParaFinales(estado) {
-    let t = String(estado || "");
-    try { t = sinMarcaCostal(t); } catch (err) { /* sigue */ }
-    try { t = cabezaEstado(t); } catch (err) { /* sigue */ }
-    return String(t).trim();
-}
-
-// ¿El resumen de la fila del pedimento dice que algo va mal? El resumen
-// empieza por «Bultos: N» y lo que importa viene detrás.
-function problemaEnResumenDePedimento(estado) {
-    return resumenDePedimentoEnUnidad(estado).errores.join(" · ");
-}
-
-// LO QUE ES AVISO Y NO ERROR. Salen en la columna C para que se sepan, pero NO
-// cambian el resultado a «CON ERRORES».
-//
-// «Sin registrar en M-S» es el caso que destapó esto: en las GLOBAL lo lleva
-// casi cualquier pedimento en el que UN bulto no pasó por una M-S —un costal,
-// uno que llegó tarde—. Dice algo del recorrido del bulto, no del papel, y
-// contándolo como error salían «CON ERRORES» pedimentos perfectamente
-// cuadrados. Un aviso que sale en todos deja de leerse, y con él los de verdad.
-const AVISOS_DEL_RESUMEN = ["SIN REGISTRAR EN M-S"];
-
-// La fila del pedimento en la unidad, partida en errores y avisos. Puro.
-//
-// El resumen es «Bultos: N | lo que pasa | otra cosa», y «lo que pasa» puede
-// juntar dos con « y »: «❌ Faltan 2 (…) y ⚠️ Sobran 1».
-function resumenDePedimentoEnUnidad(estado) {
-    let out = { errores: [], avisos: [], bultos: null };
-    let t = String(estado || "").trim();
-    if (t === "") {
-        out.errores.push("la fila del pedimento no tiene estado (actualiza la unidad)");
-        return out;
-    }
-    let m = /^Bultos:\s*(\d+)/.exec(t);
-    if (m) out.bultos = Number(m[1]);
-    let partes;
-    if (/^(❌|⛔|🛑|⚠️)/.test(t)) partes = [t];
-    else {
-        let corte = t.indexOf("|");
-        partes = corte === -1 ? [] : t.substring(corte + 1).split("|");
-    }
-    partes.forEach(p => {
-        p.split(/ y (?=❌|⛔|🛑|⚠️)/).forEach(trozo => {
-            let x = trozo.trim();
-            if (x === "" || !/(❌|⛔|🛑|⚠️)/.test(x)) return;
-            let esAviso = AVISOS_DEL_RESUMEN.some(a => x.toUpperCase().indexOf(a) !== -1);
-            (esAviso ? out.avisos : out.errores).push(x);
-        });
-    });
-    if (out.bultos === 0) out.errores.unshift("sin bultos debajo");
-    return out;
-}
-
-// Lo que se sabe de UN pedimento escaneado como papel de una unidad. Puro.
-//
-// `enUnidad` es lo de `pedimentosDeHojaDeUnidad` para ese pedimento (o null),
-// `otras` las OTRAS unidades donde está escaneado, y `refsMal` las referencias
-// de ese pedimento que el último cruce no dio por completas.
-function evaluarPedimentoFinal(ped, enUnidad, otras, refsMal) {
-    let otrasU = (otras || []);
-    if (!enUnidad) {
-        if (otrasU.length) {
-            return { estado: "❌ NO ES DE ESTA UNIDAD", color: COLOR_FINAL_AJENO,
-                     detalle: "Está escaneado en " + otrasU.join(", "), cuadra: false, ajeno: true };
-        }
-        return { estado: "❌ NO ESTÁ ESCANEADO en ninguna unidad", color: COLOR_FINAL_MAL,
-                 detalle: "Ese pedimento no aparece en la columna A de ninguna pestaña de unidad",
-                 cuadra: false, ajeno: true };
-    }
-
-    let res = resumenDePedimentoEnUnidad(enUnidad.estado);
-
-    let conError = [], sinInfo = 0;
-    enUnidad.guias.forEach(g => {
-        let cab = cabezaParaFinales(g.estado);
-        if (/^(❌|⛔|🛑)/.test(cab)) conError.push("fila " + g.fila + " " + cab);
-        let tieneSinInfo = false;
-        try { tieneSinInfo = esAvisoSinInfo(g.estado); } catch (err) { tieneSinInfo = false; }
-        if (tieneSinInfo) sinInfo++;
-    });
-
-    // «⚠️ 1 con alerta» del resumen es la MISMA guía que se lista abajo con su
-    // fila y su motivo. Si se lista, el «con alerta» sobra: diría dos veces lo
-    // mismo y parecería que son dos problemas.
-    let errores = conError.length
-        ? res.errores.filter(e => !/con alerta/i.test(e))
-        : res.errores.slice();
-    if (conError.length) {
-        errores.push(conError.length + (conError.length === 1 ? " guía con error: " : " guías con error: ") +
-                     conError.slice(0, EJEMPLOS_FINALES).join("; ") +
-                     (conError.length > EJEMPLOS_FINALES ? " …" : ""));
-    }
-    if (sinInfo) errores.push(sinInfo + (sinInfo === 1 ? " guía" : " guías") + " sin información");
-    if (otrasU.length) errores.push("también escaneado en " + otrasU.join(", "));
-    (refsMal || []).forEach(r => errores.push("referencia " + r));
-
-    let avisos = res.avisos.map(a => "Aviso (no es error): " + a.replace(/^⚠️\s*/, ""));
-    let bultos = res.bultos === null ? "" : res.bultos + (res.bultos === 1 ? " bulto" : " bultos");
-
-    if (errores.length === 0) {
-        return { estado: "✅ CUADRA" + (bultos ? " · " + bultos : ""), color: COLOR_FINAL_OK,
-                 detalle: avisos.join(" · "), cuadra: true, ajeno: false };
-    }
-    // LOS BULTOS NO VAN EN LA B CUANDO HAY ERRORES. «⚠️ CON ERRORES · Bultos:
-    // 47» se leía como «error en los bultos», aunque el error fuera una guía
-    // duplicada. La B dice cuántos errores hay; la C dice cuáles, y al final
-    // cuántos bultos tiene en la unidad.
-    let detalle = errores.concat(avisos);
-    if (bultos) detalle.push("en la unidad: " + bultos);
-    return { estado: "⚠️ CON ERRORES (" + errores.length + ") · mira la columna C",
-             color: COLOR_FINAL_ERRORES, detalle: detalle.join(" · "),
-             cuadra: false, ajeno: false };
+// Lo que trae el código de barras del pedimento, para la columna C.
+function textoDelCodigoFinal(f) {
+    if (!f || !f.patente) return "";
+    return "Patente " + f.patente + (f.clave ? " · clave " + f.clave : "") +
+           (f.rfc ? " · " + f.rfc : "");
 }
 
 // El bloque entero: la fila de la unidad y la de cada pedimento. Puro.
 //
-// Devuelve `{ resultados: Map(idx → {estado, color, detalle}) }` para TODAS las
-// filas del bloque, también las vacías —con estado ""— para que una celda
-// borrada no se quede con el resultado de lo que había.
-function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) {
+// Devuelve `{ resultados: Map(idx → {estado, color, detalle, pedimento}) }`
+// para TODAS las filas del bloque, también las vacías —con estado ""— para
+// que una celda borrada no se quede con el resultado de lo que había.
+function evaluarBloqueFinal(bloque, unidades, leerUnidad) {
     let out = new Map();
     for (let i = bloque.desde; i <= bloque.hasta; i++) {
         out.set(i, { estado: "", color: COLOR_FINAL_NEUTRO, detalle: "" });
@@ -442,7 +307,7 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
                 color: COLOR_FINAL_MAL,
                 detalle: r.error === "varias"
                     ? "Escribe más para distinguirla: " + r.candidatos.join(", ")
-                    : "Escribe el nombre de su pestaña (o las placas), por ejemplo «GLOBAL 1»" });
+                    : "Escanea el código de la unidad o escribe el nombre de su pestaña, por ejemplo «GLOBAL 1»" });
         }
         bloque.filas.forEach(f => {
             if (f.tipo === "pedimento") {
@@ -450,7 +315,7 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
                                           ? "⚠️ FALTA LA UNIDAD ARRIBA"
                                           : "⚠️ CORRIGE LA UNIDAD DE ARRIBA",
                                  color: COLOR_FINAL_ERRORES,
-                                 detalle: "Escribe encima el nombre de la pestaña de la unidad" });
+                                 detalle: "Escanea encima el código de la unidad" });
             } else if (f.tipo === "error") {
                 out.set(f.idx, filaDeCapturaMalaFinal(f.valor));
             }
@@ -459,11 +324,10 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
     }
 
     let unidad = r.unidad;
-    let claveU = claveHoja(unidad.nombre);
     let enLaUnidad = leerUnidad(unidad) || new Map();
 
     let vistos = new Map();       // pedimento -> primera fila de la lista
-    let cuadran = 0, conErrores = 0, ajenos = 0, repetidos = 0, malos = 0;
+    let estan = 0, noEstan = [], repetidos = 0, malos = 0;
     bloque.filas.forEach(f => {
         if (f.tipo === "error") { out.set(f.idx, filaDeCapturaMalaFinal(f.valor)); malos++; return; }
         if (f.tipo !== "pedimento") return;
@@ -475,33 +339,29 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
             return;
         }
         vistos.set(f.valor, f.idx);
-        let otras = ((dondeEsta && dondeEsta.get(f.valor)) || [])
-            .filter(u => claveHoja(u) !== claveU);
-        let ev = evaluarPedimentoFinal(f.valor, enLaUnidad.get(f.valor) || null, otras,
-                                       refsMalDe ? refsMalDe(f.valor) : []);
-        if (ev.cuadra) cuadran++;
-        else if (ev.ajeno) ajenos++;
-        else conErrores++;
-        // Lo que trae el código de barras, al final del detalle: los errores
-        // van primero, que es lo que hay que leer.
-        let delCodigo = f.patente
-            ? "Patente " + f.patente + (f.clave ? " · clave " + f.clave : "") +
-              (f.rfc ? " · " + f.rfc : "")
-            : "";
-        let detalle = [ev.detalle, delCodigo].filter(x => x !== "").join(" · ");
-        out.set(f.idx, { estado: ev.estado, color: ev.color, detalle: detalle, pedimento: f.valor });
+        let delCodigo = textoDelCodigoFinal(f);
+        if (enLaUnidad.has(f.valor)) {
+            estan++;
+            out.set(f.idx, { estado: "✅ ESTÁ EN LA UNIDAD", color: COLOR_FINAL_OK,
+                             detalle: delCodigo, pedimento: f.valor });
+        } else {
+            noEstan.push(f.valor);
+            out.set(f.idx, { estado: "❌ NO ESTÁ EN ESTA UNIDAD", color: COLOR_FINAL_MAL,
+                             detalle: ["No está en la columna A de " + unidad.nombre, delCodigo]
+                                 .filter(x => x !== "").join(" · "),
+                             pedimento: f.valor });
+        }
     });
 
-    // LO QUE NO ESTÁ EN LA LISTA: escaneado en la unidad y sin papel.
+    // LO QUE NO ESTÁ EN LA LISTA: en la unidad y sin papel.
     let sinPapel = [];
-    enLaUnidad.forEach((info, ped) => { if (!vistos.has(ped)) sinPapel.push(ped); });
+    enLaUnidad.forEach((fila, ped) => { if (!vistos.has(ped)) sinPapel.push(ped); });
 
     let partes = [];
-    if (conErrores) partes.push("⚠️ " + conErrores + " con errores");
-    if (ajenos) partes.push("❌ " + ajenos + " no son de esta unidad");
-    if (sinPapel.length) partes.push("⚠️ falta el papel de " + sinPapel.length);
-    if (repetidos) partes.push("🔄 " + repetidos + " repetidos");
-    if (malos) partes.push("🛑 " + malos + " mal escaneados");
+    if (noEstan.length) partes.push(noEstan.length + (noEstan.length === 1 ? " no está" : " no están") + " en la unidad");
+    if (sinPapel.length) partes.push("falta el papel de " + sinPapel.length);
+    if (repetidos) partes.push(repetidos + (repetidos === 1 ? " repetido" : " repetidos"));
+    if (malos) partes.push(malos + " mal escaneado" + (malos === 1 ? "" : "s"));
 
     let total = vistos.size;
     let estadoU, colorU;
@@ -509,19 +369,19 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad, dondeEsta, refsMalDe) 
         estadoU = "ℹ️ " + unidad.nombre + ": no tiene pedimentos escaneados";
         colorU = COLOR_FINAL_NEUTRO;
     } else if (partes.length === 0) {
-        estadoU = "✅ UNIDAD CUADRA: " + total + " pedimentos";
+        estadoU = "✅ UNIDAD CUADRA: " + total + (total === 1 ? " pedimento" : " pedimentos");
         colorU = COLOR_FINAL_OK;
     } else {
-        estadoU = (ajenos || malos ? "❌ " : "⚠️ ") + "NO CUADRA · " + cuadran + " de " +
-                  enLaUnidad.size + " bien · " + partes.join(" · ");
-        colorU = (ajenos || malos) ? COLOR_FINAL_MAL : COLOR_FINAL_ERRORES;
+        estadoU = "❌ NO CUADRA · " + partes.join(" · ");
+        colorU = COLOR_FINAL_MAL;
     }
     let detalleU = "Pestaña: " + unidad.nombre + " · en la unidad: " + enLaUnidad.size +
                    " · en la lista: " + total;
+    if (noEstan.length) detalleU += " · NO ESTÁN EN LA UNIDAD: " + noEstan.join(", ");
     if (sinPapel.length) detalleU += " · SIN PAPEL: " + sinPapel.join(", ");
     out.set(bloque.filaUnidad, { estado: estadoU, color: colorU, detalle: detalleU });
 
-    return { resultados: out, sinPapel: sinPapel, cuadran: cuadran, unidad: unidad };
+    return { resultados: out, sinPapel: sinPapel, noEstan: noEstan, estan: estan, unidad: unidad };
 }
 
 function filaDeCapturaMalaFinal(valor) {
@@ -543,53 +403,6 @@ function unidadesDelArchivo(ss) {
     return out;
 }
 
-// Dónde está escaneado cada pedimento, sacado del CACHÉ: tiene la columna A de
-// todas las pestañas en una sola lectura, y abrir quince unidades para
-// preguntar lo mismo costaría quince.
-function dondeEstaCadaPedimento(ss, unidades) {
-    let donde = new Map();
-    let info = null;
-    try { info = getCacheData(ss); } catch (err) { info = null; }
-    if (!info || !info.headers || !info.data) return donde;
-    let nombrePorClave = new Map();
-    (unidades || []).forEach(u => nombrePorClave.set(claveHoja(u.nombre), u.nombre));
-    info.headers.forEach((h, c) => {
-        let t = String(h || "");
-        if (!/_FISICO$/.test(t)) return;
-        let clave = t.substring(0, t.length - "_FISICO".length);
-        if (!nombrePorClave.has(clave)) return;
-        let nombre = nombrePorClave.get(clave);
-        for (let r = 1; r < info.data.length; r++) {
-            let v = String((info.data[r] || [])[c] || "").trim();
-            if (!/^\d{7}$/.test(v)) continue;
-            if (!donde.has(v)) donde.set(v, []);
-            if (donde.get(v).indexOf(nombre) === -1) donde.get(v).push(nombre);
-        }
-    });
-    return donde;
-}
-
-// Las referencias que el último cruce NO dio por completas, por pedimento.
-function referenciasMalPorPedimento(ss) {
-    let m = new Map();
-    let h = null;
-    try {
-        if (typeof nombreHojaConfronta !== 'function') return m;
-        h = ss.getSheetByName(nombreHojaConfronta());
-    } catch (err) { h = null; }
-    if (!h) return m;
-    let lr = h.getLastRow();
-    if (lr < 2) return m;
-    h.getRange(2, 1, lr - 1, 6).getValues().forEach(f => {
-        let ref = String(f[0] || "").trim(), ped = String(f[1] || "").trim();
-        let estado = String(f[5] || "").trim();
-        if (ref === "" || ped === "" || estado === "" || estado.indexOf("✅") === 0) return;
-        if (!m.has(ped)) m.set(ped, []);
-        m.get(ped).push(ref + " " + estado);
-    });
-    return m;
-}
-
 // Recalcula los bloques de la pestaña. Con `filas` (1-based, inclusive) solo
 // los que las tocan; sin él, todos.
 function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
@@ -607,21 +420,20 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
     if (bloques.length === 0) return 0;
 
     let unidades = unidadesDelArchivo(ss);
-    let donde = dondeEstaCadaPedimento(ss, unidades);
-    let refsMal = referenciasMalPorPedimento(ss);
     let leidas = new Map();
+    // Solo la columna A de la unidad: es lo único que se compara.
     let leerUnidad = (u) => {
         let k = claveHoja(u.nombre);
         if (!leidas.has(k)) {
             let lrU = u.hoja.getLastRow();
             leidas.set(k, lrU < 1 ? new Map()
-                                  : pedimentosDeHojaDeUnidad(u.hoja.getRange(1, 1, lrU, 3).getValues()));
+                                  : pedimentosDeLaUnidad(u.hoja.getRange(1, 1, lrU, 1).getValues()));
         }
         return leidas.get(k);
     };
 
     bloques.forEach(b => {
-        let ev = evaluarBloqueFinal(b, unidades, leerUnidad, donde, ped => refsMal.get(ped) || []);
+        let ev = evaluarBloqueFinal(b, unidades, leerUnidad);
         let n = b.hasta - b.desde + 1;
         let textos = [], colores = [];
         for (let i = b.desde; i <= b.hasta; i++) {
@@ -790,10 +602,11 @@ function prepararPedimentosFinales() {
         "Code 39 con tu programa de etiquetas de siempre, igual que los WMS. " +
         "Son cortos a propósito —«GLOBAL 1», sin las placas—, así la etiqueta " +
         "sirve todos los días aunque cambie el camión.\n\n" +
-        "La columna B dice si cada pedimento CUADRA con esa unidad, y la C qué " +
-        "errores tiene ahí. La fila de la unidad dice el total y qué pedimentos " +
-        "están escaneados en la unidad SIN PAPEL.\n\n" +
-        "Las referencias se miran según el último cruce de la confronta.\n\n" +
+        "La columna B dice si cada pedimento ESTÁ en esa unidad, y la D trae el " +
+        "número de pedimento limpio. La fila de la unidad dice el total, los que " +
+        "NO ESTÁN en la unidad y los que están en la unidad SIN PAPEL.\n\n" +
+        "Solo se compara contra la columna A de la unidad que escaneaste: nada " +
+        "de bultos ni de M-S.\n\n" +
         (n ? "Revisadas " + n + " unidades." : "Todavía no hay nada escaneado.") +
         "\n\nPara volver a revisar todo: escanea WMSACT en esta pestaña.",
         ui.ButtonSet.OK);

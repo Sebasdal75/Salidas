@@ -6290,86 +6290,44 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("la fila vacia se queda en su bloque, para poder limpiarla", bl[1].hasta === 5);
     ok("la fila 1 son los titulos, no una unidad", bl[0].desde === 1);
 
-    // Lo que hay en la unidad.
-    let hojaU = [["6116004", "Bultos: 2 | ✅ M-S T1", ""],
-                 ["1Z0000000000000001", "✅ Ok (Escaneado en M-S T1)", "H1"],
-                 ["1Z0000000000000002", "✅ Ok (Escaneado en M-S T1)", "H1"],
-                 ["6116008", "Bultos: 2 | ⚠️ 1 con alerta", ""],
-                 ["1Z0000000000000003", "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)", ""],
-                 ["1Z0000000000000004", "✅ Ok · Sin información", "—"],
-                 ["6116010", "Bultos: 1 | ✅ M-S T1", ""],
-                 ["1Z0000000000000005", "✅ Ok", "H5"]];
-    let enU = pedimentosDeHojaDeUnidad(hojaU);
-    ok("lee los pedimentos de la unidad", enU.size === 3 && enU.get("6116008").guias.length === 2);
+    // Lo que hay en la unidad: SOLO los numeros de pedimento de su columna A.
+    // Se pidio asi: nada de bultos, ni M-S, ni guias con alerta.
+    let colUnidad = [["6116004"], ["1Z0000000000000001"], ["1Z0000000000000002"],
+                     ["6116008"], ["1Z0000000000000003"], ["6116010"], ["1Z0000000000000005"],
+                     ["6116004"]];
+    let enU = pedimentosDeLaUnidad(colUnidad);
+    ok("lee los pedimentos de la unidad", enU.size === 3 && enU.get("6116008") === 4);
+    ok("las guias no son pedimentos", !enU.has("1Z0000000000000001"));
+    ok("repetido en la unidad, se queda la primera fila", enU.get("6116004") === 1);
 
-    let ok1 = evaluarPedimentoFinal("6116004", enU.get("6116004"), [], []);
-    ok("sin nada raro CUADRA", ok1.cuadra && ok1.estado === "✅ CUADRA · 2 bultos");
-    let mal = evaluarPedimentoFinal("6116008", enU.get("6116008"), [], []);
-    ok("con errores no cuadra", !mal.cuadra && mal.estado.indexOf("⚠️ CON ERRORES") === 0);
-    ok("la guia del «1 con alerta» se dice con su motivo", mal.detalle.indexOf("DUPLICADO") !== -1);
-    ok("la guia con error y su fila", mal.detalle.indexOf("fila 5 ⛔ DUPLICADO") !== -1);
-    ok("y las sin informacion", mal.detalle.indexOf("1 guía sin información") !== -1);
-    let ajeno = evaluarPedimentoFinal("6116099", null, ["GLOBAL 3 11-BB-2C"], []);
-    ok("de otra unidad lo dice y dice cual", ajeno.estado === "❌ NO ES DE ESTA UNIDAD" &&
-       ajeno.detalle.indexOf("GLOBAL 3") !== -1);
-    ok("si no esta en ninguna, tambien",
-       evaluarPedimentoFinal("6119999", null, [], []).estado.indexOf("NO ESTÁ ESCANEADO") !== -1);
-    let refMal = evaluarPedimentoFinal("6116004", enU.get("6116004"), [], ["G26A 🔻 FALTAN 2"]);
-    ok("una referencia incompleta en la confronta es error", !refMal.cuadra &&
-       refMal.detalle.indexOf("referencia G26A 🔻 FALTAN 2") !== -1);
-    let doble = evaluarPedimentoFinal("6116004", enU.get("6116004"), ["GLOBAL 3 11-BB-2C"], []);
-    ok("escaneado tambien en otra unidad es error", !doble.cuadra &&
-       doble.detalle.indexOf("también escaneado en GLOBAL 3") !== -1);
-    ok("un resumen con 0 bultos es error", problemaEnResumenDePedimento("Bultos: 0") !== "");
-    // «SIN REGISTRAR EN M-S» ES AVISO, NO ERROR. Lo pregunto el usuario: «¿por
-    // que me pone con errores de bultos?». En las GLOBAL casi cualquier
-    // pedimento lo lleva en cuanto un bulto no paso por una M-S, y eso salia
-    // como «CON ERRORES · Bultos: 47» en pedimentos que cuadraban.
-    let conAviso = { fila: 1, estado: "Bultos: 47 | ⚠️ Sin registrar en M-S", guias: [] };
-    let ea = evaluarPedimentoFinal("6116004", conAviso, [], []);
-    ok("sin registrar en M-S: sigue CUADRANDO", ea.cuadra && ea.estado === "✅ CUADRA · 47 bultos");
-    ok("pero se dice en la C como aviso", ea.detalle === "Aviso (no es error): Sin registrar en M-S");
-    let rp = resumenDePedimentoEnUnidad("Bultos: 8 | ❌ Faltan 2 (1ZA, 1ZB) y ⚠️ Sobran 1");
-    ok("faltan y sobran se separan en dos errores", rp.errores.length === 2 && rp.bultos === 8);
-    let mixto = resumenDePedimentoEnUnidad("Bultos: 5 | ⚠️ Sin registrar en M-S | ⚠️ 1 con alerta");
-    ok("aviso y error juntos se separan", mixto.avisos.length === 1 && mixto.errores.length === 1);
-    ok("un resumen con un ✅ no tiene nada", resumenDePedimentoEnUnidad("Bultos: 3 | ✅ M-S T1").errores.length === 0);
-    // LOS BULTOS YA NO VAN JUNTO A «CON ERRORES».
-    ok("con errores la B no habla de bultos", mal.estado.indexOf("ultos") === -1 &&
-       mal.estado.indexOf("mira la columna C") !== -1);
-    ok("los bultos van al final de la C", /en la unidad: 2 bultos$/.test(mal.detalle));
-    // El «1 con alerta» es la misma guia que se lista: no se dice dos veces.
-    ok("el con alerta no se repite si ya se lista la guia", mal.detalle.indexOf("con alerta") === -1);
-    ok("y cuenta los errores de verdad", mal.estado.indexOf("(2)") !== -1);
-    ok("un resumen bueno no", problemaEnResumenDePedimento("Bultos: 12 | ✅ COMPLETO") === "");
-
-    // El bloque entero, con lo que falta: escaneado en la unidad y sin papel.
+    // El bloque entero.
     let unidadesB = [{ nombre: "GLOBAL 1 20-AE-3H" }, { nombre: "GLOBAL 3 11-BB-2C" }];
-    let donde = new Map([["6116004", ["GLOBAL 1 20-AE-3H"]], ["6116008", ["GLOBAL 1 20-AE-3H"]],
-                         ["6116010", ["GLOBAL 1 20-AE-3H"]], ["6116099", ["GLOBAL 3 11-BB-2C"]]]);
     let colB = [["T"], ["GLOBAL 1"], ["6116004"], ["6116008"], ["6116099"], ["6116004"], ["61160"]];
     let b1 = bloquesDePedimentosFinales(colB)[0];
-    let ev = evaluarBloqueFinal(b1, unidadesB, () => enU, donde, () => []);
+    let ev = evaluarBloqueFinal(b1, unidadesB, () => enU);
     let fu = ev.resultados.get(1);
-    ok("la unidad NO cuadra", fu.estado.indexOf("NO CUADRA") !== -1);
-    ok("y dice el papel que falta", ev.sinPapel.length === 1 && ev.sinPapel[0] === "6116010" &&
+    ok("el que esta en la unidad: ESTA", ev.resultados.get(2).estado === "✅ ESTÁ EN LA UNIDAD");
+    ok("y no habla de bultos ni de M-S",
+       !/ultos|M-S/.test(ev.resultados.get(2).estado + ev.resultados.get(2).detalle));
+    ok("el que no esta: NO ESTA EN ESTA UNIDAD", ev.resultados.get(4).estado === "❌ NO ESTÁ EN ESTA UNIDAD");
+    ok("y no habla de otras unidades", ev.resultados.get(4).detalle.indexOf("GLOBAL 3") === -1);
+    ok("la unidad NO cuadra", fu.estado.indexOf("❌ NO CUADRA") === 0);
+    ok("dice cuantos no estan", fu.estado.indexOf("1 no está en la unidad") !== -1);
+    ok("y cuales", fu.detalle.indexOf("NO ESTÁN EN LA UNIDAD: 6116099") !== -1);
+    ok("y el papel que falta", ev.sinPapel.length === 1 && ev.sinPapel[0] === "6116010" &&
        fu.detalle.indexOf("SIN PAPEL: 6116010") !== -1);
-    ok("el de otra unidad cuenta", fu.estado.indexOf("1 no son de esta unidad") !== -1);
     ok("el repetido en la lista se marca", ev.resultados.get(5).estado === "🔄 REPETIDO EN LA LISTA");
     ok("y dice donde esta el primero", ev.resultados.get(5).detalle === "Ya está en la fila 3");
     ok("el mal escaneado tambien", ev.resultados.get(6).estado.indexOf("7 DÍGITOS") !== -1);
-    ok("el bueno cuadra", ev.resultados.get(2).estado.indexOf("✅ CUADRA") === 0);
 
-    let todo = [["T"], ["GLOBAL 1"], ["6116004"], ["6116010"]];
-    let enU2 = new Map([["6116004", enU.get("6116004")], ["6116010", enU.get("6116010")]]);
-    let ev2 = evaluarBloqueFinal(bloquesDePedimentosFinales(todo)[0], unidadesB, () => enU2, donde, () => []);
-    ok("con todo bien la unidad CUADRA", ev2.resultados.get(1).estado === "✅ UNIDAD CUADRA: 2 pedimentos");
+    let todo = [["T"], ["GLOBAL 1"], ["6116004"], ["6116008"], ["6116010"]];
+    let ev2 = evaluarBloqueFinal(bloquesDePedimentosFinales(todo)[0], unidadesB, () => enU);
+    ok("con todos sus papeles la unidad CUADRA", ev2.resultados.get(1).estado === "✅ UNIDAD CUADRA: 3 pedimentos");
 
-    let sinU = evaluarBloqueFinal(bloquesDePedimentosFinales([["T"], ["6116004"]])[0],
-                                  unidadesB, () => enU, donde, () => []);
+    let sinU = evaluarBloqueFinal(bloquesDePedimentosFinales([["T"], ["6116004"]])[0], unidadesB, () => enU);
     ok("un pedimento sin unidad encima lo pide", sinU.resultados.get(1).estado === "⚠️ FALTA LA UNIDAD ARRIBA");
     let noU = evaluarBloqueFinal(bloquesDePedimentosFinales([["T"], ["GLOBAL 9"], ["6116004"]])[0],
-                                 unidadesB, () => enU, donde, () => []);
+                                 unidadesB, () => enU);
     ok("una unidad que no existe lo dice", noU.resultados.get(1).estado === "❌ NO ENCUENTRO ESA UNIDAD");
 
     let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
@@ -6475,15 +6433,14 @@ ok("y se asegura hasta la ultima, la de las fechas",
 
     // Y el resultado del pedimento lleva lo del codigo al final del detalle.
     let U = [{ nombre: "GLOBAL 1 20-AE-3H" }];
-    let enU = pedimentosDeHojaDeUnidad([["6114956", "Bultos: 1 | ✅ M-S T1", ""],
-                                        ["1Z0000000000000001", "✅ Ok", "H1"]]);
-    let ev = evaluarBloqueFinal(bl[0], U, () => enU, new Map([["6114956", ["GLOBAL 1 20-AE-3H"]]]), () => []);
-    ok("el pedimento del codigo cuadra", ev.resultados.get(3).estado.indexOf("✅ CUADRA") === 0);
+    let enU = pedimentosDeLaUnidad([["6114956"], ["1Z0000000000000001"]]);
+    let ev = evaluarBloqueFinal(bl[0], U, () => enU);
+    ok("el pedimento del codigo esta en la unidad", ev.resultados.get(3).estado === "✅ ESTÁ EN LA UNIDAD");
     ok("y dice patente, clave y RFC",
        ev.resultados.get(3).detalle === "Patente 6087 · clave T1 · UPS891122HV8");
     ok("las filas de relleno se etiquetan", ev.resultados.get(4).estado === "↳ clave de pedimento");
     ok("y la unidad cuadra con un solo pedimento",
-       ev.resultados.get(1).estado === "✅ UNIDAD CUADRA: 1 pedimentos");
+       ev.resultados.get(1).estado === "✅ UNIDAD CUADRA: 1 pedimento");
 })();
 
 // Una fila de relleno solo se etiqueta: no relee la unidad ni recalcula.
@@ -6533,7 +6490,7 @@ ok("y se asegura hasta la ultima, la de las fechas",
     let ss = { getSheets: () => [unidad, finales], getSheetByName: () => null };
     let n = recalcularPedimentosFinales(ss, finales, 3, 3);
     ok("el recorrido entero revisa la unidad", n === 1);
-    ok("el pedimento cuadra", String(finales.escrito.valores[3][0]).indexOf("✅ CUADRA") === 0);
+    ok("el pedimento esta en la unidad", String(finales.escrito.valores[3][0]) === "✅ ESTÁ EN LA UNIDAD");
     ok("la unidad dice el que falta",
        String(finales.escrito.valores[2][1]).indexOf("SIN PAPEL: 6116010") !== -1);
     ok("y pinta", finales.escrito.fondos[3] === '#07c369');
