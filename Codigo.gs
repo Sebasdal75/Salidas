@@ -190,7 +190,26 @@ function esHojaInterna(nombreHoja) {
     // los bloques sin poder cerrarse. Es el mismo fallo que ya costó caro con
     // el índice de houses.
     if (esHojaSinInfo(n)) return true;
+    // «PEDIMENTOS FINALES» es una LISTA DE PAPELES, no una unidad. Sin esta
+    // línea el caché la tomaría por una Global con pedimentos en la columna A,
+    // y cada pedimento escaneado ahí saldría «🛑 PEDIMENTO REPETIDO» contra el
+    // de su unidad —justo el que se está intentando cuadrar—.
+    if (esHojaPedimentosFinales(n)) return true;
     return n.indexOf("INDICE_HOUSE") !== -1 || n === "HOUSE_ACTIVO";
+}
+
+// La pestaña donde se escanean los pedimentos finales de cada unidad. Ver
+// PedimentosFinales.gs. El nombre vive aquí y no allí porque decide si una
+// pestaña es interna, y eso no puede depender de que el otro archivo esté.
+const HOJA_PEDIMENTOS_FINALES = "PEDIMENTOS FINALES";
+
+// Accesores: las constantes con `const` no se ven desde el banco de pruebas
+// cuando las usa otro archivo; las funciones sí.
+function nombreHojaPedimentosFinales() { return HOJA_PEDIMENTOS_FINALES; }
+function nombreHojaHistorico() { return HOJA_HISTORICO; }
+
+function esHojaPedimentosFinales(nombreHoja) {
+    return claveHoja(nombreHoja).replace(/\s+/g, " ") === HOJA_PEDIMENTOS_FINALES;
 }
 
 // La pestaña donde se apuntan las guías que no tienen información en el
@@ -1442,6 +1461,18 @@ function procesarEdicion(e, esInstalable) {
           if (cmd) { atenderComando(e.source, hoja, filaInicial, cmd); return; }
       }
   } catch (err) { /* un comando roto nunca puede impedir un escaneo */ }
+
+  // LOS PEDIMENTOS FINALES. Es una pestaña interna —la puerta de abajo la
+  // cerraría—, pero se escanea en ella y contesta al momento. Va SIN el lock
+  // del documento: solo lee las unidades y escribe en su propia pestaña, así
+  // que no puede pisar un escaneo, y tampoco le hace esperar.
+  try {
+      if (colInicial === 1 && esHojaPedimentosFinales(nombreHoja) &&
+          typeof atenderPedimentosFinales === 'function') {
+          atenderPedimentosFinales(e.source, hoja, filaInicial, numRows);
+          return;
+      }
+  } catch (err) { /* nunca puede tumbar nada */ }
 
   if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;
 
@@ -6076,6 +6107,9 @@ function onOpen() {
               // La confronta es por día: esto quita lo cargado antes de hoy.
               .addItem('🗑️ Borrar lo de días anteriores', 'borrarReferenciasDeDiasAnteriores')
               .addSeparator()
+              // Los papeles de cada unidad contra lo escaneado en ella.
+              .addItem('🧾 Pedimentos finales (cuadrar por unidad)', 'prepararPedimentosFinales')
+              .addSeparator()
               // Los dos orígenes. Manda la carpeta si está configurada; el
               // vínculo al archivo se queda para poder volver atrás.
               .addItem('📁 Vincular la carpeta de las guías', 'vincularCarpetaDeGuias')
@@ -7218,6 +7252,13 @@ function forzarActualizacionHojaActiva() {
   conLock(ss => {
     const hoja = ss.getActiveSheet();
     const nombreHoja = claveHoja(hoja.getName());
+
+    // En la de pedimentos finales, «actualizar» es volver a cuadrarla entera.
+    if (esHojaPedimentosFinales(nombreHoja) && typeof recalcularPedimentosFinales === 'function') {
+        let n = recalcularPedimentosFinales(ss, hoja);
+        ss.toast('✅ Revisadas ' + n + ' unidades.', 'Pedimentos finales', 4);
+        return;
+    }
 
     if (esHojaSistema(nombreHoja)) {
         ss.toast('ℹ️ Esta pestaña es del sistema y no se recalcula.', 'Sin Acción', 4);

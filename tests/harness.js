@@ -40,6 +40,7 @@ eval(fs.readFileSync(path.join(__dirname, '..', 'UnirInventarios.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Costales.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Pedimentos.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Comandos.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'PedimentosFinales.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -6250,6 +6251,153 @@ ok("y se asegura hasta la ultima, la de las fechas",
    FUENTE_SIS.indexOf("asegurarColumnas(h, COL_SIS_ULTIMA)") !== -1 &&
    FUENTE_SIS.indexOf("asegurarColumnas(h, COL_SIS_ARCHIVOS)") === -1);
 
+// PEDIMENTOS FINALES: los papeles de cada unidad contra lo escaneado en ella.
+(function () {
+    ok("la pestaña de finales es interna (no entra al cache)",
+       esHojaInterna("PEDIMENTOS FINALES") && esHojaInterna("pedimentos  finales"));
+    ok("y no es una unidad", !esHojaDeUnidad("PEDIMENTOS FINALES"));
+    ok("una GLOBAL si es unidad", esHojaDeUnidad("GLOBAL 1 20-AE-3H"));
+    ok("una M-S no", !esHojaDeUnidad("M-S T1"));
+    ok("un rezago no", !esHojaDeUnidad("REZAGO 2"));
+    ok("se pueden escanear comandos ahi", esHojaDeInforme("PEDIMENTOS FINALES"));
+
+    // Que se escribio en cada celda.
+    ok("7 digitos es pedimento", tipoDeCeldaFinal("6116004").tipo === "pedimento");
+    ok("tambien si llega como numero", tipoDeCeldaFinal(6116004).tipo === "pedimento");
+    ok("numeros que no son 7 es error", tipoDeCeldaFinal("611600").tipo === "error");
+    ok("texto es una unidad", tipoDeCeldaFinal("global 1").tipo === "unidad");
+    ok("un comando no es unidad", tipoDeCeldaFinal("WMSACT").tipo === "comando");
+
+    // La unidad por su nombre o por un trozo que la distinga.
+    let U = [{ nombre: "GLOBAL 1 20-AE-3H" }, { nombre: "GLOBAL 10 77-14-ZP" },
+             { nombre: "GLOBAL 3 11-BB-2C" }, { nombre: "A1 PENDIENTE" }];
+    ok("por el nombre entero", resolverUnidad("global 1 20-ae-3h", U).unidad.nombre === "GLOBAL 1 20-AE-3H");
+    ok("por un trozo: GLOBAL 1 no confunde con GLOBAL 10",
+       resolverUnidad("GLOBAL 1", U).unidad.nombre === "GLOBAL 1 20-AE-3H");
+    ok("por las placas", resolverUnidad("77-14-ZP", U).unidad.nombre === "GLOBAL 10 77-14-ZP");
+    let amb = resolverUnidad("GLOBAL", U);
+    ok("si casan varias no elige", !amb.unidad && amb.error === "varias" && amb.candidatos.length === 3);
+    ok("si no casa ninguna lo dice", resolverUnidad("GLOBAL 9", U).error === "ninguna");
+
+    // Los bloques de la columna A.
+    let colA = [["UNIDAD Y SUS PEDIMENTOS"], ["6110000"], ["GLOBAL 1"], ["6116004"], ["6116008"],
+                [""], ["GLOBAL 3"], ["6116099"]];
+    let bl = bloquesDePedimentosFinales(colA);
+    ok("tres bloques: el huerfano y dos unidades", bl.length === 3);
+    ok("el primero no tiene unidad", bl[0].filaUnidad === -1 && bl[0].filas[0].valor === "6110000");
+    ok("el segundo es GLOBAL 1 con sus dos", bl[1].unidad === "GLOBAL 1" &&
+       bl[1].filas.filter(f => f.tipo === "pedimento").length === 2);
+    ok("la fila vacia se queda en su bloque, para poder limpiarla", bl[1].hasta === 5);
+    ok("la fila 1 son los titulos, no una unidad", bl[0].desde === 1);
+
+    // Lo que hay en la unidad.
+    let hojaU = [["6116004", "Bultos: 2 | ✅ M-S T1", ""],
+                 ["1Z0000000000000001", "✅ Ok (Escaneado en M-S T1)", "H1"],
+                 ["1Z0000000000000002", "✅ Ok (Escaneado en M-S T1)", "H1"],
+                 ["6116008", "Bultos: 2 | ⚠️ 1 con alerta", ""],
+                 ["1Z0000000000000003", "⛔ DUPLICADO (En: GLOBAL 3 Fila 9)", ""],
+                 ["1Z0000000000000004", "✅ Ok · Sin información", "—"],
+                 ["6116010", "Bultos: 1 | ✅ M-S T1", ""],
+                 ["1Z0000000000000005", "✅ Ok", "H5"]];
+    let enU = pedimentosDeHojaDeUnidad(hojaU);
+    ok("lee los pedimentos de la unidad", enU.size === 3 && enU.get("6116008").guias.length === 2);
+
+    let ok1 = evaluarPedimentoFinal("6116004", enU.get("6116004"), [], []);
+    ok("sin nada raro CUADRA", ok1.cuadra && ok1.estado === "✅ CUADRA · Bultos: 2");
+    let mal = evaluarPedimentoFinal("6116008", enU.get("6116008"), [], []);
+    ok("con errores no cuadra", !mal.cuadra && mal.estado.indexOf("⚠️ CON ERRORES") === 0);
+    ok("dice el resumen de la unidad", mal.detalle.indexOf("1 con alerta") !== -1);
+    ok("la guia con error y su fila", mal.detalle.indexOf("fila 5 ⛔ DUPLICADO") !== -1);
+    ok("y las sin informacion", mal.detalle.indexOf("1 guía sin información") !== -1);
+    let ajeno = evaluarPedimentoFinal("6116099", null, ["GLOBAL 3 11-BB-2C"], []);
+    ok("de otra unidad lo dice y dice cual", ajeno.estado === "❌ NO ES DE ESTA UNIDAD" &&
+       ajeno.detalle.indexOf("GLOBAL 3") !== -1);
+    ok("si no esta en ninguna, tambien",
+       evaluarPedimentoFinal("6119999", null, [], []).estado.indexOf("NO ESTÁ ESCANEADO") !== -1);
+    let refMal = evaluarPedimentoFinal("6116004", enU.get("6116004"), [], ["G26A 🔻 FALTAN 2"]);
+    ok("una referencia incompleta en la confronta es error", !refMal.cuadra &&
+       refMal.detalle.indexOf("referencia G26A 🔻 FALTAN 2") !== -1);
+    let doble = evaluarPedimentoFinal("6116004", enU.get("6116004"), ["GLOBAL 3 11-BB-2C"], []);
+    ok("escaneado tambien en otra unidad es error", !doble.cuadra &&
+       doble.detalle.indexOf("también escaneado en GLOBAL 3") !== -1);
+    ok("un resumen con 0 bultos es error", problemaEnResumenDePedimento("Bultos: 0") !== "");
+    ok("un resumen bueno no", problemaEnResumenDePedimento("Bultos: 12 | ✅ COMPLETO") === "");
+
+    // El bloque entero, con lo que falta: escaneado en la unidad y sin papel.
+    let unidadesB = [{ nombre: "GLOBAL 1 20-AE-3H" }, { nombre: "GLOBAL 3 11-BB-2C" }];
+    let donde = new Map([["6116004", ["GLOBAL 1 20-AE-3H"]], ["6116008", ["GLOBAL 1 20-AE-3H"]],
+                         ["6116010", ["GLOBAL 1 20-AE-3H"]], ["6116099", ["GLOBAL 3 11-BB-2C"]]]);
+    let colB = [["T"], ["GLOBAL 1"], ["6116004"], ["6116008"], ["6116099"], ["6116004"], ["61160"]];
+    let b1 = bloquesDePedimentosFinales(colB)[0];
+    let ev = evaluarBloqueFinal(b1, unidadesB, () => enU, donde, () => []);
+    let fu = ev.resultados.get(1);
+    ok("la unidad NO cuadra", fu.estado.indexOf("NO CUADRA") !== -1);
+    ok("y dice el papel que falta", ev.sinPapel.length === 1 && ev.sinPapel[0] === "6116010" &&
+       fu.detalle.indexOf("SIN PAPEL: 6116010") !== -1);
+    ok("el de otra unidad cuenta", fu.estado.indexOf("1 no son de esta unidad") !== -1);
+    ok("el repetido en la lista se marca", ev.resultados.get(5).estado === "🔄 REPETIDO EN LA LISTA");
+    ok("y dice donde esta el primero", ev.resultados.get(5).detalle === "Ya está en la fila 3");
+    ok("el mal escaneado tambien", ev.resultados.get(6).estado.indexOf("7 DÍGITOS") !== -1);
+    ok("el bueno cuadra", ev.resultados.get(2).estado.indexOf("✅ CUADRA") === 0);
+
+    let todo = [["T"], ["GLOBAL 1"], ["6116004"], ["6116010"]];
+    let enU2 = new Map([["6116004", enU.get("6116004")], ["6116010", enU.get("6116010")]]);
+    let ev2 = evaluarBloqueFinal(bloquesDePedimentosFinales(todo)[0], unidadesB, () => enU2, donde, () => []);
+    ok("con todo bien la unidad CUADRA", ev2.resultados.get(1).estado === "✅ UNIDAD CUADRA: 2 pedimentos");
+
+    let sinU = evaluarBloqueFinal(bloquesDePedimentosFinales([["T"], ["6116004"]])[0],
+                                  unidadesB, () => enU, donde, () => []);
+    ok("un pedimento sin unidad encima lo pide", sinU.resultados.get(1).estado === "⚠️ FALTA LA UNIDAD ARRIBA");
+    let noU = evaluarBloqueFinal(bloquesDePedimentosFinales([["T"], ["GLOBAL 9"], ["6116004"]])[0],
+                                 unidadesB, () => enU, donde, () => []);
+    ok("una unidad que no existe lo dice", noU.resultados.get(1).estado === "❌ NO ENCUENTRO ESA UNIDAD");
+
+    let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
+    let i = fuente.indexOf("function procesarEdicion");
+    let cuerpo = fuente.substring(i, fuente.indexOf("const lock = LockService.getDocumentLock()", i));
+    ok("procesarEdicion la atiende antes de cerrar a las de sistema y sin lock",
+       cuerpo.indexOf("atenderPedimentosFinales") !== -1 &&
+       cuerpo.indexOf("atenderPedimentosFinales") <
+       cuerpo.indexOf("if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;"));
+    ok("esta en el menu", fuente.indexOf("'prepararPedimentosFinales'") !== -1);
+})();
+
+// Y EL RECORRIDO ENTERO contra hojas simuladas: lee, cuadra y escribe B y C.
+(function () {
+    function hojaFalsa(nombre, rejilla) {
+        let escrito = { valores: {}, fondos: {} };
+        return {
+            escrito: escrito,
+            getName: () => nombre,
+            getLastRow: () => rejilla.length,
+            getRange: (f, c, nf, nc) => ({
+                getValues: () => {
+                    let out = [];
+                    for (let i = 0; i < nf; i++) {
+                        let fila = [];
+                        for (let j = 0; j < nc; j++) fila.push(((rejilla[f - 1 + i] || [])[c - 1 + j]) || "");
+                        out.push(fila);
+                    }
+                    return out;
+                },
+                setValues: (v) => v.forEach((fila, i) => { escrito.valores[f + i] = fila; }),
+                setBackgrounds: (v) => v.forEach((fila, i) => { escrito.fondos[f + i] = fila[0]; })
+            })
+        };
+    }
+    let unidad = hojaFalsa("GLOBAL 1 20-AE-3H", [
+        ["6116004", "Bultos: 1 | ✅ M-S T1", ""], ["1Z0000000000000001", "✅ Ok", "H1"],
+        ["6116010", "Bultos: 1 | ✅ M-S T1", ""], ["1Z0000000000000005", "✅ Ok", "H5"]]);
+    let finales = hojaFalsa("PEDIMENTOS FINALES", [["T", "", ""], ["global 1", "", ""], ["6116004", "", ""]]);
+    let ss = { getSheets: () => [unidad, finales], getSheetByName: () => null };
+    let n = recalcularPedimentosFinales(ss, finales, 3, 3);
+    ok("el recorrido entero revisa la unidad", n === 1);
+    ok("el pedimento cuadra", String(finales.escrito.valores[3][0]).indexOf("✅ CUADRA") === 0);
+    ok("la unidad dice el que falta",
+       String(finales.escrito.valores[2][1]).indexOf("SIN PAPEL: 6116010") !== -1);
+    ok("y pinta", finales.escrito.fondos[3] === '#07c369');
+})();
+
 // LA CONFRONTA ES POR DIA: BORRAR LO DE AYER.
 //
 // La lista se acumula, asi que al dia siguiente el cuadro enseñaba las
@@ -7059,7 +7207,8 @@ console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 const fsDup = require('fs');
 const pathDup = require('path');
 const ARCHIVOS_GS = ['Codigo.gs', 'House.gs', 'Salidas.gs', 'Costales.gs',
-                     'UnirInventarios.gs', 'Pedimentos.gs', 'Comandos.gs'];
+                     'UnirInventarios.gs', 'Pedimentos.gs', 'Comandos.gs',
+                     'PedimentosFinales.gs'];
 let declarados = new Map();
 let colisiones = [];
 ARCHIVOS_GS.forEach(f => {

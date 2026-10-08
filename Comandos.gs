@@ -161,7 +161,10 @@ function comandoDeBarras(valor) {
 //     borraría, y en esas dos pestañas no hay forma de saber qué había.
 function esHojaDeInforme(nombreHoja) {
     let n = claveHoja(nombreHoja);
-    return n.indexOf("CONFRONTA") === 0 || n.indexOf("ERRORES_") === 0;
+    // Y la de pedimentos finales: ahí también se está mirando cuando se quiere
+    // volver a cuadrar (WMSACT) o volver a cruzar (WMSCRUZA).
+    return n.indexOf("CONFRONTA") === 0 || n.indexOf("ERRORES_") === 0 ||
+           esHojaPedimentosFinales(n);
 }
 
 // ¿Esta edición es un comando que hay que atender?
