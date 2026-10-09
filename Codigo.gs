@@ -195,6 +195,13 @@ function esHojaInterna(nombreHoja) {
     // y cada pedimento escaneado ahí saldría «🛑 PEDIMENTO REPETIDO» contra el
     // de su unidad —justo el que se está intentando cuadrar—.
     if (esHojaPedimentosFinales(n)) return true;
+    // «COMANDOS» es la hoja para imprimir los códigos WMS. Sin esta línea el
+    // motor la tomaba por una Global: su nota larga en la A, con la B vacía,
+    // la daba por «pendiente» en cada repaso de cinco minutos, y el recálculo
+    // escribía «❌ Guía Inválida» en la columna B, que es justo donde están
+    // los códigos que hay que imprimir. El nombre va escrito aquí y no con la
+    // constante de Comandos.gs: esto no puede depender de que ese archivo esté.
+    if (n === "COMANDOS") return true;
     return n.indexOf("INDICE_HOUSE") !== -1 || n === "HOUSE_ACTIVO";
 }
 
@@ -1446,11 +1453,13 @@ function procesarEdicion(e, esInstalable) {
   // de sistema y la puerta la cierra. Y el informe es justo donde uno está
   // mirando cuando quiere volver a cruzar. Quién puede y quién no lo decide
   // `edicionEsComando`, que deja pasar los informes y nada más. Va AQUÍ, antes de pedir el lock, y eso
-  // no es un detalle: las acciones que ejecuta son las mismas del menú y cada
-  // una pide el lock del documento por su cuenta. Llamarlas con el lock ya
-  // tomado sería un bloqueo contra uno mismo —el archivo entero parado hasta
-  // que Google corte la ejecución—, que es el mismo fallo que ya costó una
-  // tarde con el cierre del día.
+  // no es un detalle: las acciones que ejecuta son las mismas del menú, y las
+  // que escriben en las pestañas de escaneo piden el lock del documento por
+  // su cuenta —«Forzar Actualización» con `conLock`, el repintado de la app
+  // de 1Z con el suyo—. Llamarlas con el lock ya tomado sería un bloqueo
+  // contra uno mismo —el archivo entero parado hasta que Google corte la
+  // ejecución—, que es el mismo fallo que ya costó una tarde con el cierre
+  // del día. Las que solo leen o escriben en su propia pestaña no lo toman.
   //
   // `typeof` porque Comandos.gs es opcional: si no está pegado, esto no puede
   // reventar el escaneo de nadie.
@@ -1469,7 +1478,7 @@ function procesarEdicion(e, esInstalable) {
   try {
       if (colInicial === 1 && esHojaPedimentosFinales(nombreHoja) &&
           typeof atenderPedimentosFinales === 'function') {
-          atenderPedimentosFinales(e.source, hoja, filaInicial, numRows);
+          atenderPedimentosFinales(e.source, hoja, filaInicial, numRows, esInstalable);
           return;
       }
   } catch (err) { /* nunca puede tumbar nada */ }

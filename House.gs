@@ -2214,14 +2214,25 @@ function rellenarHousesPendientes(forzar, segundosMax, soloHoja) {
     // La cosecha va al caché SIEMPRE, aunque no haya nada que rellenar: es lo
     // que hace que el próximo escaneo de esas guías tenga la house al instante.
     let enCacheYa = 0;
-    // Solo la pasada COMPLETA reescribe estas listas: ver la nota de arriba.
-    if (claveSola === "") {
+    // SOLO LA PASADA COMPLETA reescribe estas listas: ver la nota de arriba.
+    //
+    // Y UNA PASADA CORTADA POR TIEMPO NO ES COMPLETA, aunque sea la de todas
+    // las pestañas. Antes bastaba con no ser de una sola hoja: si el reloj la
+    // paraba en la sexta de quince, las dos listas del caché se reescribían
+    // con lo de esas seis, y las guías de las otras nueve perdían la house
+    // instantánea y el aviso de «Sin información» hasta la siguiente vuelta.
+    // Cortada, AÑADE y AJUSTA, igual que la de una sola hoja.
+    let pasadaCompleta = claveSola === "" && !cortadoPorTiempo;
+    if (pasadaCompleta) {
         try { enCacheYa = guardarHousesEnCache(ss, cosechados); } catch (err) { enCacheYa = 0; }
         try { guardarSinHouseEnCache(ss, sinDatoVistas); } catch (err) { /* nunca tumba el relleno */ }
     }
 
     let faltanTotal = pendientes.reduce((n, p) => n + p.faltan.length, 0);
     if (faltanTotal === 0) {
+        if (!pasadaCompleta && claveSola === "") {
+            try { enCacheYa = anadirHousesAlCache(ss, cosechados); } catch (err) { enCacheYa = 0; }
+        }
         return anotarRelleno("houses huérfanas borradas: " + borradas +
                       " · houses en caché: " + (enCacheYa || cosechados.length));
     }
@@ -2273,8 +2284,12 @@ function rellenarHousesPendientes(forzar, segundosMax, soloHoja) {
         if (h) paraCache.push({ guia: f.guia, house: h });
     }));
     let enCache = 0;
-    if (claveSola === "") {
+    if (pasadaCompleta) {
         try { enCache = guardarHousesEnCache(ss, paraCache); } catch (err) { enCache = 0; }
+    } else if (claveSola === "") {
+        // La de todas cortada por tiempo: se añade lo cosechado y lo resuelto,
+        // sin borrar lo que había de las pestañas a las que no llegó.
+        try { enCache = anadirHousesAlCache(ss, paraCache); } catch (err) { enCache = 0; }
     } else {
         // Una sola hoja: AÑADIR al mapa lo que se acaba de resolver, sin tocar
         // el resto. Sin esto, una guía con su house recién puesta en la M-S no
@@ -2309,10 +2324,11 @@ function rellenarHousesPendientes(forzar, segundosMax, soloHoja) {
     pendientes.forEach(p => p.faltan.forEach(f => {
         if (!mapa.get(f.guia)) { sinDatoAhora.push(f.guia); marcadasAhora.push(f.guia); }
     }));
-    if (claveSola === "") {
+    if (pasadaCompleta) {
         try { guardarSinHouseEnCache(ss, sinDatoAhora); } catch (err) { /* nunca tumba el relleno */ }
     } else {
-        // Una sola hoja: AJUSTAR, no reescribir. Ver la nota de la firma.
+        // Una sola hoja, o la de todas cortada por tiempo: AJUSTAR, no
+        // reescribir. Ver la nota de la firma.
         try { ajustarSinHouseEnCache(ss, Array.from(resueltasAhora), marcadasAhora); }
         catch (err) { /* nunca tumba el relleno */ }
     }
@@ -2686,15 +2702,29 @@ function correrTraerDeLaApp() {
     // minutos para arreglar dos filas.
     let repintadas = 0;
     if (hojasTocadas.length > 0) {
-        try {
-            let cacheInfo = getCacheData(ss);
-            hojasTocadas.forEach(nombre => {
-                let h = ss.getSheetByName(nombre);
-                if (!h) return;
-                recalcularHoja(h, ss, cacheInfo, null, false, false);
-                repintadas++;
-            });
-        } catch (err) { repintadas = -1; }
+        // CON EL LOCK DEL DOCUMENTO. El recálculo reescribe la columna B de la
+        // pestaña a partir de lo que lee al empezar; sin lock, un operador que
+        // escanea en ese momento podía ver su estado pisado por esta foto de
+        // medio segundo antes. Se pide aquí y no más arriba: poner houses no
+        // necesita parar a nadie, repintar sí. (Este núcleo lo llama también
+        // el comando WMSAPP, que corre ANTES de que el escaneo tome su lock,
+        // así que no hay riesgo de pedirlo dos veces.)
+        let lock = LockService.getDocumentLock();
+        if (!lock.tryLock(20000)) {
+            repintadas = -1;
+        } else {
+            try {
+                invalidarCacheRAM();
+                let cacheInfo = getCacheData(ss);
+                hojasTocadas.forEach(nombre => {
+                    let h = ss.getSheetByName(nombre);
+                    if (!h) return;
+                    recalcularHoja(h, ss, cacheInfo, null, false, false);
+                    repintadas++;
+                });
+            } catch (err) { repintadas = -1; }
+            finally { lock.releaseLock(); }
+        }
     }
 
     return {

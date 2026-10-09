@@ -80,8 +80,7 @@ function comandosDeBarras() {
                 // EL NÚCLEO, no el botón: el botón enseña el informe largo en
                 // un diálogo, y un diálogo dentro de un disparador se queda
                 // esperando una respuesta que en un teléfono no llega.
-                let r = correrLaConfronta(true);
-                return r.ok ? r.corto : r.corto;
+                return correrLaConfronta(true).corto;
             }
         },
         {
@@ -91,8 +90,7 @@ function comandosDeBarras() {
                 if (typeof correrLaConfronta !== 'function') {
                     return "El módulo de pedimentos no está instalado";
                 }
-                let r = correrLaConfronta(false);
-                return r.ok ? r.corto : r.corto;
+                return correrLaConfronta(false).corto;
             }
         },
         {
@@ -161,8 +159,8 @@ function comandoDeBarras(valor) {
 //     borraría, y en esas dos pestañas no hay forma de saber qué había.
 function esHojaDeInforme(nombreHoja) {
     let n = claveHoja(nombreHoja);
-    // Y la de pedimentos finales: ahí también se está mirando cuando se quiere
-    // volver a cuadrar (WMSACT) o volver a cruzar (WMSCRUZA).
+    // Y la de pedimentos finales: ahí se escanea WMSACT para volver a cuadrarla
+    // entera.
     return n.indexOf("CONFRONTA") === 0 || n.indexOf("ERRORES_") === 0 ||
            esHojaPedimentosFinales(n);
 }
@@ -221,12 +219,25 @@ function atenderComando(ss, hoja, fila, cmd) {
 
     // SE LIMPIA PASE LO QUE PASE, incluso si la acción falló: el comando ya se
     // atendió y dejarlo escrito haría que el siguiente recálculo lo mirara.
-    try { hoja.getRange(fila, 1, 1, 2).clearContent(); } catch (err) { /* sigue */ }
-    // Y LA HORA, en la columna L. El recálculo ya no se la pone a un comando,
-    // pero una hora estampada antes de ese arreglo se quedaría sola en una fila
-    // vacía. Las tres familias de pestañas usan la L para la hora de la A, así
-    // que no hay pestaña donde esa celda sea otra cosa.
-    try { hoja.getRange(fila, COL_HORA_DE_A).clearContent(); } catch (err) { /* sigue */ }
+    //
+    // PERO SOLO SI LA FILA SIGUE SIENDO LA DEL COMANDO. Hay comandos que
+    // REHACEN la pestaña donde se escanean: WMSCRUZA en «CONFRONTA
+    // REFERENCIAS» la borra y la vuelve a escribir entera. Limpiar a ciegas la
+    // A, la B y la L de esa fila se llevaba la referencia y el pedimento de una
+    // línea del informe recién hecho —y la L ahí es la columna FILA del
+    // detalle—. Si la A ya no dice el comando, esa fila es de otro y no se toca.
+    let sigueAhi = false;
+    try { sigueAhi = !!comandoDeBarras(hoja.getRange(fila, 1).getValue()); }
+    catch (err) { sigueAhi = false; }
+    if (sigueAhi) {
+        try { hoja.getRange(fila, 1, 1, 2).clearContent(); } catch (err) { /* sigue */ }
+        // Y LA HORA, en la columna L. El recálculo ya no se la pone a un
+        // comando, pero una hora estampada antes de ese arreglo se quedaría
+        // sola en una fila vacía. En los informes la L es otra cosa, y ahí no.
+        if (!esHojaDeInforme(hoja.getName())) {
+            try { hoja.getRange(fila, COL_HORA_DE_A).clearContent(); } catch (err) { /* sigue */ }
+        }
+    }
 
     if (fallo !== "") {
         // Un comando que falla tiene que DECIRLO. Callado, el operador se queda

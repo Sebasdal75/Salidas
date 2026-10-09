@@ -43,13 +43,13 @@ const COLOR_FINAL_REPETIDO = '#acacac';
 const COLOR_FINAL_NEUTRO = '#FFFFFF';
 
 // ¿Qué pestañas son UNIDADES? Las de salida: todo lo que se escanea como una
-// Global, menos el rezago, el histórico y la hoja de los comandos.
+// Global, menos el rezago y el histórico. (La de los comandos ya es interna,
+// así que `esHojaPrincipal` la deja fuera sola.)
 function esHojaDeUnidad(nombreHoja) {
     let n = claveHoja(nombreHoja);
     if (!esHojaPrincipal(n)) return false;
     if (n.indexOf("REZAGO") !== -1) return false;
     if (n === claveHoja(nombreHojaHistorico())) return false;
-    if (n === "COMANDOS") return false;
     return true;
 }
 
@@ -93,6 +93,10 @@ const CAMPOS_TRAS_PEDIMENTO = 10;
 const FILAS_ATRAS_CODIGO = 30;
 
 const COLOR_FINAL_RELLENO = '#f1f3f4';
+
+// La espera del lock del script para recalcular. Ver `atenderPedimentosFinales`.
+const ESPERA_FINALES_INSTALABLE_MS = 30000;
+const ESPERA_FINALES_SIMPLE_MS = 8000;
 
 function esPatenteFinal(v) { return /^\d{4}$/.test(String(v || "")); }
 
@@ -411,7 +415,14 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
     let bloques = bloquesDePedimentosFinales(valoresA);
     if (filaDesde) {
         let d = filaDesde - 1, hst = (filaHasta || filaDesde) - 1;
-        bloques = bloques.filter(b => b.hasta >= d && b.desde <= hst);
+        // `d - 1` Y NO `d`: también el bloque que acaba JUSTO ENCIMA. Una
+        // edición puede mover dónde termina el de arriba —escanear la unidad
+        // siguiente, o meter una unidad a mitad de otra— y entonces su última
+        // fila cambia de significado: un «6116» que esperaba ser patente pasa
+        // a ser un error, y los pedimentos que se fueron al bloque nuevo ya no
+        // cuentan en el de arriba. Sin recalcularlo se quedaba con el resultado
+        // de antes.
+        bloques = bloques.filter(b => b.hasta >= d - 1 && b.desde <= hst);
     }
 
     // Se lee HASTA LA FILA EDITADA aunque esté vacía (`lr` la incluye): así
@@ -466,12 +477,19 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
 // una sola GLOBAL 1 a la vez.
 //
 // Nunca solo dígitos: eso se leería como un pedimento.
+//
+// Y SIEMPRE CON ALGÚN DÍGITO, salvo que sea el nombre entero. Con una sola
+// GLOBAL abierta, la palabra «GLOBAL» sola ya la distinguía, y eso era lo que
+// se imprimía; al día siguiente se abría la GLOBAL 2 y la etiqueta pasaba a
+// decir «hay varias unidades así». El número es lo que hace que la etiqueta
+// siga valiendo cuando cambian las demás pestañas.
 function codigoCortoDeUnidad(nombre, unidades) {
     let palabras = claveDeUnidad(nombre).split(" ").filter(p => p !== "");
     let objetivo = claveDeUnidad(nombre);
     for (let k = 1; k <= palabras.length; k++) {
         let cand = palabras.slice(0, k).join(" ");
         if (/^\d+$/.test(cand.replace(/\s/g, ""))) continue;
+        if (k < palabras.length && !/\d/.test(cand)) continue;
         let r = resolverUnidad(cand, unidades);
         if (r.unidad && claveDeUnidad(r.unidad.nombre) === objetivo) return cand;
     }
@@ -535,7 +553,7 @@ function ponerTitulosFinales(hoja) {
 // Los recálculos van EN FILA (lock del script, no el del documento: no frena
 // ningún escaneo). Sin eso, dos escaneos seguidos corrían a la vez y el que
 // terminaba último podía escribir un resumen leído antes que el otro.
-function atenderPedimentosFinales(ss, hoja, fila, numFilas) {
+function atenderPedimentosFinales(ss, hoja, fila, numFilas, esInstalable) {
     if (fila + numFilas - 1 < FILA_INICIO_FINALES) return;
 
     if (numFilas === 1 && fila >= FILA_INICIO_FINALES) {
@@ -543,16 +561,27 @@ function atenderPedimentosFinales(ss, hoja, fila, numFilas) {
         let ventana = hoja.getRange(desde, 1, fila - desde + 1, 1).getValues();
         let celdas = clasificarFilasFinales(ventana, desde);
         let mia = celdas[celdas.length - 1];
-        if (mia && mia.tipo === "relleno") {
+        // EL RFC SÍ RECALCULA: llega DESPUÉS de la fila del pedimento, así que
+        // cuando el pedimento se calculó todavía no estaban ni la clave ni el
+        // RFC, y su columna C se quedaba en «Patente 6087». Con el RFC ya
+        // están los tres datos que se enseñan; un recálculo por papel más, en
+        // vez de doce.
+        if (mia && mia.tipo === "relleno" && mia.campo !== "RFC") {
             hoja.getRange(fila, 2, 1, 3).setValues([[textoDeRellenoFinal(mia), "", ""]]);
             hoja.getRange(fila, 2).setBackground(COLOR_FINAL_RELLENO);
             return;
         }
     }
 
+    // CUÁNTO SE ESPERA DEPENDE DE QUIÉN LLAMA. El disparador simple tiene
+    // treinta segundos EN TOTAL —esperar y trabajar—, y puede haber gastado
+    // ya seis esperando al instalable: con 30 de espera aquí, Google lo
+    // cortaba a mitad y el escaneo se quedaba sin resultado.
     let lock = null;
-    try { lock = LockService.getScriptLock(); lock.waitLock(30000); }
-    catch (err) { lock = null; }   // sin lock, se recalcula igual
+    try {
+        lock = LockService.getScriptLock();
+        lock.waitLock(esInstalable ? ESPERA_FINALES_INSTALABLE_MS : ESPERA_FINALES_SIMPLE_MS);
+    } catch (err) { lock = null; }   // sin lock, se recalcula igual
     try {
         recalcularPedimentosFinales(ss, hoja, Math.max(fila, FILA_INICIO_FINALES), fila + numFilas - 1);
     } finally {

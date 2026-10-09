@@ -50,9 +50,15 @@ function esHojaQueNoSeToca(nombreHoja) {
   if (n.indexOf("ERRORES_") === 0) return true;
   if (n.indexOf("CONSOLIDADO") === 0) return true;
 
-  // 3. LISTAS QUE SE TECLEAN A MANO. No son escaneos.
+  // 3. LISTAS QUE SE TECLEAN A MANO, O QUE SE ESCANEAN PERO NO SON CARGA.
   if (n.indexOf("MACHO") !== -1) return true;        // FEMAD y plantillas
   if (esSinInformacion_(n)) return true;
+  // Los papeles de cada unidad: pedimentos y, si la pistola reparte el código
+  // de barras en filas, datos como «UPS891122HV8» o «0000000000000». Leída
+  // como unidad, saldrían como bultos falsos o guías inválidas.
+  if (n.replace(/\s+/g, " ") === "PEDIMENTOS FINALES") return true;
+  if (n === "COMANDOS") return true;                 // los códigos WMS para imprimir
+  if (n === "HISTORICO") return true;                // lo de días anteriores
 
   // 4. LAS M-S. SON DE ESCANEO, pero son el paso de ANTES de cargar: ahí la
   //    carga se está juntando y el pedimento puede no estar escrito todavía.

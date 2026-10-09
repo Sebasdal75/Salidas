@@ -823,8 +823,15 @@ function importarPedimentos() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
 
-    try { mudarHojasDePedimentos(ss); } catch (err) { /* se reintenta sola */ }
-    let r = traerLasGuias(ss);
+    if (!tomarTurnoPedimentos()) {
+        ui.alert("📥 Importar los pedimentos", TXT_TURNO_OCUPADO, ui.ButtonSet.OK);
+        return;
+    }
+    let r;
+    try {
+        try { mudarHojasDePedimentos(ss); } catch (err) { /* se reintenta sola */ }
+        r = traerLasGuias(ss);
+    } finally { soltarTurnoPedimentos(); }
     if (!r.ok) { ui.alert("📥 Importar los pedimentos", r.error, ui.ButtonSet.OK); return; }
 
     ui.alert("📥 Importar los pedimentos",
@@ -918,26 +925,40 @@ function borrarReferenciasDeDiasAnteriores() {
         ui.ButtonSet.YES_NO);
     if (r !== ui.Button.YES) return;
 
-    guardarBlobReferencias(ss, entradasDesdeMapa(s.piezas), entradasDesdeMapa(s.houses));
-    guardarBlobAtaduras(ss, s.ataduras);
-    guardarFechasDeReferencias(ss, s.fechas);
-    olvidarBlobPedimentosDeHouseEnRAM();
-
-    // EL INFORME SE REHACE CON LO QUE QUEDA. Dejarlo como estaba enseñaría
-    // justo lo que se acaba de borrar, y parecería que el botón no hizo nada.
+    // EL TURNO SE TOMA AQUÍ, después de preguntar, y SE VUELVE A LEER. Con el
+    // diálogo abierto alguien pudo traer el Excel de hoy desde el muelle:
+    // escribir lo calculado antes del diálogo se llevaría por delante lo que
+    // acaba de entrar.
+    if (!tomarTurnoPedimentos()) { ui.alert(TITULO, TXT_TURNO_OCUPADO, ui.ButtonSet.OK); return; }
     let informe;
-    if (s.quedan.size > 0) {
-        let rc = { ok: false, corto: "" };
-        try { rc = correrLaConfronta(false); } catch (err) { rc = { ok: false, corto: String(err) }; }
-        informe = rc.ok
-            ? "La pestaña «" + HOJA_CONFRONTA_HOUSE + "» se volvió a cruzar con lo de hoy: " + rc.corto
-            : "No pude volver a cruzar (" + rc.corto + "). Usa «♻️ Solo volver a cruzar».";
-    } else {
-        let h = ss.getSheetByName(HOJA_CONFRONTA_HOUSE);
-        if (h) h.clear();
-        informe = "No queda nada cargado, así que la pestaña «" + HOJA_CONFRONTA_HOUSE +
-                  "» se vació. Trae lo de hoy con «🔎 Confrontar con los pedimentos».";
-    }
+    try {
+        s = separarReferenciasPorDia(
+            mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_PIEZAS)),
+            mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_HOUSES)),
+            mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_ATADURAS)),
+            fechasDeReferencias(ss), hoy, sinFechaEsDeHoy);
+
+        guardarBlobReferencias(ss, entradasDesdeMapa(s.piezas), entradasDesdeMapa(s.houses));
+        guardarBlobAtaduras(ss, s.ataduras);
+        guardarFechasDeReferencias(ss, s.fechas);
+        olvidarBlobPedimentosDeHouseEnRAM();
+
+        // EL INFORME SE REHACE CON LO QUE QUEDA. Dejarlo como estaba enseñaría
+        // justo lo que se acaba de borrar, y parecería que el botón no hizo nada.
+        if (s.quedan.size > 0) {
+            let rc = { ok: false, corto: "" };
+            // Con el turno ya tomado: pedirlo otra vez diría «ocupado» a sí mismo.
+            try { rc = correrLaConfrontaConTurno(false); } catch (err) { rc = { ok: false, corto: String(err) }; }
+            informe = rc.ok
+                ? "La pestaña «" + HOJA_CONFRONTA_HOUSE + "» se volvió a cruzar con lo de hoy: " + rc.corto
+                : "No pude volver a cruzar (" + rc.corto + "). Usa «♻️ Solo volver a cruzar».";
+        } else {
+            let h = ss.getSheetByName(HOJA_CONFRONTA_HOUSE);
+            if (h) h.clear();
+            informe = "No queda nada cargado, así que la pestaña «" + HOJA_CONFRONTA_HOUSE +
+                      "» se vació. Trae lo de hoy con «🔎 Confrontar con los pedimentos».";
+        }
+    } finally { soltarTurnoPedimentos(); }
 
     ui.alert(TITULO,
         "Listo: " + s.quitadas.size + " referencias borradas.\n\n" + informe + "\n\n" +
@@ -2001,6 +2022,44 @@ function confrontarPedimentosConEscaneos() { hacerLaConfronta(true); }
 function cruzarConLoGuardado() { hacerLaConfronta(false); }
 
 // Los dos botones del menú: corren el núcleo y enseñan el informe largo.
+// -------------------------------------------------------------------------
+// UNA OPERACIÓN DE PEDIMENTOS A LA VEZ
+// -------------------------------------------------------------------------
+//
+// Traer, cruzar y borrar lo de ayer LEEN las listas de SIS_PEDIMENTOS, las
+// cambian y las vuelven a escribir. Dos a la vez —un WMSTRAE desde el muelle
+// mientras alguien borra lo de ayer en la computadora— y la que escribe
+// última pisa lo de la otra: referencias de hoy que desaparecen, o las de
+// ayer que vuelven.
+//
+// NO ES EL LOCK DEL DOCUMENTO, a propósito: una confronta tarda decenas de
+// segundos leyendo la carpeta y todas las Globales, y con ese lock tomado
+// nadie podría escanear mientras tanto. Es una marca con caducidad: si una
+// ejecución se cortara sin quitarla, se cae sola a los seis minutos, que es
+// lo más que Google deja correr a una ejecución.
+const CLAVE_TURNO_PEDIMENTOS = 'WMS_PEDIMENTOS_TURNO';
+const SEGUNDOS_TURNO_PEDIMENTOS = 360;
+
+function tomarTurnoPedimentos() {
+    try {
+        let c = CacheService.getScriptCache();
+        if (c.get(CLAVE_TURNO_PEDIMENTOS)) return false;
+        c.put(CLAVE_TURNO_PEDIMENTOS, String(Date.now()), SEGUNDOS_TURNO_PEDIMENTOS);
+        return true;
+    } catch (err) {
+        // Sin caché de Google no hay forma de saberlo: se deja pasar. Es lo
+        // que pasaba siempre hasta ahora.
+        return true;
+    }
+}
+
+function soltarTurnoPedimentos() {
+    try { CacheService.getScriptCache().remove(CLAVE_TURNO_PEDIMENTOS); } catch (err) { /* caduca sola */ }
+}
+
+const TXT_TURNO_OCUPADO = "Ya hay otra operación de pedimentos en curso (traer, cruzar o " +
+    "borrar lo de ayer). Espera a que termine y vuelve a intentarlo.";
+
 function hacerLaConfronta(trayendo) {
     const ui = SpreadsheetApp.getUi();
     let r = correrLaConfronta(trayendo);
@@ -2017,6 +2076,17 @@ function hacerLaConfronta(trayendo) {
 // `corto` es la misma noticia en una línea, para el `toast` del muelle: ahí no
 // se lee un informe de treinta renglones, se mira si hay algo rojo.
 function correrLaConfronta(trayendo) {
+    if (!tomarTurnoPedimentos()) {
+        return { ok: false, titulo: trayendo ? "🔎 Confrontar con los pedimentos" : "♻️ Volver a cruzar",
+                 msg: TXT_TURNO_OCUPADO, corto: "ya hay otra confronta en curso, espera" };
+    }
+    try { return correrLaConfrontaConTurno(trayendo); }
+    finally { soltarTurnoPedimentos(); }
+}
+
+// La confronta en sí. Quien la llame tiene que tener ya el turno: ver
+// `tomarTurnoPedimentos`.
+function correrLaConfrontaConTurno(trayendo) {
     const ss = obtenerArchivo();
 
     // LA MUDANZA VA PRIMERO, antes de leer nada: si quedan pestañas viejas, sus

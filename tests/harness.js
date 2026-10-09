@@ -2728,6 +2728,26 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        !houseDeFilaVacia(filas, 0, 0) && houseDeFilaVacia(filas, 1, 0));
     invalidarCacheRAM();
 })();
+// UNA PASADA CORTADA POR TIEMPO NO REESCRIBE LAS LISTAS DEL CACHE. Si el reloj
+// la paraba en la sexta pestaña de quince, las listas se quedaban solo con lo
+// de esas seis.
+(function () {
+    let f = require('fs').readFileSync('House.gs', 'utf8');
+    ok("la pasada completa exige no haberse cortado",
+       f.indexOf('let pasadaCompleta = claveSola === "" && !cortadoPorTiempo;') !== -1);
+    ok("y ya no reescribe por ser solo «de todas»",
+       f.indexOf('if (claveSola === "") {\n        try { enCacheYa = guardarHousesEnCache') === -1 &&
+       f.indexOf('if (claveSola === "") {\n        try { enCache = guardarHousesEnCache') === -1 &&
+       f.indexOf('if (claveSola === "") {\n        try { guardarSinHouseEnCache') === -1);
+    ok("cortada, añade al mapa en vez de reescribirlo",
+       f.indexOf("try { enCache = anadirHousesAlCache(ss, paraCache); }") !== -1);
+    // Y el repintado de la app va con el lock del documento.
+    let i = f.indexOf("function correrTraerDeLaApp");
+    let cuerpo = f.substring(i, f.indexOf("\n}\n", i));
+    ok("el repintado de la app toma el lock del documento",
+       cuerpo.indexOf("LockService.getDocumentLock()") !== -1 && cuerpo.indexOf("lock.releaseLock()") !== -1);
+})();
+
 // Y el boton de la app repinta tambien las filas que YA tenian house y seguian
 // marcadas: apretarlo otra vez tiene que arreglarlo.
 (function () {
@@ -6251,6 +6271,36 @@ ok("y se asegura hasta la ultima, la de las fechas",
    FUENTE_SIS.indexOf("asegurarColumnas(h, COL_SIS_ULTIMA)") !== -1 &&
    FUENTE_SIS.indexOf("asegurarColumnas(h, COL_SIS_ARCHIVOS)") === -1);
 
+// EL TURNO DE PEDIMENTOS: una operacion a la vez.
+(function () {
+    let guardado = new Map();
+    global.CacheService = { getScriptCache: () => ({
+        put: (k, v) => guardado.set(k, v), get: (k) => guardado.has(k) ? guardado.get(k) : null,
+        remove: (k) => guardado.delete(k) }) };
+    ok("el primero toma el turno", tomarTurnoPedimentos() === true);
+    ok("el segundo no", tomarTurnoPedimentos() === false);
+    let r = correrLaConfronta(false);
+    ok("una confronta con el turno tomado no corre y lo dice",
+       r.ok === false && r.corto.indexOf("otra confronta") !== -1);
+    soltarTurnoPedimentos();
+    ok("al soltarlo, se puede otra vez", tomarTurnoPedimentos() === true);
+    soltarTurnoPedimentos();
+    global.CacheService = { getScriptCache: () => { throw new Error("sin cache"); } };
+    ok("sin cache de Google se deja pasar, como antes", tomarTurnoPedimentos() === true);
+    delete global.CacheService;
+})();
+
+// LA MACRO TAMPOCO TOMA LAS PESTAÑAS NUEVAS QUE NO SON CARGA.
+(function () {
+    let src = require('fs').readFileSync('macro/HojasDeSalidas.gs', 'utf8');
+    let m = {};
+    (new Function('m', src + '; m.esHojaQueNoSeToca = esHojaQueNoSeToca; m.esHojaDeSalidas = esHojaDeSalidas;'))(m);
+    ok("la macro no toca PEDIMENTOS FINALES", m.esHojaQueNoSeToca("PEDIMENTOS FINALES"));
+    ok("ni COMANDOS", m.esHojaQueNoSeToca("COMANDOS"));
+    ok("ni HISTORICO", m.esHojaQueNoSeToca("HISTORICO"));
+    ok("una GLOBAL si la toma", m.esHojaDeSalidas("GLOBAL 1 20-AE-3H"));
+})();
+
 // PEDIMENTOS FINALES: los papeles de cada unidad contra lo escaneado en ella.
 (function () {
     ok("la pestaña de finales es interna (no entra al cache)",
@@ -6260,6 +6310,11 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("una M-S no", !esHojaDeUnidad("M-S T1"));
     ok("un rezago no", !esHojaDeUnidad("REZAGO 2"));
     ok("se pueden escanear comandos ahi", esHojaDeInforme("PEDIMENTOS FINALES"));
+    // LA HOJA DE LOS CODIGOS NO ES UNA UNIDAD: era una Global para el motor y
+    // el repaso escribia «❌ Guia Invalida» encima de los codigos a imprimir.
+    ok("COMANDOS es interna", esHojaInterna("COMANDOS") && esHojaInterna(" comandos "));
+    ok("y por eso no es principal ni unidad", !esHojaPrincipal("COMANDOS") && !esHojaDeUnidad("COMANDOS"));
+    ok("ni lleva house", !hojaLlevaHouse("COMANDOS"));
 
     // Que se escribio en cada celda.
     ok("7 digitos es pedimento", tipoDeCeldaFinal("6116004").tipo === "pedimento");
@@ -6324,6 +6379,26 @@ ok("y se asegura hasta la ultima, la de las fechas",
     let ev2 = evaluarBloqueFinal(bloquesDePedimentosFinales(todo)[0], unidadesB, () => enU);
     ok("con todos sus papeles la unidad CUADRA", ev2.resultados.get(1).estado === "✅ UNIDAD CUADRA: 3 pedimentos");
 
+    // EL BLOQUE DE ARRIBA TAMBIEN SE RECALCULA cuando la edicion cambia donde
+    // termina: un «6116» al final esperaba ser patente; al escanear la unidad
+    // siguiente pasa a ser error, y el bloque de arriba tiene que enterarse.
+    (function () {
+        let escrito = {};
+        let rejillaB = [["T"], ["GLOBAL 1"], ["6116004"], ["6116"], ["GLOBAL 3"]];
+        let hojaB = { getLastRow: () => rejillaB.length,
+            getRange: (f, c, nf, nc) => ({
+                getValues: () => rejillaB.slice(f - 1, f - 1 + nf).map(r => [r[0]]),
+                setValues: (v) => v.forEach((fila, k) => { escrito[f + k] = fila; }),
+                setBackgrounds: () => {} }) };
+        let unidadH = { getName: () => "GLOBAL 1 20-AE-3H", getLastRow: () => 1,
+                        getRange: () => ({ getValues: () => [["6116004"]] }) };
+        let unidadH3 = { getName: () => "GLOBAL 3 11-BB-2C", getLastRow: () => 0, getRange: () => null };
+        recalcularPedimentosFinales({ getSheets: () => [unidadH, unidadH3] }, hojaB, 5, 5);
+        ok("al escanear la unidad siguiente, el bloque de arriba se recalcula", !!escrito[2] && !!escrito[4]);
+        ok("y el «6116» de arriba pasa a ser error", String(escrito[4][0]).indexOf("7 DÍGITOS") !== -1);
+        ok("y la unidad de arriba ya no cuadra", String(escrito[2][0]).indexOf("NO CUADRA") !== -1);
+    })();
+
     let sinU = evaluarBloqueFinal(bloquesDePedimentosFinales([["T"], ["6116004"]])[0], unidadesB, () => enU);
     ok("un pedimento sin unidad encima lo pide", sinU.resultados.get(1).estado === "⚠️ FALTA LA UNIDAD ARRIBA");
     let noU = evaluarBloqueFinal(bloquesDePedimentosFinales([["T"], ["GLOBAL 9"], ["6116004"]])[0],
@@ -6357,6 +6432,13 @@ ok("y se asegura hasta la ultima, la de las fechas",
        U.every(u => resolverUnidad(codigoCortoDeUnidad(u.nombre, U), U).unidad.nombre === u.nombre));
     ok("cabe en Code 39", cabeEnCode39("GLOBAL 1") && cabeEnCode39("GLOBAL 1 20-AE-3H"));
     ok("lo que no cabe se avisa", !cabeEnCode39("GLOBAL Ñ") && !cabeEnCode39("A_1"));
+    // CON UNA SOLA GLOBAL, «GLOBAL» sola la distinguia y era lo que se
+    // imprimia: al dia siguiente, con la GLOBAL 2, la etiqueta ya no servia.
+    let soloUna = [{ nombre: "GLOBAL 1 20-AE-3H" }, { nombre: "A1 PENDIENTE" }];
+    ok("con una sola GLOBAL el codigo sigue llevando su numero",
+       codigoCortoDeUnidad("GLOBAL 1 20-AE-3H", soloUna) === "GLOBAL 1");
+    ok("un nombre sin digitos va entero",
+       codigoCortoDeUnidad("GLOBAL PENDIENTE", [{ nombre: "GLOBAL PENDIENTE" }]) === "GLOBAL PENDIENTE");
     // Escaneada en la columna A, la etiqueta es una unidad, no un error.
     ok("la etiqueta escaneada es una unidad", tipoDeCeldaFinal("GLOBAL 1").tipo === "unidad");
 })();
@@ -6458,6 +6540,13 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("solo escribe su etiqueta", escrito.length === 1 && escrito[0].f === 5 &&
        escrito[0].v[0][0] === "↳ clave de pedimento");
     ok("y deja la D vacia", escrito[0].v[0].length === 3 && escrito[0].v[0][2] === "");
+    // EL RFC SI RECALCULA: llega despues del pedimento, y sin recalcular la C
+    // del pedimento se quedaba en «Patente 6087» sin la clave ni el RFC.
+    rejilla.push(["UPS891122HV8"]);
+    let recalculo = false;
+    hoja.getLastRow = () => { recalculo = true; throw new Error("recalcula"); };
+    try { atenderPedimentosFinales({}, hoja, 6, 1, true); } catch (err) { /* el falso no sabe recalcular */ }
+    ok("la fila del RFC si recalcula el bloque", recalculo);
 })();
 
 // Y EL RECORRIDO ENTERO contra hojas simuladas: lee, cuadra y escribe B y C.
@@ -6560,7 +6649,13 @@ ok("y se asegura hasta la ultima, la de las fechas",
     let cuerpo = FUENTE_SIS.substring(i, FUENTE_SIS.indexOf("\n}\n", i));
     ok("borrar no olvida los archivos ya leidos", cuerpo.indexOf("COL_SIS_ARCHIVOS") === -1);
     ok("pregunta antes de borrar", cuerpo.indexOf("ui.ButtonSet.YES_NO)") !== -1);
-    ok("y rehace el informe con lo que queda", cuerpo.indexOf("correrLaConfronta(false)") !== -1);
+    ok("y rehace el informe con lo que queda", cuerpo.indexOf("correrLaConfrontaConTurno(false)") !== -1);
+    // UNA OPERACION DE PEDIMENTOS A LA VEZ: borrar toma el turno DESPUES de
+    // preguntar y vuelve a leer, para no pisar un WMSTRAE que entro mientras.
+    ok("borrar toma el turno y lo suelta", cuerpo.indexOf("tomarTurnoPedimentos()") !== -1 &&
+       cuerpo.indexOf("finally { soltarTurnoPedimentos(); }") !== -1);
+    ok("y vuelve a leer las listas despues de preguntar",
+       cuerpo.indexOf("tomarTurnoPedimentos()") < cuerpo.lastIndexOf("leerTextoDeColumna(ss, COL_SIS_PIEZAS)"));
     ok("traer de la carpeta apunta el dia",
        FUENTE_SIS.indexOf("guardarFechasDeReferencias(ss, fechas);") !== -1);
     ok("el boton esta en el menu",
@@ -6971,12 +7066,33 @@ ok("una celda vacia sigue en blanco",
 // antes de este arreglo.
 (function () {
     let borrado = [];
-    let hojaFalsa = { getRange: (f, c, nr, nc) => ({ setValue: () => {},
+    let hojaFalsa = { getName: () => "GLOBAL 1",
+        getRange: (f, c, nr, nc) => ({ setValue: () => {}, getValue: () => "WMSACT",
         clearContent: () => borrado.push(nc === 2 ? 'AB' : 'col' + c) }) };
     atenderComando({ toast: () => {} }, hojaFalsa, 5,
                    { codigo: "WMSACT", titulo: "x", correr: () => "ok" });
     ok("al terminar se borran A y B", borrado.indexOf('AB') !== -1);
     ok("y la hora de la columna L", borrado.indexOf('col12') !== -1);
+})();
+// PERO SI EL COMANDO REHIZO LA PESTAÑA, NO SE TOCA. WMSCRUZA en «CONFRONTA
+// REFERENCIAS» la borra y la escribe entera; limpiar a ciegas A:B y L de esa
+// fila se llevaba una referencia del informe recien hecho.
+(function () {
+    let borrado = [];
+    let hojaFalsa = { getName: () => "CONFRONTA REFERENCIAS",
+        getRange: (f, c, nr, nc) => ({ setValue: () => {}, getValue: () => "G26A850642",
+        clearContent: () => borrado.push('x') }) };
+    atenderComando({ toast: () => {} }, hojaFalsa, 7,
+                   { codigo: "WMSCRUZA", titulo: "x", correr: () => "ok" });
+    ok("si la fila ya es del informe, no se borra nada", borrado.length === 0);
+    let borrado2 = [];
+    let enInforme = { getName: () => "CONFRONTA REFERENCIAS",
+        getRange: (f, c, nr, nc) => ({ setValue: () => {}, getValue: () => "WMSACT",
+        clearContent: () => borrado2.push(nc === 2 ? 'AB' : 'col' + c) }) };
+    atenderComando({ toast: () => {} }, enInforme, 9,
+                   { codigo: "WMSACT", titulo: "x", correr: () => "ok" });
+    ok("en un informe se borra el codigo pero no la L", borrado2.indexOf('AB') !== -1 &&
+       borrado2.indexOf('col12') === -1);
 })();
 
 // Y LA CONFRONTA NO SE LEE A SI MISMA.
@@ -7231,8 +7347,9 @@ console.log("\n=== 23l. Poner las houses de UNA pestaña ===");
     // «sin informacion», sin ningun error.
     let reescrituras = cuerpo.match(/guardar(House|SinHouse)sEnCache\(ss, |guardarSinHouseEnCache\(ss, |guardarHousesEnCache\(ss, /g) || [];
     ok("hay reescrituras de las listas", reescrituras.length >= 3);
-    // Cada una tiene que estar dentro de un `if (claveSola === "")`.
-    let protegidas = (cuerpo.match(/if \(claveSola === ""\) \{\s*\n\s*try \{ (enCacheYa = )?(enCache = )?guardar/g) || []).length;
+    // Cada una tiene que estar dentro de un `if (pasadaCompleta)`, que ademas
+    // exige que la pasada no se haya cortado por tiempo.
+    let protegidas = (cuerpo.match(/if \(pasadaCompleta\) \{\s*\n\s*try \{ (enCacheYa = )?(enCache = )?guardar/g) || []).length;
     ok("todas protegidas por «solo en la pasada completa»", protegidas >= 3);
     // Con una sola hoja se AJUSTA, no se reescribe.
     ok("con una sola hoja se ajusta la lista",
