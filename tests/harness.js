@@ -2728,6 +2728,29 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        !houseDeFilaVacia(filas, 0, 0) && houseDeFilaVacia(filas, 1, 0));
     invalidarCacheRAM();
 })();
+// LAS UBICACIONES DE INVENTARIO NO SON GUIAS, aunque midan once caracteres.
+// Lo vio el usuario: «IWNORIEL012» salia «Bultos: 2 · Sin información» con
+// «—» en la columna C. «IWPROV1», de siete, no.
+(function () {
+    ok("IWNORIEL012 mide lo de una guia corta", esGuiaUPSValida("IWNORIEL012"));
+    ok("pero es una ubicacion", esUbicacionIW("IWNORIEL012") && esUbicacionIW(" iwprov1 "));
+    ok("una guia no lo es", !esUbicacionIW("1Z1080RG6718622927") && !esUbicacionIW("V0264205381"));
+    ok("el relleno de houses no la toma por guia", esGuiaParaHouse("IWNORIEL012") === "");
+    ok("y la «—» que ya tenia se borra como huerfana",
+       celdasPorBorrar([["IWNORIEL012", "Bultos: 2", "—"]], { guia: 1, house: 3 }, 1).length === 1);
+    ok("una guia de verdad sigue pidiendo house", esGuiaParaHouse("1Z1080RG6718622927") !== "");
+
+    // Y el aviso de «Sin información» se salta la fila de la ubicación, aunque
+    // tenga la «—» de antes o este en la lista del cache.
+    invalidarCacheRAM();
+    let filas = [["IWNORIEL012", "", "—"], ["1Z1080RG6718622927", "", "—"]];
+    let rB = [["Bultos: 2"], ["✅ Ok"]];
+    let cB = [["#178ccc"], ["#07c369"]];
+    marcarFilasSinInfo(filas, rB, cB, null, 2, 0);
+    ok("la ubicacion ya no sale «Sin informacion»", rB[0][0] === "Bultos: 2" && cB[0][0] === "#178ccc");
+    ok("una guia con «—» si", esAvisoSinInfo(rB[1][0]));
+})();
+
 // UNA PASADA CORTADA POR TIEMPO NO REESCRIBE LAS LISTAS DEL CACHE. Si el reloj
 // la paraba en la sexta pestaña de quince, las listas se quedaban solo con lo
 // de esas seis.

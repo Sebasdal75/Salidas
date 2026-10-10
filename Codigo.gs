@@ -431,6 +431,21 @@ function esMarcadorEstructural(v) {
     return s === "COSTALES" || s === "FIN" || s === "SIN_CABECERA" || s.indexOf("SIN PEDIMENTO") !== -1;
 }
 
+// ¿Es una UBICACIÓN de inventario? Empiezan por «IW»: «IWNORIEL012», «IWPROV1».
+//
+// Es la misma regla con la que el inventario abre cada ubicación, la que pinta
+// la columna A de azul claro y la que las deja fuera del índice de duplicados.
+// Hace falta como función porque UNA UBICACIÓN PUEDE MEDIR ONCE CARACTERES, el
+// largo de una guía corta: «IWNORIEL012» pasa `esGuiaUPSValida`. Sin mirar el
+// prefijo, el relleno de houses la tomaba por guía, le buscaba house, no la
+// encontraba y la marcaba «—», y la fila de la ubicación salía «Sin
+// información». Una guía de verdad nunca empieza por «IW»: las largas empiezan
+// por «1Z» y las cortas no llevan ese prefijo.
+function esUbicacionIW(valor) {
+    return String(valor === undefined || valor === null ? "" : valor)
+           .trim().toUpperCase().indexOf("IW") === 0;
+}
+
 // Una fila de columna A es cabecera de bloque si es un pedimento de 7 dígitos
 // o uno de esos marcadores.
 function esCabeceraBloque(v) {
@@ -3643,6 +3658,10 @@ function marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ulti
     for (let i = 0; i < ultimaFila; i++) {
         let v = String((datosMasivos[i] || [])[c] || "").trim();
         if (v === "") continue;
+        // UNA UBICACIÓN NO ES UNA GUÍA, aunque mida lo mismo. Ver
+        // `esUbicacionIW`: «IWNORIEL012» tiene once caracteres, y la fila de
+        // la ubicación salía en el inventario como «Bultos: 2 · Sin información».
+        if (esUbicacionIW(v)) continue;
         let texto = "";
         if (set && set.size > 0 && set.has(v.toUpperCase())) texto = TXT_SIN_INFO;
         else if (avisoDeSinHouse(datosMasivos, i, v) !== "") texto = TXT_SIN_HOUSE;

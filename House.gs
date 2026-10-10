@@ -986,6 +986,11 @@ function esGuiaParaHouse(valorCrudo) {
     let crudo = String(valorCrudo === undefined || valorCrudo === null ? "" : valorCrudo).trim();
     if (crudo === "") return "";
     if (esMarcadorEstructural(crudo)) return "";
+    // Una ubicación de inventario no lleva house, aunque mida once caracteres
+    // como una guía corta. Ver `esUbicacionIW`. Y la «—» que ya tuviera de
+    // antes se borra sola: sin guía al lado, `celdasPorBorrar` la da por
+    // huérfana en la siguiente pasada.
+    if (esUbicacionIW(crudo)) return "";
     let g = claveGuiaHouse(crudo);
     if (g === "" || !esGuiaUPSValida(g)) return "";
     return g;
