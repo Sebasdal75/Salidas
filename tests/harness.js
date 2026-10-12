@@ -2728,6 +2728,49 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        !houseDeFilaVacia(filas, 0, 0) && houseDeFilaVacia(filas, 1, 0));
     invalidarCacheRAM();
 })();
+// LOS COSTALES: HOUSE AL MOMENTO Y CUANTAS SE QUEDAN SIN INFORMACION.
+(function () {
+    let pegado = [[""], ["6116004", "Bultos: 4", ""],
+                  ["1Z1080RG6718622927", "📦 COSTAL · ✅ Guía", "1080RG94YWP"],
+                  ["1Z58F30X0468079601", "📦 COSTAL · ✅ Guía · Sin información", "—"],
+                  ["1ZJ242B00402475009", "📦 COSTAL · ✅ Guía · Sin información", "J242B03M78C"],
+                  ["1Z64X7650438659312", "📦 COSTAL · ✅ Guía", ""]];
+    let c = contarInfoDeCostales(pegado, 10, false);
+    ok("cuenta solo las guias, no el pedimento ni el hueco", c.guias === 4);
+    ok("las que tienen house", c.conHouse === 1);
+    ok("a cuantas les falta informacion", c.faltan.length === 2);
+    ok("sin house, con su fila", c.faltan[0].fila === 13 && c.faltan[0].motivo === "sin house");
+    ok("y la de la lista de SIN INFORMACION aunque tenga house",
+       c.faltan[1].motivo === "en la lista de SIN INFORMACIÓN");
+    ok("la que no se busco todavia va aparte", c.sinBuscar === 1);
+
+    // Si no se pego nada nuevo, se miran solo las filas de costal.
+    let hojaEntera = pegado.concat([["1Z333CTMD932185643", "✅ Ok", "—"]]);
+    ok("sin pegar nada, solo cuenta las filas de costal",
+       contarInfoDeCostales(hojaEntera, 1, true).guias === 4);
+    ok("una ubicacion IW no cuenta como guia",
+       contarInfoDeCostales([["IWNORIEL012", "Bultos: 2", "—"]], 1, false).guias === 0);
+
+    let txt = textoDeHousesDeCostales({ ok: true, cuenta: c });
+    ok("el mensaje dice cuantas tienen house", txt.indexOf("1 de 4 guías ya tienen su house") !== -1);
+    ok("y a cuantas les falta", txt.indexOf("A 2 les falta información") !== -1);
+    ok("con la fila y el motivo", txt.indexOf("fila 13  1Z58F30X0468079601  (sin house)") !== -1);
+    ok("todo bien lo dice tambien",
+       textoDeHousesDeCostales({ ok: true, cuenta: { guias: 3, conHouse: 3, faltan: [], sinBuscar: 0 } })
+           .indexOf("Ninguna se quedó sin información") !== -1);
+    ok("si no se pudo, lo dice y dice que hacer",
+       textoDeHousesDeCostales({ ok: false, nota: "x" }).indexOf("WMSHOUSE") !== -1);
+
+    let f = require('fs').readFileSync('Costales.gs', 'utf8');
+    ok("ya no dice que las houses salen despues", f.indexOf("Las HOUSE no aparecen de inmediato") === -1);
+    let i = f.indexOf("function traerCostalesDeEstaUnidad");
+    let cuerpo = f.substring(i, f.indexOf("\n}\n", i));
+    ok("al pegar costales se ponen las houses de esa pestaña",
+       cuerpo.indexOf("ponerHousesDeLosCostales(nombreUnidad") !== -1);
+    ok("y fuera del lock del documento",
+       cuerpo.indexOf("ponerHousesDeLosCostales(") > cuerpo.lastIndexOf("    });\n"));
+})();
+
 // LAS UBICACIONES DE INVENTARIO NO SON GUIAS, aunque midan once caracteres.
 // Lo vio el usuario: «IWNORIEL012» salia «Bultos: 2 · Sin información» con
 // «—» en la columna C. «IWPROV1», de siete, no.

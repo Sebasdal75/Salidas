@@ -689,9 +689,18 @@ function traerCostalesDeEstaUnidad() {
                 "cuentan una sola vez.\n";
     }
 
+    // LAS HOUSES, AL MOMENTO, y cuántas se quedan sin información. Va FUERA
+    // del lock del documento, igual que el relleno de siempre: buscar en el
+    // índice tarda segundos y nadie tiene que dejar de escanear por esto.
+    // Si no se pegó nada, se miran las filas de costal que ya había: es justo
+    // cuando alguien vuelve a apretar el botón esperando ver sus houses.
+    let houses = ponerHousesDeLosCostales(nombreUnidad,
+        resultado.nada ? null : { desde: resultado.desde, filas: resultado.filas });
+    let txtHouses = textoDeHousesDeCostales(houses);
+
     if (resultado.nada) {
         ui.alert("📦 Costales",
-            "No se pegó nada: todo lo del cuadre ya estaba en esta pestaña.\n\n" +
+            "No se pegó nada: todo lo del cuadre ya estaba en esta pestaña.\n\n" + txtHouses +
             (resultado.saltados.length
                 ? "Pedimentos que ya estaban (" + resultado.saltados.length + "):\n" +
                   resultado.saltados.join(", ") + "\n"
@@ -714,9 +723,123 @@ function traerCostalesDeEstaUnidad() {
     msg += "\nEstas filas salen marcadas como «" + TXT_COSTAL + "» en la columna B, " +
            "para que no se confundan con un escaneo de esta unidad. Si además " +
            "están repetidas o retenidas, el aviso sale detrás de la marca.\n";
-    // Que nadie piense que falló: la house de estas guías NO sale al instante.
-    msg += "\nLas HOUSE no aparecen de inmediato: al escanear salen del caché en " +
-           "el momento, pero estas las escribió el script. Las pone el relleno " +
-           "automático en el próximo minuto.";
+    msg += "\n" + txtHouses;
     ui.alert("📦 Costales", msg, ui.ButtonSet.OK);
 }
+
+// -------------------------------------------------------------------------
+// LAS HOUSES DE LOS COSTALES, AL MOMENTO
+// -------------------------------------------------------------------------
+//
+// Antes las ponía el relleno automático «en el próximo minuto»: lo pegado lo
+// escribe el script, no la pistola, así que no pasaba por el escaneo que pone
+// la house desde el caché. Y nadie sabía cuántas iban a quedarse sin house
+// hasta ir mirando fila por fila. Ahora, nada más pegar:
+//
+//   1. se rellenan las houses de ESTA pestaña (el mismo relleno de WMSHOUSE);
+//   2. se repinta la columna B, para que «Sin información» salga ya;
+//   3. se cuentan las guías pegadas que se quedaron sin información.
+
+// Cuenta las guías de un trozo de la pestaña. Puro.
+//
+// `datos` son las filas A:C desde `filaInicial`. Con `soloCostales`, solo las
+// filas cuya B lleva la marca de costal (para cuando no se pegó nada nuevo).
+//
+// QUÉ ES «FALTA INFORMACIÓN»: lo mismo que pinta la columna B. O no tiene house
+// —el índice no la tiene, «—»— o está apuntada a mano en la lista de SIN
+// INFORMACIÓN. Las que aún no se buscaron —C vacía— se cuentan aparte: no se
+// sabe todavía, y decir que les falta sería adelantarse.
+function contarInfoDeCostales(datos, filaInicial, soloCostales) {
+    let r = { guias: 0, conHouse: 0, faltan: [], sinBuscar: 0 };
+    let base = filaInicial || 1;
+    let marca = (typeof marcaDeSinHouse === 'function') ? marcaDeSinHouse() : "—";
+    (datos || []).forEach((fila, i) => {
+        let a = String(fila[0] === undefined || fila[0] === null ? "" : fila[0]).trim().toUpperCase();
+        if (a === "" || /^\d{7}$/.test(a) || esMarcadorEstructural(a) || esUbicacionIW(a)) return;
+        if (!esGuiaUPSValida(a)) return;
+        let b = String(fila[1] === undefined || fila[1] === null ? "" : fila[1]);
+        if (soloCostales && !yaDiceCostal(b)) return;
+        let c = String(fila[2] === undefined || fila[2] === null ? "" : fila[2]).trim();
+        r.guias++;
+        let enLista = esAvisoSinInfo(b) && c !== "" && c !== marca;
+        if (c === marca) r.faltan.push({ guia: a, fila: base + i, motivo: "sin house" });
+        else if (enLista) r.faltan.push({ guia: a, fila: base + i, motivo: "en la lista de SIN INFORMACIÓN" });
+        else if (c === "") r.sinBuscar++;
+        else r.conHouse++;
+    });
+    return r;
+}
+
+// Rellena, repinta y cuenta. `trozo` es {desde, filas} de lo recién pegado, o
+// null para mirar todas las filas de costal de la pestaña.
+function ponerHousesDeLosCostales(nombreUnidad, trozo) {
+    const ss = obtenerArchivo();
+    let out = { ok: false, nota: "", cuenta: null };
+    if (typeof correrRellenoDeHouses !== 'function') {
+        out.nota = "el módulo de houses no está instalado";
+        return out;
+    }
+    let rr;
+    try { rr = correrRellenoDeHouses(nombreUnidad); }
+    catch (err) { out.nota = String(err); return out; }
+    if (!rr.ok) { out.nota = rr.corto; return out; }
+
+    let hoja = ss.getSheetByName(nombreUnidad);
+    if (!hoja) { out.nota = "la pestaña ya no existe"; return out; }
+
+    // El relleno escribe la C; la B —y con ella «Sin información»— la pone el
+    // recálculo. Este SÍ toma el lock: reescribe la B y no puede pisar el
+    // estado de alguien que esté escaneando en esta misma unidad.
+    let lock = LockService.getDocumentLock();
+    if (lock.tryLock(20000)) {
+        try {
+            invalidarCacheRAM();
+            recalcularHoja(hoja, ss, getCacheData(ss), null, false, false);
+        } catch (err) { /* la cuenta sale igual; la B la arregla el repaso */ }
+        finally { lock.releaseLock(); }
+    }
+
+    let desde = trozo ? trozo.desde : 1;
+    let filas = trozo ? trozo.filas : Math.max(hoja.getLastRow(), 0);
+    if (filas < 1) { out.ok = true; out.cuenta = contarInfoDeCostales([], desde, !trozo); return out; }
+    let datos = hoja.getRange(desde, 1, filas, 3).getValues();
+    out.ok = true;
+    out.cuenta = contarInfoDeCostales(datos, desde, !trozo);
+    return out;
+}
+
+// Cuántas se enseñan una por una. Con más, el mensaje deja de leerse y la
+// lista completa está en «🛑 Guías sin información».
+const EJEMPLOS_SIN_INFO_COSTALES = 10;
+
+function textoDeHousesDeCostales(h) {
+    if (!h || !h.ok || !h.cuenta) {
+        return "🏠 No pude poner las houses ahora" + (h && h.nota ? " (" + h.nota + ")" : "") +
+               ". Las pondrá el relleno automático; o escanea WMSHOUSE en esta pestaña.";
+    }
+    let c = h.cuenta;
+    if (c.guias === 0) return "";
+    let t = "🏠 HOUSES: " + c.conHouse + " de " + c.guias + " guías ya tienen su house.\n";
+    if (c.faltan.length === 0) {
+        t += "✅ Ninguna se quedó sin información.\n";
+    } else {
+        t += "🛑 A " + c.faltan.length + (c.faltan.length === 1 ? " le falta" : " les falta") +
+             " información:\n" +
+             c.faltan.slice(0, EJEMPLOS_SIN_INFO_COSTALES)
+                 .map(f => "   · fila " + f.fila + "  " + f.guia + "  (" + f.motivo + ")").join("\n") +
+             (c.faltan.length > EJEMPLOS_SIN_INFO_COSTALES
+                 ? "\n   …y " + (c.faltan.length - EJEMPLOS_SIN_INFO_COSTALES) + " más. Lista completa: " +
+                   "🔍 Revisar → 🛑 Guías sin información."
+                 : "") + "\n";
+        if (c.faltan.some(f => f.motivo === "sin house")) {
+            t += "Las «sin house» no están en el índice de los últimos días. Si son " +
+                 "más viejas, prueba «🏠 Houses → Buscar las que faltan (archivo frío)».\n";
+        }
+    }
+    if (c.sinBuscar) {
+        t += "⏳ " + c.sinBuscar + " todavía sin buscar: el relleno se cortó por tiempo. " +
+             "Escanea WMSHOUSE en esta pestaña para terminar.\n";
+    }
+    return t;
+}
+
