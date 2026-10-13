@@ -377,6 +377,7 @@ function mudarHojasDePedimentos(ss) {
                 asegurarFilas(destino, trozos.length + 1);
                 asegurarColumnas(destino, COL_SIS_ULTIMA);
                 destino.getRange(1, v.col, trozos.length, 1).setValues(trozos);
+                globalTextosSisPedimentos = null;   // lo leído ya no vale
             }
         }
         try { ss.deleteSheet(vieja); movidas.push(v.nombre); } catch (err) { /* ya veremos */ }
@@ -385,6 +386,8 @@ function mudarHojasDePedimentos(ss) {
 }
 
 function guardarTextoEnColumna(ss, col, trozos) {
+    // Lo leído antes ya no vale: ver `textosDeSisPedimentos`.
+    globalTextosSisPedimentos = null;
     let h = hojaSisPedimentos(ss, true);
     asegurarColumnas(h, COL_SIS_ULTIMA);
     let maxFilas = h.getMaxRows();
@@ -398,17 +401,55 @@ function guardarTextoEnColumna(ss, col, trozos) {
 }
 
 function leerTextoDeColumna(ss, col) {
+    let t = textosDeSisPedimentos(ss);
+    return t[col - 1] || "";
+}
+
+// LAS COLUMNAS DE SIS_PEDIMENTOS, LEÍDAS DE UNA VEZ.
+//
+// Cada escaneo en una GLOBAL necesita tres: las piezas, las houses y las
+// ataduras. Se leían por separado, y cada lectura eran cuatro llamadas —buscar
+// la pestaña, su última fila, su ancho, los valores—: doce idas y vueltas a
+// Google por escaneo, con la pestaña además en frío. Medido en el archivo, esa
+// parte era buena parte del segundo y medio que no salía en ningún renglón del
+// desglose. Ahora es una sola lectura de todas las columnas.
+//
+// Vive lo mismo que los mapas que salen de aquí: se olvida al escribir una
+// columna y con `olvidarBlobPedimentosDeHouseEnRAM`.
+let globalTextosSisPedimentos = null;
+
+function textosDeSisPedimentos(ss) {
+    if (globalTextosSisPedimentos !== null) return globalTextosSisPedimentos;
+    let out = [];
     try {
         let h = hojaSisPedimentos(ss, false);
-        if (!h) return "";
-        let lr = h.getLastRow();
-        if (lr < 1 || h.getMaxColumns() < col) return "";
-        return h.getRange(1, col, lr, 1).getValues().map(f => String(f[0])).join("");
+        if (h) {
+            let lr = h.getLastRow();
+            if (lr >= 1) {
+                // Se piden todas las columnas de una vez; si la pestaña es
+                // más estrecha —una vieja, de antes de la columna de fechas—,
+                // se pregunta su ancho. Así el caso normal se ahorra esa
+                // llamada.
+                let ancho = COL_SIS_ULTIMA, datos;
+                try { datos = h.getRange(1, 1, lr, ancho).getValues(); }
+                catch (err) {
+                    ancho = Math.min(h.getMaxColumns(), COL_SIS_ULTIMA);
+                    datos = h.getRange(1, 1, lr, ancho).getValues();
+                }
+                for (let c = 0; c < ancho; c++) {
+                    let partes = [];
+                    for (let r = 0; r < datos.length; r++) partes.push(String(datos[r][c]));
+                    out.push(partes.join(""));
+                }
+            }
+        }
     } catch (err) {
         // Que esto falle NO puede tumbar un escaneo: sin lista no hay aviso, y
         // el sistema sigue haciendo todo lo demás igual que antes.
-        return "";
+        out = [];
     }
+    globalTextosSisPedimentos = out;
+    return out;
 }
 
 function guardarBlobReferencias(ss, piezas, houses) {
@@ -538,6 +579,7 @@ let globalMapaRefDeHouse = null;
 let globalMapaPedDeRef = null;
 
 function olvidarBlobPedimentosDeHouseEnRAM() {
+    globalTextosSisPedimentos = null;
     globalMapaRefDeGuia = null;
     globalMapaRefDeHouse = null;
     globalMapaPedDeRef = null;
@@ -2041,6 +2083,9 @@ const CLAVE_TURNO_PEDIMENTOS = 'WMS_PEDIMENTOS_TURNO';
 const SEGUNDOS_TURNO_PEDIMENTOS = 360;
 
 function tomarTurnoPedimentos() {
+    // Quien toma el turno va a LEER las listas para cambiarlas: tienen que ser
+    // las de ahora, no las que este proceso de V8 recuerde de otra ejecución.
+    try { olvidarBlobPedimentosDeHouseEnRAM(); } catch (err) { /* sigue */ }
     try {
         let c = CacheService.getScriptCache();
         if (c.get(CLAVE_TURNO_PEDIMENTOS)) return false;

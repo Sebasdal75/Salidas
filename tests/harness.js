@@ -2743,6 +2743,54 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("y dice el tamaño de la hoja del cache", calc.indexOf("Hoja del caché:") !== -1);
 })();
 
+// MENOS TRABAJO POR ESCANEO. Medido en el archivo: ~4,4 s por escaneo, un
+// techo de ~13 escaneos por minuto para todo el archivo.
+(function () {
+    let f = require('fs').readFileSync('Codigo.gs', 'utf8');
+    // 1. Con cola, la M-S espera al repaso.
+    ok("se mide cuanto espero el turno", f.indexOf("globalHayCola = (Date.now() - tAntesDelTurno) > UMBRAL_COLA_MS;") !== -1);
+    ok("con cola no se sincroniza la M-S en el escaneo",
+       f.indexOf("if (!esRezago && !globalHayCola) {\n      sincronizarSalidasMS(") !== -1);
+    let i = f.indexOf("function procesarEdicion");
+    let cuerpo = f.substring(i, f.indexOf("\nfunction ", i + 10));
+    ok("y la marca se quita al terminar, siempre", /finally \{\s*globalHayCola = false;\s*lock\.releaseLock\(\);/.test(cuerpo));
+    ok("sin cola, por defecto, se sincroniza", f.indexOf("let globalHayCola = false;") !== -1);
+    // 2. La hoja del cache se recorta.
+    let borradas = [];
+    let hc = { getMaxRows: () => 4954, getLastRow: () => 640,
+               deleteRows: (desde, n) => borradas.push([desde, n]) };
+    let props = {};
+    let PSreal = global.PropertiesService;
+    global.PropertiesService = { getScriptProperties: () => ({
+        setProperty: (k, v) => { props[k] = v; }, deleteProperty: (k) => { delete props[k]; },
+        getProperty: (k) => props[k] || null }) };
+    let n = recortarHojaDelCache({ getSheetByName: () => hc });
+    ok("la hoja del cache se recorta a lo que tiene datos mas el margen",
+       n === 4954 - 840 && borradas[0][0] === 841);
+    let hc2 = { getMaxRows: () => 900, getLastRow: () => 640, deleteRows: () => { throw new Error("no"); } };
+    ok("si sobra poco no toca nada", recortarHojaDelCache({ getSheetByName: () => hc2 }) === 0);
+    global.PropertiesService = PSreal;
+    ok("el repaso la recorta", f.indexOf("conTrozo(() => recortarHojaDelCache(ss));") !== -1);
+    // 3. WMSACT espera lo mismo que un escaneo.
+    let j = f.indexOf("function conLock(fn)");
+    ok("conLock espera 30 s", f.substring(j, j + 600).indexOf("tryLock(30000)") !== -1);
+    // 4. Las listas de pedimentos, de una sola lectura.
+    let leidas = 0;
+    let hp = { getLastRow: () => 2, getMaxColumns: () => 5,
+               getRange: (r, c, nr, nc) => { leidas++; return { getValues: () =>
+                   [["|1ZA:R1", "|H1:R1", "|R1:6116004", "|id1", "|R1:20261013"],
+                    ["|1ZB:R1", "", "", "", ""]] }; } };
+    let ssP = { getSheetByName: (n) => n === "SIS_PEDIMENTOS" ? hp : null };
+    olvidarBlobPedimentosDeHouseEnRAM();
+    let piezas = leerTextoDeColumna(ssP, 1), houses = leerTextoDeColumna(ssP, 2), at = leerTextoDeColumna(ssP, 3);
+    ok("las tres listas salen bien", piezas === "|1ZA:R1|1ZB:R1" && houses === "|H1:R1" && at === "|R1:6116004");
+    ok("con UNA sola lectura", leidas === 1);
+    invalidarCacheRAM();
+    leerTextoDeColumna(ssP, 1);
+    ok("y cada escaneo vuelve a leer, por si otra ejecucion las cambio", leidas === 2);
+    olvidarBlobPedimentosDeHouseEnRAM();
+})();
+
 // LOS COSTALES: HOUSE AL MOMENTO Y CUANTAS SE QUEDAN SIN INFORMACION.
 (function () {
     let pegado = [[""], ["6116004", "Bultos: 4", ""],

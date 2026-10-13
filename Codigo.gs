@@ -855,6 +855,11 @@ function invalidarCacheRAM() {
     try {
         if (typeof olvidarMapaHouseEnRAM === 'function') olvidarMapaHouseEnRAM();
     } catch (err) { /* House.gs puede no estar pegado */ }
+    // Y las listas de pedimentos, por lo mismo: otra ejecución pudo traer o
+    // borrar referencias, y V8 puede reutilizar este proceso con las de antes.
+    try {
+        if (typeof olvidarBlobPedimentosDeHouseEnRAM === 'function') olvidarBlobPedimentosDeHouseEnRAM();
+    } catch (err) { /* Pedimentos.gs puede no estar pegado */ }
 }
 
 function obtenerArchivo() {
@@ -1501,6 +1506,9 @@ function procesarEdicion(e, esInstalable) {
   if (esHojaSistema(nombreHoja) && !tocaMacho && !tocaSinInfo) return;
 
   const lock = LockService.getDocumentLock();
+  // Cuánto se esperó el turno: es la única forma de saber, desde dentro, si
+  // hay otros escaneos en cola. Ver `globalHayCola`.
+  const tAntesDelTurno = Date.now();
   if (!intentarLock(lock, esInstalable ? ESPERA_LOCK_INSTALABLE_MS : ESPERA_LOCK_SIMPLE_MS)) {
       // No se pudo entrar. Dejamos marca visible en vez de perder el escaneo
       // en silencio: el operador ve que esa fila no quedó validada.
@@ -1512,6 +1520,7 @@ function procesarEdicion(e, esInstalable) {
       return;
   }
 
+  globalHayCola = (Date.now() - tAntesDelTurno) > UMBRAL_COLA_MS;
   try {
     // =====================================================================
     // SINCRONIZACIÓN MAESTRA DE HOJA "MACHO" (columna M)
@@ -1812,6 +1821,7 @@ function procesarEdicion(e, esInstalable) {
     }
 
   } finally {
+    globalHayCola = false;
     lock.releaseLock();
   }
 }
@@ -1831,6 +1841,26 @@ function procesarEdicion(e, esInstalable) {
 // peor que un «Pendiente».
 const ESPERA_LOCK_INSTALABLE_MS = 30000;
 const ESPERA_LOCK_SIMPLE_MS = 12000;
+
+// ¿HAY ESCANEOS EN COLA? Si este escaneo tuvo que esperar su turno más de dos
+// segundos, sí.
+//
+// MEDIDO EN EL ARCHIVO: un escaneo en una GLOBAL tardaba ~4,4 s, y casi la
+// mitad era poner «➡ Salió en …» en la M-S de origen —abrirla en frío,
+// leerla, reescribir su columna B y repintarla—. Con siete operadores eso da
+// un techo de ~13 escaneos por minuto para TODO el archivo: la cola crece más
+// rápido de lo que se vacía y sale «⏳ Pendiente».
+//
+// CON COLA, ESE PASO SE DEJA AL REPASO DE CINCO MINUTOS, que barre todas las
+// M-S de todas formas. La GLOBAL —lo que el operador está mirando— se
+// recalcula igual y al momento; lo único que se retrasa, y solo en hora pico,
+// es la marca de «salió» en la M-S. Sin cola, todo sigue como siempre.
+//
+// Se pone a cada escaneo y se vuelve a false al terminar: las variables de
+// V8 pueden sobrevivir de una ejecución a la siguiente, y un «hay cola» viejo
+// dejaría a la M-S sin marcar en horas tranquilas.
+let globalHayCola = false;
+const UMBRAL_COLA_MS = 2000;
 
 function intentarLock(lock, ms) {
     try {
@@ -5560,7 +5590,8 @@ function actualizarGlobalPreforma(hoja, source, cacheInfo, guiasAfectadas, tocoP
   if (qAct(0) !== q1q2Nuevo[0][0] || qAct(1) !== q1q2Nuevo[1][0])
       perf("totales R1:R2", 2, () => hoja.getRange("R1:R2").setValues(q1q2Nuevo));
 
-  if (!esRezago) {
+  // CON COLA, LA M-S ESPERA AL REPASO. Ver `globalHayCola`.
+  if (!esRezago && !globalHayCola) {
       sincronizarSalidasMS(source, cacheInfo, guiasAfectadas);
   }
 }
@@ -6629,7 +6660,8 @@ function textoDeMedicion(ss) {
       }
       L.push("Hoja del caché: " + hc.getMaxRows().toLocaleString() + " filas × " +
              hc.getMaxColumns() + " columnas = " +
-             (hc.getMaxRows() * hc.getMaxColumns()).toLocaleString() + " celdas por escaneo");
+             (hc.getMaxRows() * hc.getMaxColumns()).toLocaleString() + " celdas por escaneo" +
+             " · con datos hasta la fila " + hc.getLastRow().toLocaleString());
       if (largas.length) L.push("   listas: " + largas.join(" · "));
     }
   } catch (err) { /* medir el tamaño nunca puede tumbar la medición */ }
@@ -6659,10 +6691,19 @@ function textoDeMedicion(ss) {
   perfIniciar();
   t0 = Date.now();
   recalcularHoja(hoja, ss, cacheInfo, guiasAfectadas, false, false, filaSugerida);
+  // LAS ESCRITURAS SE COBRAN AL FINAL. Google las junta y las manda de golpe
+  // en la siguiente lectura o al terminar, así que en el desglose cada
+  // escritura parecía costar unos milisegundos y el tiempo de verdad salía
+  // en «resto» o en la «lectura de apoyo» de después. Aquí se fuerza el envío
+  // y se mide aparte.
+  let t0Flush = Date.now();
+  perf("ESCRIBIR DE VERDAD (Google cobra aquí todas las escrituras)", 0, () => SpreadsheetApp.flush());
+  let tFlush = Date.now() - t0Flush;
   let tEscaneo = Date.now() - t0;
   let perfEscaneo = perfFin();
   L.push("Recalcular la hoja:          " + tEscaneo + " ms" +
          (guiaMuestra ? "  (probando con una guía real de la hoja)" : ""));
+  L.push("   de ellos, escribir:        " + tFlush + " ms");
   if (!guiaMuestra) {
       // Sin guía de muestra el filtro de M-S se desactiva y se abren TODAS.
       // Eso multiplica el tiempo, y el aviso de antes —un discreto «(hoja
@@ -7316,7 +7357,9 @@ function diagnosticoSistema() {
 function conLock(fn) {
   const ss = obtenerArchivo();
   const lock = LockService.getDocumentLock();
-  if (!lock.tryLock(20000)) {
+  // 30 s, lo mismo que espera un escaneo: «Forzar Actualización» (WMSACT)
+  // pasa por aquí, y con 20 se rendía antes que los escaneos de la cola.
+  if (!lock.tryLock(30000)) {
       ss.toast('⏳ Hay otra operación en curso. Intenta de nuevo en unos segundos.', 'Ocupado', 6);
       return;
   }
@@ -7401,6 +7444,31 @@ function forzarActualizacionHojaActiva() {
 // barrer con datos viejos.
 const ESPERA_LOCK_REPASO_MS = 8000;
 
+// LA HOJA DEL CACHÉ SE LEE ENTERA EN CADA ESCANEO, filas vacías incluidas.
+//
+// Crece sola —cada pestaña que se fotografía la estira a su largo, más un
+// margen— y nunca encogía. Medido en el archivo: 4.954 filas para listas que
+// no pasaban de 607, o sea ~89.000 celdas y medio segundo POR ESCANEO, casi
+// todo leyendo vacío. Aquí se le quitan las filas vacías del final.
+//
+// Solo cuando sobran muchas (el doble del margen), para no estar borrando y
+// volviendo a crear filas en cada vuelta. Y nunca por debajo de la última
+// fila con datos: eso se lo pregunta a Sheets, no lo adivina.
+const MARGEN_FILAS_CACHE = 200;
+
+function recortarHojaDelCache(ss) {
+    let h = ss.getSheetByName("CACHE_SISTEMA");
+    if (!h) return 0;
+    let max = h.getMaxRows();
+    let quiero = Math.max(h.getLastRow(), 1) + MARGEN_FILAS_CACHE;
+    if (max <= quiero + MARGEN_FILAS_CACHE) return 0;
+    marcarMantenimiento();
+    try { h.deleteRows(quiero + 1, max - quiero); }
+    finally { quitarMantenimiento(); }
+    invalidarCacheRAM();
+    return max - quiero;
+}
+
 function actualizadorAutomaticoGlobal() {
   const ss = obtenerArchivo();
   const lock = LockService.getDocumentLock();
@@ -7414,6 +7482,7 @@ function actualizadorAutomaticoGlobal() {
   // Autocuración: quita del caché las pestañas renombradas o borradas antes
   // de que empiecen a generar duplicados fantasma.
   conTrozo(() => podarCacheHuerfano(ss));
+  conTrozo(() => recortarHojaDelCache(ss));
 
     // PASADA 1, SIN LOCK: detectar hojas con filas sin validar (escaneos que se
     // perdieron por un lock ocupado o un timeout). Solo lee.
