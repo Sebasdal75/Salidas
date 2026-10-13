@@ -6233,6 +6233,10 @@ function onOpen() {
       .addItem('🛑 Guías sin información (lista y marcadas)', 'prepararHojaSinInformacion')
       .addItem('🏷️ Comandos por código de barras', 'prepararHojaDeComandos')
       .addSeparator()
+      // VUELVE AL MENÚ. Se quitó cuando el escaneo iba holgado; con siete
+      // operadores y «⏳ Pendiente» saliendo otra vez, es la única forma de
+      // saber dónde se va el tiempo en ESTE archivo en vez de adivinarlo.
+      .addItem('⏱️ Medir velocidad de escaneo', 'medirRendimiento')
       .addItem('🩺 Revisar los disparadores', 'revisarDisparadores')
       .addItem('🩺 Diagnóstico del sistema', 'diagnosticoSistema'));
 
@@ -6533,16 +6537,34 @@ function protegerHojasSistema() {
 // 1 / (tiempo por escaneo), repartido entre todos. Esta función mide ese tiempo
 // sobre la pestaña activa y traduce el número a escaneos por minuto.
 // =========================================================================
+// EL BOTÓN. La medición recalcula la pestaña de verdad, así que va CON EL LOCK
+// del documento, como cualquier otra cosa que reescriba la columna B: sin él,
+// medir en plena operación podía pisar el estado de alguien que escaneaba en
+// ese momento. El resultado se enseña DESPUÉS de soltarlo: un diálogo abierto
+// con el lock tomado dejaría a los siete operadores esperando a que alguien
+// apriete «Aceptar».
 function medirRendimiento() {
   const ss = obtenerArchivo();
   const ui = SpreadsheetApp.getUi();
-  const hoja = ss.getActiveSheet();
-  const nombre = claveHoja(hoja.getName());
-
-  if (esHojaSistema(nombre)) {
+  if (esHojaSistema(claveHoja(ss.getActiveSheet().getName()))) {
     ui.alert("⏱️ Medición", "Esta pestaña es del sistema. Colócate en una hoja de escaneo.", ui.ButtonSet.OK);
     return;
   }
+  const lock = LockService.getDocumentLock();
+  if (!lock.tryLock(30000)) {
+    ui.alert("⏱️ Medición", "Hay mucho escaneo ahora mismo y no conseguí turno en 30 " +
+             "segundos. Vuelve a intentarlo en un momento.", ui.ButtonSet.OK);
+    return;
+  }
+  let texto;
+  try { texto = textoDeMedicion(ss); }
+  finally { lock.releaseLock(); }
+  ui.alert("⏱️ Velocidad de escaneo", texto, ui.ButtonSet.OK);
+}
+
+function textoDeMedicion(ss) {
+  const hoja = ss.getActiveSheet();
+  const nombre = claveHoja(hoja.getName());
 
   let L = [];
   let lr = hoja.getLastRow();
@@ -6586,6 +6608,31 @@ function medirRendimiento() {
   L.push("── DESGLOSE ──");
   L.push("Cargar caché (en CADA escaneo): " + tCache + " ms" +
          (cacheInfo ? "  ·  " + cacheInfo.map.size + " guías indexadas" : "  ·  SIN CACHÉ"));
+  // EL TAMAÑO DE LA HOJA DEL CACHÉ. Se lee ENTERA en cada escaneo, y no solo
+  // crece con las pestañas: las listas largas —costales, houses, sin house—
+  // la estiran hacia abajo, y cada fila de más se paga en todos los escaneos.
+  // Es el dato que hace falta para saber si el problema viene de ahí.
+  try {
+    let hc = ss.getSheetByName("CACHE_SISTEMA");
+    if (hc) {
+      let largas = [];
+      if (cacheInfo && cacheInfo.headers) {
+        cacheInfo.headers.forEach((h, c) => {
+          let t = String(h || "");
+          if (t.indexOf("__") !== 0) return;
+          let n = 0;
+          for (let r = 1; r < cacheInfo.data.length; r++) {
+            if (String((cacheInfo.data[r] || [])[c] || "") !== "") n++;
+          }
+          largas.push(t.replace(/^__/, "") + " " + n);
+        });
+      }
+      L.push("Hoja del caché: " + hc.getMaxRows().toLocaleString() + " filas × " +
+             hc.getMaxColumns() + " columnas = " +
+             (hc.getMaxRows() * hc.getMaxColumns()).toLocaleString() + " celdas por escaneo");
+      if (largas.length) L.push("   listas: " + largas.join(" · "));
+    }
+  } catch (err) { /* medir el tamaño nunca puede tumbar la medición */ }
 
   // 2. Recálculo completo de la hoja: es el grueso de cada escaneo.
   // 2. Un escaneo de verdad: el recálculo YA arrastra dentro la sincronización
@@ -6714,7 +6761,7 @@ function medirRendimiento() {
       L.push("Esto suele bajar el coste por llamada de golpe, y con él todo lo demás.");
   }
 
-  ui.alert("⏱️ Velocidad de escaneo", L.join("\n"), ui.ButtonSet.OK);
+  return L.join("\n");
 }
 
 // =========================================================================

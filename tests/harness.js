@@ -2728,6 +2728,21 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        !houseDeFilaVacia(filas, 0, 0) && houseDeFilaVacia(filas, 1, 0));
     invalidarCacheRAM();
 })();
+// LA MEDICION DE VELOCIDAD VUELVE AL MENU, con el lock y sin dialogo dentro.
+(function () {
+    let f = require('fs').readFileSync('Codigo.gs', 'utf8');
+    ok("medir velocidad esta en el menu", f.indexOf("'medirRendimiento'") !== -1);
+    let i = f.indexOf("function medirRendimiento()");
+    let cuerpo = f.substring(i, f.indexOf("\n}\n", i));
+    ok("toma el lock del documento", cuerpo.indexOf("LockService.getDocumentLock()") !== -1);
+    ok("y lo suelta ANTES de enseñar el resultado",
+       cuerpo.indexOf("lock.releaseLock()") < cuerpo.lastIndexOf("ui.alert("));
+    let j = f.indexOf("function textoDeMedicion(");
+    let calc = f.substring(j, f.indexOf("\n}\n", j));
+    ok("el calculo no abre dialogos", calc.indexOf("ui.alert") === -1);
+    ok("y dice el tamaño de la hoja del cache", calc.indexOf("Hoja del caché:") !== -1);
+})();
+
 // LOS COSTALES: HOUSE AL MOMENTO Y CUANTAS SE QUEDAN SIN INFORMACION.
 (function () {
     let pegado = [[""], ["6116004", "Bultos: 4", ""],
