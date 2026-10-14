@@ -407,6 +407,37 @@ function unidadesDelArchivo(ss) {
     return out;
 }
 
+// Las horas de la columna E de un bloque. Puro.
+//
+// SOLO SE PONEN AL ESCANEAR: a las filas de pedimento que están dentro de lo
+// editado (`filaDesde`-`filaHasta`) y que todavía no tienen hora. Un recálculo
+// completo —WMSACT— no pone ninguna. Si lo hiciera, los pedimentos escaneados
+// antes de que existiera esta columna saldrían todos con la hora del WMSACT, y
+// esa hora inventada es justo la que estropea la cuenta de tiempos.
+//
+// La hora que ya está NO SE TOCA NUNCA, aunque se recalcule cien veces. Solo
+// se borra si en esa fila, al editarla, ya no queda un pedimento.
+//
+// Devuelve las horas en el formato de `getValues` y los índices de las filas a
+// las que se les acaba de poner, que son las que van al registro.
+function horasDelBloque(bloque, resultados, horasAntes, filaDesde, filaHasta, ahora) {
+    let horas = [], nuevas = [];
+    let d = filaDesde ? filaDesde - 1 : -1;
+    let hst = filaDesde ? (filaHasta || filaDesde) - 1 : -2;
+    for (let i = bloque.desde; i <= bloque.hasta; i++) {
+        let antes = (horasAntes[i - bloque.desde] || [])[0];
+        let tieneHora = antes instanceof Date && !isNaN(antes.getTime());
+        let r = resultados.get(i) || {};
+        let editada = i >= d && i <= hst;
+        if (!editada) { horas.push([antes === undefined || antes === null ? "" : antes]); continue; }
+        if (!r.pedimento) { horas.push([""]); continue; }
+        if (tieneHora) { horas.push([antes]); continue; }
+        horas.push([ahora]);
+        nuevas.push(i);
+    }
+    return { horas: horas, nuevas: nuevas };
+}
+
 // Recalcula los bloques de la pestaña. Con `filas` (1-based, inclusive) solo
 // los que las tocan; sin él, todos.
 function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
@@ -443,9 +474,13 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
         return leidas.get(k);
     };
 
+    let ahora = new Date();
+    let paraRegistro = [];
     bloques.forEach(b => {
         let ev = evaluarBloqueFinal(b, unidades, leerUnidad);
         let n = b.hasta - b.desde + 1;
+        let horasAntes = hoja.getRange(b.desde + 1, COL_HORA_FINALES, n, 1).getValues();
+        let h = horasDelBloque(b, ev.resultados, horasAntes, filaDesde, filaHasta, ahora);
         let textos = [], colores = [];
         for (let i = b.desde; i <= b.hasta; i++) {
             let r = ev.resultados.get(i) || { estado: "", color: COLOR_FINAL_NEUTRO, detalle: "" };
@@ -453,12 +488,27 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
             // el código de barras la columna A trae doce datos (en una celda o
             // en varias filas) y lo que interesa es uno: aquí queda a la vista,
             // listo para copiar o filtrar.
-            textos.push([r.estado, r.detalle, r.pedimento || ""]);
+            textos.push([r.estado, r.detalle, r.pedimento || "", h.horas[i - b.desde][0]]);
             colores.push([r.estado === "" ? COLOR_FINAL_NEUTRO : r.color]);
         }
-        hoja.getRange(b.desde + 1, 2, n, 3).setValues(textos);
+        hoja.getRange(b.desde + 1, 2, n, 4).setValues(textos);
         hoja.getRange(b.desde + 1, 2, n, 1).setBackgrounds(colores);
+
+        let unidadDelBloque = ev.unidad ? ev.unidad.nombre : (b.unidad || "(sin unidad)");
+        h.nuevas.forEach(i => {
+            let r = ev.resultados.get(i) || {};
+            let f = b.filas.find(x => x.idx === i) || {};
+            paraRegistro.push([ahora, unidadDelBloque, r.pedimento || "", r.estado || "", f.patente || ""]);
+        });
     });
+    // AL REGISTRO, solo las horas que se acaban de poner. Así un pedimento
+    // queda apuntado UNA vez, la del escaneo, por muchas veces que se
+    // recalcule la pestaña.
+    if (paraRegistro.length && typeof anotarEnRegistro === 'function') {
+        try {
+            anotarEnRegistro(ss, nombreHojaSisTiempos(), cabeceraSisTiempos(), paraRegistro);
+        } catch (err) { /* el registro nunca puede tumbar el cuadre */ }
+    }
     return bloques.filter(b => b.filaUnidad !== -1).length;
 }
 
@@ -503,9 +553,15 @@ function cabeEnCode39(texto) {
     return /^[A-Z0-9 \-.$\/+%]+$/.test(String(texto || ""));
 }
 
-// Los códigos de las unidades de hoy, en las columnas E y F de la pestaña.
-// Lejos de A:C a propósito: lo que se escanea y lo que se imprime no se mezclan.
-const COL_CODIGOS_UNIDAD = 5;
+// Los códigos de las unidades de hoy, en las columnas G y H de la pestaña.
+// Lejos de A:E a propósito: lo que se escanea y lo que se imprime no se
+// mezclan. (Estaban en la E y la F; la E pasó a ser la hora.)
+const COL_CODIGOS_UNIDAD = 7;
+
+// LA HORA DE CADA PEDIMENTO, en la E. Se pone AL ESCANEARLO y no se vuelve a
+// tocar: los papeles llegan por tandas y esta hora es la que dice cuándo llegó
+// cada una. Ver `horasDelBloque`.
+const COL_HORA_FINALES = 5;
 
 function escribirCodigosDeUnidades(ss, hoja) {
     let unidades = unidadesDelArchivo(ss);
@@ -531,9 +587,23 @@ function escribirCodigosDeUnidades(ss, hoja) {
 // Los títulos y el formato de las columnas que se escriben. Se puede llamar las
 // veces que haga falta: no toca nada de lo escaneado.
 function ponerTitulosFinales(hoja) {
-    hoja.getRange(1, 1, 1, 4)
-        .setValues([["UNIDAD Y SUS PEDIMENTOS", "RESULTADO", "ERRORES Y DETALLE", "PEDIMENTO"]])
+    // LA MUDANZA DE LOS CÓDIGOS. Antes vivían en la E y la F, que ahora son
+    // la hora. Se reconocen por su título y se borran: `escribirCodigosDeUnidades`
+    // los vuelve a poner en la G y la H. Sin esto, el nombre de una unidad en
+    // la E parecería una hora ya puesta.
+    if (hoja.getMaxColumns() >= 6 &&
+        String(hoja.getRange(1, 5).getValue()).trim() === "PESTAÑA DE LA UNIDAD") {
+        hoja.getRange(1, 5, hoja.getMaxRows(), 2).clearContent();
+    }
+    if (hoja.getMaxColumns() < COL_CODIGOS_UNIDAD + 1) {
+        hoja.insertColumnsAfter(hoja.getMaxColumns(), COL_CODIGOS_UNIDAD + 1 - hoja.getMaxColumns());
+    }
+    hoja.getRange(1, 1, 1, 5)
+        .setValues([["UNIDAD Y SUS PEDIMENTOS", "RESULTADO", "ERRORES Y DETALLE", "PEDIMENTO", "HORA"]])
         .setFontWeight("bold");
+    hoja.getRange(2, COL_HORA_FINALES, Math.max(hoja.getMaxRows() - 1, 1), 1)
+        .setNumberFormat("dd/mm/yyyy hh:mm:ss");
+    hoja.setColumnWidth(COL_HORA_FINALES, 150);
     // COMO TEXTO, la A y la D: un número que empiece por cero perdería el
     // cero al convertirse en número, y dejaría de tener siete dígitos.
     let filas = hoja.getMaxRows();
@@ -626,7 +696,7 @@ function prepararPedimentosFinales() {
         "pasa nada, se reconoce el número de pedimento y el resto sale como " +
         "«↳ dato del código». También vale teclear los 7 dígitos.\n" +
         "   3. Para la siguiente unidad, escanea su código y sigue debajo.\n\n" +
-        "LOS CÓDIGOS DE LAS UNIDADES están en las columnas E y F" +
+        "LOS CÓDIGOS DE LAS UNIDADES están en las columnas G y H" +
         (cods > 0 ? " (" + cods + " unidades)" : "") + ". Genera cada uno en " +
         "Code 39 con tu programa de etiquetas de siempre, igual que los WMS. " +
         "Son cortos a propósito —«GLOBAL 1», sin las placas—, así la etiqueta " +
@@ -634,6 +704,9 @@ function prepararPedimentosFinales() {
         "La columna B dice si cada pedimento ESTÁ en esa unidad, y la D trae el " +
         "número de pedimento limpio. La fila de la unidad dice el total, los que " +
         "NO ESTÁN en la unidad y los que están en la unidad SIN PAPEL.\n\n" +
+        "La columna E guarda la HORA en que escaneaste cada pedimento, y no " +
+        "cambia aunque se recalcule. Cada hora queda también en «" +
+        "SIS_TIEMPOS_PEDIMENTOS», que no se borra aunque limpies esta pestaña.\n\n" +
         "Solo se compara contra la columna A de la unidad que escaneaste: nada " +
         "de bultos ni de M-S.\n\n" +
         (n ? "Revisadas " + n + " unidades." : "Todavía no hay nada escaneado.") +

@@ -41,6 +41,7 @@ eval(fs.readFileSync(path.join(__dirname, '..', 'Costales.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Pedimentos.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'Comandos.gs'), 'utf8'));
 eval(fs.readFileSync(path.join(__dirname, '..', 'PedimentosFinales.gs'), 'utf8'));
+eval(fs.readFileSync(path.join(__dirname, '..', 'Registros.gs'), 'utf8'));
 
 let fallos = 0;
 function ok(nombre, cond) {
@@ -2741,6 +2742,114 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     let calc = f.substring(j, f.indexOf("\n}\n", j));
     ok("el calculo no abre dialogos", calc.indexOf("ui.alert") === -1);
     ok("y dice el tamaño de la hoja del cache", calc.indexOf("Hoja del caché:") !== -1);
+})();
+
+// LA HORA DE CADA PEDIMENTO FINAL: se pone al escanearlo y ya no cambia.
+(function () {
+    const AHORA = new Date(2026, 9, 14, 8, 31, 5);
+    const ANTES = new Date(2026, 9, 14, 7, 50, 0);
+    let bloque = { desde: 1, hasta: 4, filaUnidad: 1, filas: [] };
+    let res = new Map([[1, { estado: "✅ UNIDAD CUADRA" }],
+                       [2, { estado: "✅ ESTÁ EN LA UNIDAD", pedimento: "6116004" }],
+                       [3, { estado: "✅ ESTÁ EN LA UNIDAD", pedimento: "6116008" }],
+                       [4, { estado: "↳ RFC" }]]);
+    let antes = [[""], [ANTES], [""], [""]];
+    // Se acaba de escanear la fila 4 de la hoja (indice 3: el 6116008).
+    let h = horasDelBloque(bloque, res, antes, 4, 4, AHORA);
+    ok("el pedimento recien escaneado recibe la hora", h.horas[2][0] === AHORA);
+    ok("y va al registro", h.nuevas.length === 1 && h.nuevas[0] === 3);
+    ok("la hora que ya tenia otro NO se toca", h.horas[1][0] === ANTES);
+    ok("la fila de la unidad no lleva hora", h.horas[0][0] === "");
+    let otraVez = horasDelBloque(bloque, res, [[""], [ANTES], [AHORA], [""]], 4, 4, new Date());
+    ok("reescanear o recalcular no cambia la hora", otraVez.horas[2][0] === AHORA && otraVez.nuevas.length === 0);
+    let completo = horasDelBloque(bloque, res, [[""], [""], [""], [""]], undefined, undefined, AHORA);
+    ok("un WMSACT no inventa horas para lo escaneado antes",
+       completo.nuevas.length === 0 && completo.horas.every(x => x[0] === ""));
+    let borrado = horasDelBloque(bloque, new Map([[3, { estado: "" }]]), [[""], [ANTES], [AHORA], [""]], 4, 4, new Date());
+    ok("si la fila editada ya no es un pedimento, su hora se va", borrado.horas[2][0] === "");
+
+    // Y de punta a punta: escanear un pedimento escribe la hora en la E y lo
+    // apunta en SIS_TIEMPOS_PEDIMENTOS.
+    let escrito = {}, apuntado = [];
+    let rejilla = [["T", "", "", "", ""], ["global 1", "", "", "", ""], ["6116004", "", "", "", ""]];
+    let finales = { getName: () => "PEDIMENTOS FINALES", getLastRow: () => rejilla.length,
+        getRange: (f, c, nf, nc) => ({
+            getValues: () => rejilla.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
+            setValues: (v) => v.forEach((fila, k) => { escrito[f + k] = fila; }),
+            setBackgrounds: () => {} }) };
+    let unidad = { getName: () => "GLOBAL 1 20-AE-3H", getLastRow: () => 1,
+                   getRange: () => ({ getValues: () => [["6116004"]] }) };
+    let registro = { appendRow: (fila) => apuntado.push(fila) };
+    let ss = { getSheets: () => [unidad, finales],
+               getSheetByName: (n) => n === "SIS_TIEMPOS_PEDIMENTOS" ? registro : null };
+    recalcularPedimentosFinales(ss, finales, 3, 3);
+    ok("la E del pedimento lleva su hora", escrito[3][3] instanceof Date);
+    ok("y se apunta en el registro de tiempos", apuntado.length === 1 &&
+       apuntado[0][1] === "GLOBAL 1 20-AE-3H" && apuntado[0][2] === "6116004" &&
+       apuntado[0][3] === "✅ ESTÁ EN LA UNIDAD");
+
+    // LA MUDANZA: los codigos de unidad estaban en la E y la F.
+    let borrados = [];
+    let vieja = { getMaxColumns: () => 6, getMaxRows: () => 50,
+        insertColumnsAfter: () => {}, setColumnWidth: () => {},
+        getRange: (f, c, nf, nc) => ({
+            getValue: () => (f === 1 && c === 5 ? "PESTAÑA DE LA UNIDAD" : ""),
+            clearContent: () => borrados.push([c, nc]),
+            setValues: () => ({ setFontWeight: () => {} }),
+            setNumberFormat: () => {} }) };
+    ponerTitulosFinales(vieja);
+    ok("los codigos viejos de la E y la F se borran", borrados.some(b => b[0] === 5 && b[1] === 2));
+})();
+
+// LOS REPORTES DE LA COLUMNA D DE LAS UNIDADES.
+(function () {
+    ok("escribir en la D de una unidad es un reporte", edicionEsReporteDeUnidad("GLOBAL 1", 4, 1, 25, 1));
+    ok("en las filas de los totales no", !edicionEsReporteDeUnidad("GLOBAL 1", 4, 1, 2, 1));
+    ok("ni en otra columna", !edicionEsReporteDeUnidad("GLOBAL 1", 3, 1, 25, 1));
+    ok("ni en una pestaña de sistema", !edicionEsReporteDeUnidad("SIS_REPORTE_ERRORES", 4, 1, 25, 1));
+    ok("ni en una M-S", !edicionEsReporteDeUnidad("M-S T1", 4, 1, 25, 1));
+
+    let colA = [[""], [""], [""], ["6116004"], ["1Z1080RG6718622927"], ["1Z58F30X0468079601"],
+                ["6116008"], ["1ZJ242B00402475009"], ["SIN PEDIMENTO"], ["1Z64X7650438659312"]];
+    ok("el pedimento de una guia es el de su bloque", pedimentoDeLaFila(colA, 5) === "6116004");
+    ok("el de la fila del pedimento es el mismo", pedimentoDeLaFila(colA, 6) === "6116008");
+    ok("debajo de un marcador no es de nadie", pedimentoDeLaFila(colA, 9) === "");
+
+    const AHORA = new Date(2026, 9, 14, 10, 0, 0);
+    let filas = filasDeReporteDeUnidad("GLOBAL 1", 6,
+        [["ERROR FALTARON 2 BULTOS"], [""], ["caja rota"]], colA, AHORA, "yo@x.com");
+    ok("un renglon por cada reporte escrito", filas.length === 2);
+    ok("con la fecha, la unidad, la fila, el pedimento, la guia y el texto",
+       filas[0][0] === AHORA && filas[0][1] === "GLOBAL 1" && filas[0][2] === 6 &&
+       filas[0][3] === "6116004" && filas[0][4] === "1Z58F30X0468079601" &&
+       filas[0][5] === "ERROR FALTARON 2 BULTOS" && filas[0][6] === "yo@x.com");
+    ok("el segundo reporte con su fila, su pedimento y su guia",
+       filas[1][2] === 8 && filas[1][3] === "6116008" && filas[1][4] === "1ZJ242B00402475009");
+    ok("borrar un reporte no se apunta",
+       filasDeReporteDeUnidad("GLOBAL 1", 6, [[""]], colA, AHORA, "").length === 0);
+
+    // De punta a punta, contra hojas simuladas.
+    let apuntado = [], creada = null;
+    let hoja = { getName: () => "GLOBAL 1 20-AE-3H",
+                 getRange: () => ({ getValues: () => colA.slice(0, 6) }) };
+    let ss = { getSheetByName: () => null, getNumSheets: () => 9,
+               toast: () => {},
+               insertSheet: (n) => { creada = n; return {
+                   getRange: () => ({ setValues: () => ({ setFontWeight: () => {} }), setNumberFormat: () => {} }),
+                   setFrozenRows: () => {}, getMaxRows: () => 1000,
+                   appendRow: (f) => apuntado.push(f) }; } };
+    let n = atenderReporteDeUnidad(ss, hoja, 6, [["ERROR FALTARON 2 BULTOS"]]);
+    ok("crea la hoja de reportes, con SIS_ delante", creada === "SIS_REPORTE_ERRORES");
+    ok("y apunta el reporte", n === 1 && apuntado.length === 1 && apuntado[0][5] === "ERROR FALTARON 2 BULTOS");
+    ok("la hoja de reportes es interna para el motor", esHojaInterna("SIS_REPORTE_ERRORES") &&
+       esHojaInterna("SIS_TIEMPOS_PEDIMENTOS"));
+
+    let f = require('fs').readFileSync('Codigo.gs', 'utf8');
+    let i = f.indexOf("function procesarEdicion");
+    let cuerpo = f.substring(i, f.indexOf("const lock = LockService.getDocumentLock()", i));
+    ok("procesarEdicion atiende los reportes antes del lock",
+       cuerpo.indexOf("atenderReporteDeUnidad(") !== -1 &&
+       cuerpo.indexOf("atenderReporteDeUnidad(") < cuerpo.indexOf("if (!tocaValida && !tocaMacho && !tocaSinInfo) return;"));
 })();
 
 // MENOS TRABAJO POR ESCANEO. Medido en el archivo: ~4,4 s por escaneo, un
@@ -7569,7 +7678,7 @@ const fsDup = require('fs');
 const pathDup = require('path');
 const ARCHIVOS_GS = ['Codigo.gs', 'House.gs', 'Salidas.gs', 'Costales.gs',
                      'UnirInventarios.gs', 'Pedimentos.gs', 'Comandos.gs',
-                     'PedimentosFinales.gs'];
+                     'PedimentosFinales.gs', 'Registros.gs'];
 let declarados = new Map();
 let colisiones = [];
 ARCHIVOS_GS.forEach(f => {

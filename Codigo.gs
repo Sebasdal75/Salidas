@@ -1464,6 +1464,19 @@ function procesarEdicion(e, esInstalable) {
   // no, se podría escribir una guía en la lista y no pasaría absolutamente
   // nada, sin ningún error, hasta la próxima reconstrucción del caché.
   const tocaSinInfo = esHojaSinInfo(nombreHoja) && colInicial === 1;
+
+  // REPORTES EN LA COLUMNA D DE LAS UNIDADES («ERROR FALTARON 2 BULTOS»): se
+  // apuntan en SIS_REPORTE_ERRORES. Ver Registros.gs. Va antes del lock y no
+  // lo pide: solo lee la columna A y añade una fila al registro. `typeof`
+  // porque Registros.gs es opcional.
+  try {
+      if (typeof edicionEsReporteDeUnidad === 'function' &&
+          edicionEsReporteDeUnidad(nombreHoja, colInicial, numCols, filaInicial, numRows)) {
+          atenderReporteDeUnidad(e.source, hoja, filaInicial, celda.getValues());
+          return;
+      }
+  } catch (err) { /* un reporte nunca puede tumbar un escaneo */ }
+
   if (!tocaValida && !tocaMacho && !tocaSinInfo) return;
 
   // ¿ES UN COMANDO DE CÓDIGO DE BARRAS?
