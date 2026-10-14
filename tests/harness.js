@@ -2939,19 +2939,54 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
                   [MAS(3), "T1 77-19-ZP", "6117359", "🔄 REPETIDO", "", "BLOQUE 1"],
                   [MAS(0), "T1 77-19-ZP", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
                   [new Date(HOY.getTime() - 30 * 86400000), "VIEJA", "6000001", "✅", "", ""]];
-    let faltan = faltanEnRegistro(ssReg, enHoja, []);
+    let faltan = cuadrarRegistroConLaHoja(ssReg, enHoja, []);
     ok("de lo que tiene la hoja, solo falta el que no esta en el registro",
        faltan.length === 1 && faltan[0][2] === "6117359");
     ok("aunque el registro guarde el pedimento como numero", !faltan.some(f => f[2] === "6117076"));
     ok("lo de hace un mes no se vuelve a apuntar", !faltan.some(f => f[1] === "VIEJA"));
     ok("lo que se va a apuntar ahora no se duplica",
-       faltanEnRegistro(ssReg, enHoja, [[MAS(2), "T1 77-19-ZP", "6117359", "✅", "", "BLOQUE 1"]]).length === 0);
+       cuadrarRegistroConLaHoja(ssReg, enHoja, [[MAS(2), "T1 77-19-ZP", "6117359", "✅", "", "BLOQUE 1"]]).length === 0);
     // Con un registro mas largo de lo que se lee, lo anterior a lo leido no se
     // puede comprobar: no se apunta, o se apuntaria en cada WMSACT.
     let largo = [regLleno[0]];
     for (let k = 0; k < 6001; k++) largo.push([MAS(10), "OTRA", String(6200000 + k), "✅", "", ""]);
-    let truncado = faltanEnRegistro({ getSheetByName: () => hojaReg(largo) }, enHoja, []);
+    let truncado = cuadrarRegistroConLaHoja({ getSheetByName: () => hojaReg(largo) }, enHoja, []);
     ok("lo anterior a lo leido del registro no se apunta", truncado.length === 0);
+
+    // EL BLOQUE QUE DICE LA PESTAÑA MANDA: el BLOQUE se escribio despues de
+    // escanear, y el reporte decia «BLOQUE 1, BLOQUE 2 y sin bloque».
+    let regB = [regLleno[0],
+                [MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+                [MAS(1), "A1 76-AZ-8E", 6043254, "✅", "3407", ""],
+                [MAS(2), "OTRA", 6000002, "✅", "", ""],
+                [MAS(3), "A1 76-AZ-8E", 6042255, "✅", "3407", "BLOQUE 1"],
+                [MAS(4), "A1 76-AZ-8E", 6042255, "🔄 REPETIDO", "", "BLOQUE 1"]];
+    let escritoB = {};
+    let hojaRegB = { getLastRow: () => regB.length,
+        getRange: (f, c, nf, nc) => ({ getValues: () => regB.slice(f - 1, f - 1 + nf),
+                                       setValues: (v) => { escritoB[c] = { f: f, v: v }; } }) };
+    let enHojaB = [[MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+                   [MAS(1), "A1 76-AZ-8E", "6043254", "✅", "3407", "BLOQUE 1"],
+                   [MAS(5), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 2", "", "BLOQUE 2"],
+                   [MAS(3), "A1 76-AZ-8E", "6042255", "✅", "3407", "BLOQUE 2"],
+                   [MAS(4), "A1 76-AZ-8E", "6042255", "🔄 REPETIDO", "", "BLOQUE 3"]];
+    let faltanB = cuadrarRegistroConLaHoja({ getSheetByName: () => hojaRegB }, enHojaB, []);
+    let bloquesB = escritoB[6] && escritoB[6].v.map(x => x[0]);
+    ok("el «sin bloque» pasa al bloque que dice la pestaña", !!bloquesB && bloquesB[1] === "BLOQUE 1");
+    ok("y el que se escaneo en otro bloque, al de ahora", bloquesB[3] === "BLOQUE 2" && bloquesB[4] === "BLOQUE 2");
+    ok("el repetido mas abajo no le cambia el bloque al de arriba", bloquesB[4] !== "BLOQUE 3");
+    ok("lo de otra unidad no se toca", bloquesB[2] === "" && escritoB[6].f === 2);
+    ok("la llegada que falta se apunta", faltanB.length === 1 && faltanB[0][5] === "BLOQUE 2");
+    ok("y no se toca el texto de una llegada que ya cuadra", !escritoB[4]);
+    let regC = [regLleno[0], [MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"]];
+    let escritoC = {};
+    let hojaRegC = { getLastRow: () => regC.length,
+        getRange: (f, c, nf, nc) => ({ getValues: () => regC.slice(f - 1, f - 1 + nf),
+                                       setValues: (v) => { escritoC[c] = v; } }) };
+    cuadrarRegistroConLaHoja({ getSheetByName: () => hojaRegC },
+        [[MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 2", "", "BLOQUE 2"]], []);
+    ok("una llegada que ahora es otro bloque se renombra, por su hora",
+       escritoC[6] && escritoC[6][0][0] === "BLOQUE 2" && escritoC[4][0][0] === "📦 LLEGÓ EL BLOQUE 2");
 
     // Y en la hoja: un WMSACT apunta lo que falta; un escaneo no compara.
     let regPocas = [regLleno[0], [H(9, 1), "GLOBAL 1 20-AE-3H", 6116004, "✅", "", ""]];

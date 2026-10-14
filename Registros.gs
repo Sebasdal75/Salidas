@@ -270,59 +270,115 @@ function construirReporteDeTiempos(filas, desde) {
     return { filas: out, tipos: tipos };
 }
 
-// LO QUE LA PESTAÑA TIENE Y EL REGISTRO NO.
+// EL REGISTRO, CUADRADO CON LA PESTAÑA. Lo hace el recálculo completo
+// («🔄 Forzar Actualización» en PEDIMENTOS FINALES, o WMSACT).
 //
-// La hora de un pedimento y su fila en el registro se escriben en el mismo
-// escaneo, pero pueden separarse: Google corta una ejecución a mitad, o —antes
-// del arreglo del turno— otro escaneo pisaba la hora. Si la hoja se queda con
-// la hora y el registro sin la fila, ningún escaneo posterior la vuelve a
-// apuntar (ya tiene hora), y el reporte cuenta uno menos que la pestaña: pasó
-// con 54 contra 53.
+// LO QUE LA PESTAÑA TIENE Y EL REGISTRO NO. La hora de un pedimento y su fila
+// en el registro se escriben en el mismo escaneo, pero pueden separarse:
+// Google corta una ejecución a mitad, o —antes del arreglo del turno— otro
+// escaneo pisaba la hora. Si la hoja se queda con la hora y el registro sin la
+// fila, ningún escaneo posterior la vuelve a apuntar (ya tiene hora), y el
+// reporte cuenta uno menos que la pestaña: pasó con 54 contra 53. Se devuelve
+// para apuntarlo.
 //
-// Lo arregla el recálculo completo: de lo que la pestaña tiene con hora,
-// devuelve lo que el registro no tiene, para apuntarlo. Se compara por día,
-// unidad y pedimento (y por bloque en las llegadas), que es como agrupa el
-// reporte. `yaVan` son filas que se van a apuntar ahora mismo.
+// EL BLOQUE QUE DICE LA PESTAÑA MANDA. El registro guarda el bloque que tenía
+// cada pedimento AL ESCANEARLO. Si el BLOQUE se escribió o se metió después,
+// encima de pedimentos ya escaneados, el registro se quedaba con «sin bloque»
+// —o con el número de antes— aunque en la pestaña estuvieran debajo de su
+// BLOQUE: pasó con la A1 76-AZ-8E, «BLOQUE 1, BLOQUE 2 y sin bloque». Aquí se
+// corrige en el registro. Los pedimentos se reconocen por día, unidad y
+// número; las llegadas de un bloque, por su hora exacta. Si un pedimento está
+// dos veces en la pestaña, manda el de más arriba, que es el que cuenta.
+//
+// Se compara por día, unidad y pedimento (y por bloque en las llegadas), que
+// es como agrupa el reporte. `yaVan` son filas que se van a apuntar ahora.
 //
 // SOLO LO QUE SE PUEDE COMPROBAR: lo de la última semana —lo que enseña el
 // reporte— y nada anterior a lo más viejo que se leyó del registro. Sin ese
 // tope, con un registro más largo que lo que se lee, lo viejo se apuntaría
-// otra vez en cada WMSACT.
+// otra vez en cada recálculo.
+//
+// Escribe en el registro, así que se llama con el turno de la pestaña tomado
+// (`conTurnoDeFinales`): los escaneos que apuntan también lo toman.
+function pedimentoDeRegistro(v) {
+    let ped = String(v === undefined || v === null ? "" : v).trim();
+    return /^\d{1,7}$/.test(ped) ? ("0000000" + ped).slice(-7) : ped;
+}
+function unidadDeRegistro(v) { return String(v || "").trim().toUpperCase(); }
+
 function claveDeTiempo(f) {
     let fecha = (f || [])[0];
     if (!esFechaValida(fecha)) return "";
-    let ped = String(f[2] === undefined || f[2] === null ? "" : f[2]).trim();
-    if (/^\d{1,7}$/.test(ped)) ped = ("0000000" + ped).slice(-7);
-    let unidad = String(f[1] || "").trim().toUpperCase();
-    return claveDeDia(fecha) + "|" + unidad + "|" + ped + "|" +
+    let ped = pedimentoDeRegistro(f[2]);
+    return claveDeDia(fecha) + "|" + unidadDeRegistro(f[1]) + "|" + ped + "|" +
            (ped === "" ? String(f[5] || "").trim().toUpperCase() : "");
 }
 
-function faltanEnRegistro(ss, filas, yaVan) {
-    let hay = new Set();
+function cuadrarRegistroConLaHoja(ss, filas, yaVan) {
     let desde = new Date();
     desde.setHours(0, 0, 0, 0);
     desde.setDate(desde.getDate() - (DIAS_REPORTE_TIEMPOS - 1));
     let reg = ss.getSheetByName(HOJA_SIS_TIEMPOS);
+    let leidas = [], desdeFila = 2;
     if (reg && reg.getLastRow() > 1) {
         let lr = reg.getLastRow();
-        let desdeFila = Math.max(2, lr - FILAS_MAX_LEIDAS_TIEMPOS + 1);
-        let leidas = reg.getRange(desdeFila, 1, lr - desdeFila + 1, CABECERA_SIS_TIEMPOS.length).getValues();
-        leidas.forEach(f => hay.add(claveDeTiempo(f)));
+        desdeFila = Math.max(2, lr - FILAS_MAX_LEIDAS_TIEMPOS + 1);
+        leidas = reg.getRange(desdeFila, 1, lr - desdeFila + 1, CABECERA_SIS_TIEMPOS.length).getValues();
         if (desdeFila > 2) {
             let fechas = leidas.map(f => f[0]).filter(esFechaValida);
             let masVieja = fechas.length ? new Date(Math.min.apply(null, fechas.map(d => d.getTime()))) : new Date();
             if (masVieja > desde) desde = masVieja;
         }
     }
+    let base = f => claveDeDia(f[0]) + "|" + unidadDeRegistro(f[1]) + "|";
+    let segundo = d => Math.round(d.getTime() / 1000);
+    let apuntar = (m, k, i) => { if (!m.has(k)) m.set(k, []); m.get(k).push(i); };
+    let hay = new Set(), pedimentos = new Map(), llegadas = new Map();
+    leidas.forEach((f, i) => {
+        let c = claveDeTiempo(f);
+        if (c === "") return;
+        hay.add(c);
+        let ped = pedimentoDeRegistro(f[2]);
+        if (ped !== "") apuntar(pedimentos, base(f) + ped, i);
+        else apuntar(llegadas, base(f) + segundo(f[0]), i);
+    });
     (yaVan || []).forEach(f => hay.add(claveDeTiempo(f)));
-    let out = [];
+
+    let out = [], vistos = new Set(), cambiaBloque = false, cambiaTexto = false;
     (filas || []).forEach(f => {
+        if (!esFechaValida(f[0]) || f[0] < desde) return;
+        let ped = pedimentoDeRegistro(f[2]);
+        let tanda = String(f[5] || "").trim();
+        let enRegistro;
+        if (ped !== "") {
+            let c = base(f) + ped;
+            if (vistos.has(c)) return;
+            vistos.add(c);
+            enRegistro = pedimentos.get(c);
+        } else {
+            enRegistro = llegadas.get(base(f) + segundo(f[0]));
+        }
+        if (enRegistro) {
+            enRegistro.forEach(i => {
+                if (String(leidas[i][5] || "").trim() !== tanda) { leidas[i][5] = tanda; cambiaBloque = true; }
+                let texto = "📦 LLEGÓ EL " + tanda;
+                if (ped === "" && tanda !== "" && String(leidas[i][3] || "") !== texto) {
+                    leidas[i][3] = texto;
+                    cambiaTexto = true;
+                }
+            });
+            return;
+        }
         let k = claveDeTiempo(f);
-        if (k === "" || f[0] < desde || hay.has(k)) return;
+        if (k === "" || hay.has(k)) return;
         hay.add(k);
         out.push(f);
     });
+    if (cambiaBloque) {
+        reg.getRange(desdeFila, 6, leidas.length, 1).setValues(leidas.map(f => [f[5]]));
+        marcarReporteDeTiemposPendiente();
+    }
+    if (cambiaTexto) reg.getRange(desdeFila, 4, leidas.length, 1).setValues(leidas.map(f => [f[3]]));
     return out;
 }
 

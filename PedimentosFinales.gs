@@ -771,7 +771,7 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
 
     if (!(ahora instanceof Date)) ahora = new Date();
     // Un recálculo COMPLETO —WMSACT, o el botón del menú— además cuadra la
-    // pestaña con el registro: ver `faltanEnRegistro`.
+    // pestaña con el registro: ver `cuadrarRegistroConLaHoja`.
     let completo = !filaDesde && !soloBloques;
     let paraRegistro = [], enLaHoja = [], fallo = null;
     let filaDeRegistro = (b, ev, h, unidadDelBloque, i) => {
@@ -840,11 +840,12 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
     // AL REGISTRO, las horas que se acaban de poner. Así un pedimento queda
     // apuntado UNA vez, la del escaneo, por muchas veces que se recalcule.
     // Y en un recálculo completo, también lo que la pestaña tiene con hora y
-    // el registro no (`faltanEnRegistro`): pase lo que pase en un escaneo, un
-    // WMSACT deja la pestaña y el reporte con los mismos pedimentos.
-    if (completo && enLaHoja.length && typeof faltanEnRegistro === 'function') {
+    // el registro no, y el bloque de cada uno como lo dice la pestaña
+    // (`cuadrarRegistroConLaHoja`): pase lo que pase en un escaneo, «Forzar
+    // Actualización» deja la pestaña y el reporte iguales.
+    if (completo && enLaHoja.length && typeof cuadrarRegistroConLaHoja === 'function') {
         // Si no se puede comparar, se apunta al menos lo nuevo.
-        try { paraRegistro = paraRegistro.concat(faltanEnRegistro(ss, enLaHoja, paraRegistro)); }
+        try { paraRegistro = paraRegistro.concat(cuadrarRegistroConLaHoja(ss, enLaHoja, paraRegistro)); }
         catch (err) { /* lo arreglará el siguiente WMSACT */ }
     }
     if (paraRegistro.length && typeof anotarEnRegistro === 'function') {
