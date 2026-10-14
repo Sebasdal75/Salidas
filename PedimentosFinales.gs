@@ -553,8 +553,10 @@ function unidadesDelArchivo(ss) {
 // —lo escaneado antes de la columna— se queda como está.
 //
 // LA HORA ES DEL PAPEL, NO DE LA FILA. Al escanear en una fila que ya tenía
-// hora, se queda solo si es el MISMO pedimento (la columna D dice cuál era) o
-// si se puso hace un momento (el mismo escaneo procesado dos veces). Si no, es
+// hora, se queda solo si es el MISMO pedimento (la columna D dice cuál era) y
+// la hora es de hoy —no de ayer, cuando se borró la lista y no llegó a
+// borrarse la hora—, o si se puso hace un momento (el mismo escaneo procesado
+// dos veces). Si no, es
 // un papel nuevo y lleva la hora de ahora. Antes la hora vieja se quedaba
 // siempre: un pedimento escaneado hoy en una fila con una hora de hace dos
 // días salía con esa hora, no iba al registro de hoy —el reporte contaba uno
@@ -609,9 +611,11 @@ function horasDelBloque(bloque, resultados, horasAntes, filaDesde, filaHasta, ah
                 horas.push([antes]);
             }
         } else if (editada) {
+            let cerca = (ms) => !esHora(ahora) || Math.abs(ahora - antes) < ms;
             let mismoPapel = esHora(antes) && (
-                (!!r.pedimento && comoPedimento(((pedimentosAntes || [])[k] || [])[0]) === r.pedimento) ||
-                (esHora(ahora) && Math.abs(ahora - antes) < MS_HORA_RECIENTE_FINALES));
+                (!!r.pedimento && comoPedimento(((pedimentosAntes || [])[k] || [])[0]) === r.pedimento &&
+                 cerca(MS_HORA_VIEJA_FINALES)) ||
+                (esHora(ahora) && cerca(MS_HORA_RECIENTE_FINALES)));
             if (mismoPapel) {
                 horas.push([antes]);
             } else {
