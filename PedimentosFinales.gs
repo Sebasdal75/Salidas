@@ -1111,15 +1111,18 @@ function prepararPedimentosFinales() {
         "dice cuántos pedimentos trae y en qué horario se escanearon.\n\n" +
         "Las columnas E y F guardan la FECHA y la HORA en que escaneaste cada " +
         "pedimento, y no cambian aunque se recalcule. Si a alguno se le escapa, se le pone la " +
-        "del de arriba en cuanto escaneas el siguiente (o con WMSACT, o en el " +
+        "del de arriba en cuanto escaneas el siguiente (o con «🔄 Forzar " +
+        "Actualización», o en el " +
         "repaso de cinco minutos). Cada hora queda apuntada en «" +
         "SIS_TIEMPOS_REGISTRO», que no se borra aunque limpies esta pestaña, y " +
         "«SIS_TIEMPOS_PEDIMENTOS» lo enseña AGRUPADO POR UNIDAD, con cada bloque " +
-        "resumido. Ese reporte se pone al día con WMSACT aquí, o solo cada cinco " +
+        "resumido. Ese reporte se pone al día con «🔄 Forzar Actualización» " +
+        "en esta pestaña, o solo cada cinco " +
         "minutos.\n\n" +
         "Solo se compara contra la columna A de la unidad que escaneaste: nada " +
         "de bultos ni de M-S.\n\n" +
         (n ? "Revisadas " + n + " unidades." : "Todavía no hay nada escaneado.") +
-        "\n\nPara volver a revisar todo: escanea WMSACT en esta pestaña.",
+        "\n\nPara volver a revisar todo: menú «🔄 Forzar Actualización de esta " +
+        "pestaña» estando aquí (o escanea WMSACT, que hace lo mismo).",
         ui.ButtonSet.OK);
 }
