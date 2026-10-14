@@ -790,6 +790,8 @@ function prepararPedimentosFinales() {
     hoja.setColumnWidth(COL_CODIGOS_UNIDAD, 220);
     hoja.setColumnWidth(COL_CODIGOS_UNIDAD + 1, 260);
     let n = recalcularPedimentosFinales(ss, hoja);
+    try { if (typeof rehacerReporteDeTiempos === 'function') rehacerReporteDeTiempos(ss); }
+    catch (err) { /* el reporte nunca puede tumbar el cuadre */ }
     ss.setActiveSheet(hoja);
     ui.alert("🧾 Pedimentos finales",
         (creada ? "Pestaña «" + NOMBRE + "» creada.\n\n" : "") +
@@ -813,8 +815,11 @@ function prepararPedimentosFinales() {
         "«BLOQUE» debajo de la unidad. Se numeran solos; la fila del bloque " +
         "dice cuántos pedimentos trae y en qué horario se escanearon.\n\n" +
         "La columna E guarda la HORA en que escaneaste cada pedimento, y no " +
-        "cambia aunque se recalcule. Cada hora queda también en «" +
-        "SIS_TIEMPOS_PEDIMENTOS», que no se borra aunque limpies esta pestaña.\n\n" +
+        "cambia aunque se recalcule. Cada hora queda apuntada en «" +
+        "SIS_TIEMPOS_REGISTRO», que no se borra aunque limpies esta pestaña, y " +
+        "«SIS_TIEMPOS_PEDIMENTOS» lo enseña AGRUPADO POR UNIDAD, con cada bloque " +
+        "resumido. Ese reporte se pone al día con WMSACT aquí, o solo cada cinco " +
+        "minutos.\n\n" +
         "Solo se compara contra la columna A de la unidad que escaneaste: nada " +
         "de bultos ni de M-S.\n\n" +
         (n ? "Revisadas " + n + " unidades." : "Todavía no hay nada escaneado.") +

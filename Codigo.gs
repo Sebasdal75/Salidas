@@ -7391,6 +7391,9 @@ function forzarActualizacionHojaActiva() {
         try { ponerTitulosFinales(hoja); } catch (err) { /* da igual */ }
         try { escribirCodigosDeUnidades(ss, hoja); } catch (err) { /* da igual */ }
         let n = recalcularPedimentosFinales(ss, hoja);
+        // Y el reporte de tiempos agrupado por unidad, al momento.
+        try { if (typeof rehacerReporteDeTiempos === 'function') rehacerReporteDeTiempos(ss); }
+        catch (err) { /* el reporte nunca puede tumbar el cuadre */ }
         ss.toast('✅ Revisadas ' + n + ' unidades.', 'Pedimentos finales', 4);
         return;
     }
@@ -7554,6 +7557,14 @@ function actualizadorAutomaticoGlobal() {
         invalidarCacheRAM();
         sincronizarSalidasMS(ss, getCacheData(ss), null, obj);
     }));
+
+    // El reporte de tiempos de los pedimentos finales, si entró algo nuevo.
+    // SIN el lock del documento: solo toca sus dos hojas SIS_.
+    try {
+        if (typeof reporteDeTiemposPendiente === 'function' && reporteDeTiemposPendiente()) {
+            rehacerReporteDeTiempos(ss);
+        }
+    } catch (err) { /* el reporte jamás puede tumbar el repaso */ }
 
   // El relleno de houses viaja con este disparador en vez de tener el suyo.
   //

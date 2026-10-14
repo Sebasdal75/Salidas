@@ -2782,7 +2782,7 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     let registro = { appendRow: (fila) => apuntado.push(fila), getMaxColumns: () => 6,
                      getRange: () => ({ getValue: () => "BLOQUE" }) };
     let ss = { getSheets: () => [unidad, finales],
-               getSheetByName: (n) => n === "SIS_TIEMPOS_PEDIMENTOS" ? registro : null };
+               getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? registro : null };
     recalcularPedimentosFinales(ss, finales, 3, 3);
     ok("la E del pedimento lleva su hora", escrito[3][3] instanceof Date);
     ok("y se apunta en el registro de tiempos", apuntado.length === 1 &&
@@ -2851,6 +2851,82 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     // Y el codigo de barras de BLOQUE sale con los de las unidades.
     let f = require('fs').readFileSync('PedimentosFinales.gs', 'utf8');
     ok("hay codigo de barras para BLOQUE", f.indexOf('filas.push(["(cada nuevo bloque de pedimentos)", "BLOQUE"]);') !== -1);
+})();
+
+// EL REPORTE DE TIEMPOS AGRUPADO POR UNIDAD, con cada bloque resumido.
+(function () {
+    let D = (d, h, m) => new Date(2026, 9, d, h, m, 0);
+    let reg = [
+        [D(14, 10, 3), "GLOBAL 1 20-AE-3H", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+        [D(14, 10, 4), "GLOBAL 1 20-AE-3H", "6116004", "✅ ESTÁ EN LA UNIDAD", "6087", "BLOQUE 1"],
+        [D(14, 10, 5), "GLOBAL 3 11-BB-2C", "6117001", "✅ ESTÁ EN LA UNIDAD", "", "BLOQUE 1"],
+        [D(14, 10, 7), "GLOBAL 1 20-AE-3H", "6116008", "❌ NO ESTÁ EN ESTA UNIDAD", "", "BLOQUE 1"],
+        [D(14, 10, 9), "GLOBAL 1 20-AE-3H", "6116004", "🔄 REPETIDO EN LA LISTA", "", "BLOQUE 1"],
+        [D(14, 11, 0), "GLOBAL 1 20-AE-3H", "", "📦 LLEGÓ EL BLOQUE 2", "", "BLOQUE 2"],
+        [D(14, 11, 2), "GLOBAL 1 20-AE-3H", "6116010", "✅ ESTÁ EN LA UNIDAD", "", "BLOQUE 2"],
+        [D(13, 9, 0), "GLOBAL 1 77-14-ZP", "6110000", "✅ ESTÁ EN LA UNIDAD", "", ""],
+        [D(1, 9, 0), "GLOBAL 9", "6100000", "✅ ESTÁ EN LA UNIDAD", "", ""]];
+    let r = construirReporteDeTiempos(reg, D(8, 0, 0));
+    let col = r.filas.map(f => f[0]);
+    ok("el dia mas reciente va primero", col[0] === "🚚 GLOBAL 1 20-AE-3H");
+    ok("cada unidad junta lo suyo aunque se escaneara mezclado",
+       col.indexOf("🚚 GLOBAL 3 11-BB-2C") > col.indexOf("   6116010"));
+    let u = r.filas[0];
+    ok("la fila de la unidad: total sin repetidos, desde, hasta y minutos",
+       u[2] === 3 && u[3].getHours() === 10 && u[3].getMinutes() === 4 &&
+       u[4].getHours() === 11 && u[5] === 58 && u[6] === "2 bloques");
+    let b1 = r.filas[1];
+    ok("el bloque con su llegada y su resumen", b1[0] === "📦 BLOQUE 1" && b1[1].getMinutes() === 3 &&
+       b1[2] === 2 && b1[5] === 3 && b1[6] === "empezó 1 min después de llegar");
+    ok("y sus pedimentos debajo, con resultado y patente",
+       r.filas[2][0] === "   6116004" && r.filas[2][6] === "✅ ESTÁ EN LA UNIDAD · Patente 6087");
+    ok("el repetido no se cuenta dos veces", col.filter(x => x === "   6116004").length === 1);
+    ok("lo de otro dia va en su propio grupo", col.indexOf("🚚 GLOBAL 1 77-14-ZP") !== -1);
+    ok("sin bloque tambien se ve", col.indexOf("📦 (sin bloque)") !== -1);
+    ok("lo de hace mas de una semana no sale", col.indexOf("🚚 GLOBAL 9") === -1);
+    ok("las filas de unidad y bloque se marcan para pintarlas",
+       r.tipos[0] === "unidad" && r.tipos[1] === "bloque" && r.tipos[2] === "pedimento");
+
+    let f = require('fs').readFileSync('Codigo.gs', 'utf8');
+    ok("WMSACT en PEDIMENTOS FINALES rehace el reporte", f.indexOf("rehacerReporteDeTiempos(ss); }") !== -1);
+    ok("y el repaso, si entro algo nuevo", f.indexOf("reporteDeTiemposPendiente()") !== -1);
+    ok("el reporte es interno para el motor", esHojaInterna("SIS_TIEMPOS_PEDIMENTOS") &&
+       esHojaInterna("SIS_TIEMPOS_REGISTRO"));
+
+    // La mudanza de lo que ya estaba en la hoja vieja.
+    let apuntado = [], limpiada = false;
+    let vieja = { getLastRow: () => 3, getMaxColumns: () => 5,
+        getRange: (fi, c, nf, nc) => ({
+            getValue: () => (fi === 1 && c === 4 ? "RESULTADO AL ESCANEARLO" : ""),
+            getValues: () => [[D(14, 10, 4), "GLOBAL 1", "6116004", "✅", "6087"],
+                              ["FECHA Y HORA", "", "", "", ""]] }),
+        clear: () => { limpiada = true; } };
+    let nuevoReg = { appendRow: (x) => apuntado.push(x), getMaxColumns: () => 6,
+                     getRange: () => ({ getValue: () => "BLOQUE" }) };
+    let n = mudarRegistroDeTiemposViejo({ getSheetByName: (nm) =>
+        nm === "SIS_TIEMPOS_PEDIMENTOS" ? vieja : nm === "SIS_TIEMPOS_REGISTRO" ? nuevoReg : null });
+    ok("lo que ya estaba se muda al registro nuevo", n === 1 && apuntado.length === 1 &&
+       apuntado[0].length === 6 && limpiada);
+
+    // Y el reporte entero contra hojas simuladas.
+    let hoy = new Date();
+    let regFalso = { getLastRow: () => 3, getMaxColumns: () => 6,
+        getRange: () => ({ getValues: () => [
+            [hoy, "GLOBAL 1", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+            [hoy, "GLOBAL 1", "6116004", "✅ ESTÁ EN LA UNIDAD", "6087", "BLOQUE 1"]] }) };
+    let escrito = null, fondos = null;
+    let rep = { clear: () => {}, setFrozenRows: () => {}, getMaxRows: () => 2,
+        insertRowsAfter: () => {},
+        getRange: (fi, c, nf, nc) => ({
+            setValues: (v) => { if (fi === 2) escrito = v; return { setFontWeight: () => {} }; },
+            setNumberFormat: () => {}, setBackgrounds: (v) => { fondos = v; } }) };
+    let ssR = { getSheetByName: (nm) => nm === "SIS_TIEMPOS_REGISTRO" ? regFalso :
+                                        nm === "SIS_TIEMPOS_PEDIMENTOS" ? rep : null };
+    let nr = rehacerReporteDeTiempos(ssR);
+    ok("el reporte se escribe: unidad, bloque, pedimento y separacion",
+       nr === 4 && escrito && escrito[0][0] === "🚚 GLOBAL 1" && escrito[1][0] === "📦 BLOQUE 1" &&
+       escrito[2][0] === "   6116004");
+    ok("y se pinta por tipo de fila", fondos && fondos[0][0] === '#c9daf8' && fondos[1][0] === '#d9ead3');
 })();
 
 // LOS REPORTES DE LA COLUMNA D DE LAS UNIDADES.
