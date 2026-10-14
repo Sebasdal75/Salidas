@@ -2923,6 +2923,77 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        !!filaTres && filaTres.v[0][1].getTime() === H(9, 1).getTime() &&
        filaTres.v[0][0].getTime() === H(9, 1).getTime());
     ok("y eso no se apunta otra vez en el registro", !apuntadoF.some(a => a[2] === "6116004"));
+    // LA PESTAÑA Y EL REPORTE CUADRAN DESPUES DE UN WMSACT: el 6117359 tenia
+    // hora en la hoja y ninguna fila en el registro, y el reporte contaba 53
+    // contra 54.
+    const HOY = new Date(); HOY.setHours(9, 0, 0, 0);
+    const MAS = (min) => new Date(HOY.getTime() + min * 60000);
+    let regLleno = [["FECHA Y HORA", "UNIDAD", "PEDIMENTO", "RESULTADO AL ESCANEARLO", "PATENTE", "BLOQUE"],
+                    [MAS(1), "T1 77-19-ZP", 6117076, "✅", "6087", "BLOQUE 1"],
+                    [MAS(0), "T1 77-19-ZP", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"]];
+    let hojaReg = (filasReg) => ({ getLastRow: () => filasReg.length,
+        getRange: (f, c, nf, nc) => ({ getValues: () => filasReg.slice(f - 1, f - 1 + nf) }) });
+    let ssReg = { getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? hojaReg(regLleno) : null };
+    let enHoja = [[MAS(1), "T1 77-19-ZP", "6117076", "✅", "6087", "BLOQUE 1"],
+                  [MAS(2), "T1 77-19-ZP", "6117359", "✅", "6087", "BLOQUE 1"],
+                  [MAS(3), "T1 77-19-ZP", "6117359", "🔄 REPETIDO", "", "BLOQUE 1"],
+                  [MAS(0), "T1 77-19-ZP", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+                  [new Date(HOY.getTime() - 30 * 86400000), "VIEJA", "6000001", "✅", "", ""]];
+    let faltan = faltanEnRegistro(ssReg, enHoja, []);
+    ok("de lo que tiene la hoja, solo falta el que no esta en el registro",
+       faltan.length === 1 && faltan[0][2] === "6117359");
+    ok("aunque el registro guarde el pedimento como numero", !faltan.some(f => f[2] === "6117076"));
+    ok("lo de hace un mes no se vuelve a apuntar", !faltan.some(f => f[1] === "VIEJA"));
+    ok("lo que se va a apuntar ahora no se duplica",
+       faltanEnRegistro(ssReg, enHoja, [[MAS(2), "T1 77-19-ZP", "6117359", "✅", "", "BLOQUE 1"]]).length === 0);
+    // Con un registro mas largo de lo que se lee, lo anterior a lo leido no se
+    // puede comprobar: no se apunta, o se apuntaria en cada WMSACT.
+    let largo = [regLleno[0]];
+    for (let k = 0; k < 6001; k++) largo.push([MAS(10), "OTRA", String(6200000 + k), "✅", "", ""]);
+    let truncado = faltanEnRegistro({ getSheetByName: () => hojaReg(largo) }, enHoja, []);
+    ok("lo anterior a lo leido del registro no se apunta", truncado.length === 0);
+
+    // Y en la hoja: un WMSACT apunta lo que falta; un escaneo no compara.
+    let regPocas = [regLleno[0], [H(9, 1), "GLOBAL 1 20-AE-3H", 6116004, "✅", "", ""]];
+    let apuntadoW = [];
+    let regW = { appendRow: (fila) => apuntadoW.push(fila), getMaxColumns: () => 6,
+                 getLastRow: () => regPocas.length,
+                 getRange: (f, c, nf, nc) => ({ getValue: () => "BLOQUE",
+                                                getValues: () => regPocas.slice(f - 1, f - 1 + nf) }) };
+    let hojaW = { getName: () => "PEDIMENTOS FINALES", getLastRow: () => rejilla.length,
+        getRange: (f, c, nf, nc) => ({
+            getValues: () => rejilla.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
+            setValues: () => {}, setBackgrounds: () => {} }) };
+    let ssW = { getSheets: () => [unidad, hojaW], getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? regW : null };
+    let ayer = Date.now() - H(9, 3).getTime() > 6 * 86400000;
+    recalcularPedimentosFinales(ssW, hojaW);
+    ok("WMSACT apunta lo que la hoja tiene y el registro no",
+       ayer || (apuntadoW.some(a => a[2] === "6116010") && !apuntadoW.some(a => a[2] === "6116004")));
+    apuntadoW = [];
+    recalcularPedimentosFinales(ssW, hojaW, 7, 7);
+    ok("un escaneo no compara con el registro", !apuntadoW.some(a => a[2] === "6116010"));
+
+    // UN BLOQUE QUE FALLA no se lleva lo apuntado de los demas.
+    let rejilla2 = [["T", "", "", "", "", ""], ["global 1", "", "", "", "", ""], ["6116004", "", "", "", "", ""],
+                    ["GLOBAL 3", "", "", "", "", ""], ["6117001", "", "", "", "", ""]];
+    let apuntado2 = [];
+    let hoja2 = { getName: () => "PEDIMENTOS FINALES", getLastRow: () => rejilla2.length,
+        getRange: (f, c, nf, nc) => ({
+            getValues: () => rejilla2.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
+            setValues: () => { if (f === 4 && c === 2) throw new Error("Google cortó"); },
+            setBackgrounds: () => {} }) };
+    let unidad3 = { getName: () => "GLOBAL 3 11-BB-2C", getLastRow: () => 1,
+                    getRange: () => ({ getValues: () => [["6117001"]] }) };
+    let reg2 = { appendRow: (fila) => apuntado2.push(fila), getMaxColumns: () => 6,
+                 getRange: () => ({ getValue: () => "BLOQUE" }) };
+    let lanzo = false;
+    try {
+        recalcularPedimentosFinales({ getSheets: () => [unidad, unidad3, hoja2],
+            getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? reg2 : null }, hoja2, 3, 5);
+    } catch (err) { lanzo = true; }
+    ok("un bloque que falla no se lleva el registro de los otros",
+       apuntado2.some(a => a[2] === "6117001") && lanzo);
+
     ok("misma hora: dos fechas iguales, o las dos vacias",
        mismaHoraFinal(H(9, 1), H(9, 1)) && mismaHoraFinal("", null) && !mismaHoraFinal(H(9, 1), ""));
 

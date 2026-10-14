@@ -770,8 +770,24 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
     };
 
     if (!(ahora instanceof Date)) ahora = new Date();
-    let paraRegistro = [];
+    // Un recálculo COMPLETO —WMSACT, o el botón del menú— además cuadra la
+    // pestaña con el registro: ver `faltanEnRegistro`.
+    let completo = !filaDesde && !soloBloques;
+    let paraRegistro = [], enLaHoja = [], fallo = null;
+    let filaDeRegistro = (b, ev, h, unidadDelBloque, i) => {
+        let r = ev.resultados.get(i) || {};
+        let f = b.filas.find(x => x.idx === i) || {};
+        // Con SU hora, que en un hueco rellenado es la de arriba.
+        return [h.horas[i - b.desde][0], unidadDelBloque, r.pedimento || "",
+                r.esTanda ? "📦 LLEGÓ EL " + r.tanda : (r.estado || ""),
+                f.patente || "", r.tanda || ""];
+    };
+    // UN BLOQUE QUE FALLA NO SE LLEVA A LOS DEMÁS, y lo suyo va al registro
+    // ANTES de escribir la hora en la hoja. Al revés, un error a mitad dejaba
+    // la hora puesta y sin apuntar, y como ya tenía hora nadie la volvía a
+    // apuntar: la pestaña contaba uno más que el reporte.
     bloques.forEach(b => {
+      try {
         let ev = evaluarBloqueFinal(b, unidades, leerUnidad);
         let n = b.hasta - b.desde + 1;
         // La D, la E y la F de una vez: la D dice de qué pedimento era cada
@@ -779,6 +795,19 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
         let def = hoja.getRange(b.desde + 1, COL_HORA_FINALES - 1, n, 3).getValues();
         let h = horasDelBloque(b, ev.resultados, def.map(f => [f[1]]), filaDesde, filaHasta, ahora,
                                def.map(f => [f[0]]));
+        let unidadDelBloque = ev.unidad ? ev.unidad.nombre : (b.unidad || "(sin unidad)");
+        let nuevas = new Set(h.nuevas);
+        h.nuevas.forEach(i => paraRegistro.push(filaDeRegistro(b, ev, h, unidadDelBloque, i)));
+        if (completo) {
+            for (let i = b.desde; i <= b.hasta; i++) {
+                let r = ev.resultados.get(i) || {};
+                let v = h.horas[i - b.desde][0];
+                if (nuevas.has(i) || !(r.pedimento || r.esTanda)) continue;
+                if (!(v instanceof Date) || isNaN(v.getTime())) continue;
+                enLaHoja.push(filaDeRegistro(b, ev, h, unidadDelBloque, i));
+            }
+        }
+
         let resumenTandas = resumenDeTandas(b, ev.resultados, h.horas);
         let textos = [], colores = [];
         for (let i = b.desde; i <= b.hasta; i++) {
@@ -806,25 +835,24 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
             hoja.getRange(t[0] + 1, COL_HORA_FINALES, t[1] - t[0] + 1, 2)
                 .setValues(h.horas.slice(t[0] - b.desde, t[1] - b.desde + 1).map(x => [x[0], x[0]]));
         });
-
-        let unidadDelBloque = ev.unidad ? ev.unidad.nombre : (b.unidad || "(sin unidad)");
-        h.nuevas.forEach(i => {
-            let r = ev.resultados.get(i) || {};
-            let f = b.filas.find(x => x.idx === i) || {};
-            // Con SU hora, que en un hueco rellenado es la de arriba.
-            paraRegistro.push([h.horas[i - b.desde][0], unidadDelBloque, r.pedimento || "",
-                               r.esTanda ? "📦 LLEGÓ EL " + r.tanda : (r.estado || ""),
-                               f.patente || "", r.tanda || ""]);
-        });
+      } catch (err) { if (!fallo) fallo = err; }
     });
-    // AL REGISTRO, solo las horas que se acaban de poner. Así un pedimento
-    // queda apuntado UNA vez, la del escaneo, por muchas veces que se
-    // recalcule la pestaña.
+    // AL REGISTRO, las horas que se acaban de poner. Así un pedimento queda
+    // apuntado UNA vez, la del escaneo, por muchas veces que se recalcule.
+    // Y en un recálculo completo, también lo que la pestaña tiene con hora y
+    // el registro no (`faltanEnRegistro`): pase lo que pase en un escaneo, un
+    // WMSACT deja la pestaña y el reporte con los mismos pedimentos.
+    if (completo && enLaHoja.length && typeof faltanEnRegistro === 'function') {
+        // Si no se puede comparar, se apunta al menos lo nuevo.
+        try { paraRegistro = paraRegistro.concat(faltanEnRegistro(ss, enLaHoja, paraRegistro)); }
+        catch (err) { /* lo arreglará el siguiente WMSACT */ }
+    }
     if (paraRegistro.length && typeof anotarEnRegistro === 'function') {
         try {
             anotarEnRegistro(ss, nombreHojaSisTiempos(), cabeceraSisTiempos(), paraRegistro);
         } catch (err) { /* el registro nunca puede tumbar el cuadre */ }
     }
+    if (fallo) throw fallo;
     return bloques.filter(b => b.filaUnidad !== -1).length;
 }
 

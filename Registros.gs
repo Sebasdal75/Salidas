@@ -270,6 +270,62 @@ function construirReporteDeTiempos(filas, desde) {
     return { filas: out, tipos: tipos };
 }
 
+// LO QUE LA PESTAÑA TIENE Y EL REGISTRO NO.
+//
+// La hora de un pedimento y su fila en el registro se escriben en el mismo
+// escaneo, pero pueden separarse: Google corta una ejecución a mitad, o —antes
+// del arreglo del turno— otro escaneo pisaba la hora. Si la hoja se queda con
+// la hora y el registro sin la fila, ningún escaneo posterior la vuelve a
+// apuntar (ya tiene hora), y el reporte cuenta uno menos que la pestaña: pasó
+// con 54 contra 53.
+//
+// Lo arregla el recálculo completo: de lo que la pestaña tiene con hora,
+// devuelve lo que el registro no tiene, para apuntarlo. Se compara por día,
+// unidad y pedimento (y por bloque en las llegadas), que es como agrupa el
+// reporte. `yaVan` son filas que se van a apuntar ahora mismo.
+//
+// SOLO LO QUE SE PUEDE COMPROBAR: lo de la última semana —lo que enseña el
+// reporte— y nada anterior a lo más viejo que se leyó del registro. Sin ese
+// tope, con un registro más largo que lo que se lee, lo viejo se apuntaría
+// otra vez en cada WMSACT.
+function claveDeTiempo(f) {
+    let fecha = (f || [])[0];
+    if (!esFechaValida(fecha)) return "";
+    let ped = String(f[2] === undefined || f[2] === null ? "" : f[2]).trim();
+    if (/^\d{1,7}$/.test(ped)) ped = ("0000000" + ped).slice(-7);
+    let unidad = String(f[1] || "").trim().toUpperCase();
+    return claveDeDia(fecha) + "|" + unidad + "|" + ped + "|" +
+           (ped === "" ? String(f[5] || "").trim().toUpperCase() : "");
+}
+
+function faltanEnRegistro(ss, filas, yaVan) {
+    let hay = new Set();
+    let desde = new Date();
+    desde.setHours(0, 0, 0, 0);
+    desde.setDate(desde.getDate() - (DIAS_REPORTE_TIEMPOS - 1));
+    let reg = ss.getSheetByName(HOJA_SIS_TIEMPOS);
+    if (reg && reg.getLastRow() > 1) {
+        let lr = reg.getLastRow();
+        let desdeFila = Math.max(2, lr - FILAS_MAX_LEIDAS_TIEMPOS + 1);
+        let leidas = reg.getRange(desdeFila, 1, lr - desdeFila + 1, CABECERA_SIS_TIEMPOS.length).getValues();
+        leidas.forEach(f => hay.add(claveDeTiempo(f)));
+        if (desdeFila > 2) {
+            let fechas = leidas.map(f => f[0]).filter(esFechaValida);
+            let masVieja = fechas.length ? new Date(Math.min.apply(null, fechas.map(d => d.getTime()))) : new Date();
+            if (masVieja > desde) desde = masVieja;
+        }
+    }
+    (yaVan || []).forEach(f => hay.add(claveDeTiempo(f)));
+    let out = [];
+    (filas || []).forEach(f => {
+        let k = claveDeTiempo(f);
+        if (k === "" || f[0] < desde || hay.has(k)) return;
+        hay.add(k);
+        out.push(f);
+    });
+    return out;
+}
+
 // Lo que había en SIS_TIEMPOS_PEDIMENTOS cuando todavía era el registro crudo
 // se pasa al registro nuevo, UNA vez. Se reconoce por sus títulos.
 function mudarRegistroDeTiemposViejo(ss) {
