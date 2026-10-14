@@ -2760,8 +2760,20 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("y va al registro", h.nuevas.length === 1 && h.nuevas[0] === 3);
     ok("la hora que ya tenia otro NO se toca", h.horas[1][0] === ANTES);
     ok("la fila de la unidad no lleva hora", h.horas[0][0] === "");
-    let otraVez = horasDelBloque(bloque, res, [[""], [ANTES], [AHORA], [""]], 4, 4, new Date());
-    ok("reescanear o recalcular no cambia la hora", otraVez.horas[2][0] === AHORA && otraVez.nuevas.length === 0);
+    // La D dice de que pedimento era la hora (Sheets la guarda como numero).
+    let otraVez = horasDelBloque(bloque, res, [[""], [ANTES], [AHORA], [""]], 4, 4, new Date(2026, 9, 15),
+                                 [[""], [6116004], [6116008], [""]]);
+    ok("reescanear el mismo papel no cambia la hora", otraVez.horas[2][0] === AHORA && otraVez.nuevas.length === 0);
+    let doble = horasDelBloque(bloque, res, [[""], [ANTES], [AHORA], [""]], 4, 4,
+                               new Date(AHORA.getTime() + 40000), [[""], [""], [""], [""]]);
+    ok("el mismo escaneo procesado dos veces tampoco", doble.horas[2][0] === AHORA && doble.nuevas.length === 0);
+    // UN PAPEL NUEVO EN UNA FILA CON HORA VIEJA: antes se quedaba la vieja, no
+    // iba al registro de hoy y el reporte contaba uno menos.
+    const HACE_DOS_DIAS = new Date(2026, 9, 12, 8, 31, 0);
+    let encima = horasDelBloque(bloque, res, [[""], [ANTES], [HACE_DOS_DIAS], [""]], 4, 4, AHORA,
+                                [[""], ["6116004"], ["6110000"], [""]]);
+    ok("un papel nuevo sobre una hora vieja lleva la de ahora",
+       encima.horas[2][0] === AHORA && encima.nuevas.join() === "3");
     let completo = horasDelBloque(bloque, res, [[""], [""], [""], [""]], undefined, undefined, AHORA);
     ok("un WMSACT no inventa horas para lo escaneado antes",
        completo.nuevas.length === 0 && completo.horas.every(x => x[0] === ""));
@@ -2840,6 +2852,19 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("y su pedimento no toma la del bloque anterior", t.horas[4][0] === t.horas[5][0]);
     let vacio = horasDelBloque(conT, resT, [[""], [H(9, 0)], [H(9, 1)], [""], [""], [""]]);
     ok("un bloque donde nadie tiene hora se queda como esta", vacio.nuevas.length === 0);
+
+    // UNA HORA DE HACE DOS DIAS ENTRE LAS DE HOY: el bloque decia «(2882 min)»
+    // y el reporte contaba uno menos. Se rellena con la de arriba.
+    const D = (dia, h, m) => new Date(2026, 9, dia, h, m, 0);
+    let vieja = horasDelBloque(conT, resT, [[""], [D(14, 12, 8)], [D(12, 12, 8)], [""], [""], [""]]);
+    ok("la hora de otro dia debajo de la de hoy se rellena",
+       vieja.horas[2][0].getTime() === D(14, 12, 8).getTime() && vieja.nuevas.join() === "3");
+    let suelta = horasDelBloque(conT, resT, [[""], [D(14, 12, 8)], [D(14, 12, 9)], [D(14, 12, 20)],
+                                             [D(12, 12, 21)], [D(14, 12, 22)]]);
+    ok("tambien en medio de un bloque", suelta.nuevas.join() === "5" &&
+       suelta.horas[4][0].getTime() === D(14, 12, 20).getTime());
+    let deAyer = horasDelBloque(bloque, res, [[""], [D(13, 18, 0)], [D(13, 18, 1)], [D(14, 9, 0)], [D(14, 9, 1)]]);
+    ok("un bloque de ayer al que hoy se le añadio algo no se toca", deAyer.nuevas.length === 0);
 
     ok("las filas seguidas se juntan", JSON.stringify(tramosSeguidos([3, 4, 5, 9])) === "[[3,5],[9,9]]");
     ok("sin filas, nada", tramosSeguidos([]).length === 0);

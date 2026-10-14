@@ -533,7 +533,7 @@ function unidadesDelArchivo(ss) {
 //
 // LA HORA DE AHORA SOLO SE PONE AL ESCANEAR: a las filas de pedimento que
 // están dentro de lo editado (`filaDesde`-`filaHasta`) y que todavía no tienen
-// hora. Un recálculo completo —WMSACT— no pone la suya a nadie. Si lo hiciera,
+// la suya. Un recálculo completo —WMSACT— no pone la suya a nadie. Si lo hiciera,
 // los pedimentos escaneados antes de que existiera esta columna saldrían todos
 // con la hora del WMSACT, y esa hora inventada es justo la que estropea la
 // cuenta de tiempos.
@@ -552,39 +552,85 @@ function unidadesDelArchivo(ss) {
 // siguiente llegó cuando el otro terminó. Y un bloque donde nadie tiene hora
 // —lo escaneado antes de la columna— se queda como está.
 //
-// La hora que ya está NO SE TOCA NUNCA, aunque se recalcule cien veces. Solo
-// se borra si en esa fila, al editarla, ya no queda un pedimento.
+// LA HORA ES DEL PAPEL, NO DE LA FILA. Al escanear en una fila que ya tenía
+// hora, se queda solo si es el MISMO pedimento (la columna D dice cuál era) o
+// si se puso hace un momento (el mismo escaneo procesado dos veces). Si no, es
+// un papel nuevo y lleva la hora de ahora. Antes la hora vieja se quedaba
+// siempre: un pedimento escaneado hoy en una fila con una hora de hace dos
+// días salía con esa hora, no iba al registro de hoy —el reporte contaba uno
+// menos— y su bloque decía «(2882 min)».
+//
+// UNA HORA VIEJA ENTRE LAS DE HOY TAMBIÉN SE ARREGLA. Dentro de un BLOQUE se
+// escanea de arriba abajo en pocos minutos, así que una hora de más de doce
+// horas ANTES que la de una fila de arriba es un resto de otro día: se trata
+// como un hueco y se rellena. Lo de abajo puede ser más nuevo —un bloque de
+// ayer al que hoy se le añadió algo— y eso no se toca.
+//
+// Fuera de eso, la hora que ya está NO SE TOCA, aunque se recalcule cien
+// veces. Solo se borra si en esa fila, al editarla, ya no queda un pedimento.
+//
+// `pedimentosAntes` es la columna D de antes, en el formato de `getValues`.
 //
 // Devuelve las horas en el formato de `getValues`, los índices de las filas a
 // las que se les acaba de poner (las que van al registro) y los de TODAS las
 // que cambian, que son las únicas que se escriben.
-function horasDelBloque(bloque, resultados, horasAntes, filaDesde, filaHasta, ahora) {
+const MS_HORA_RECIENTE_FINALES = 10 * 60000;
+const MS_HORA_VIEJA_FINALES = 12 * 3600000;
+
+function horasDelBloque(bloque, resultados, horasAntes, filaDesde, filaHasta, ahora, pedimentosAntes) {
     let esHora = v => v instanceof Date && !isNaN(v.getTime());
-    let horas = [], nuevas = [], cambiadas = [], huecos = new Set();
+    let comoPedimento = v => {
+        let t = String(v === undefined || v === null ? "" : v).trim();
+        return /^\d{1,7}$/.test(t) ? ("0000000" + t).slice(-7) : t;
+    };
+    let horas = [], nuevas = [], cambiadas = [], huecos = new Set(), editadas = new Set();
     let d = filaDesde ? filaDesde - 1 : -1;
     let hst = filaDesde ? (filaHasta || filaDesde) - 1 : -2;
     for (let i = bloque.desde; i <= bloque.hasta; i++) {
-        let antes = (horasAntes[i - bloque.desde] || [])[0];
+        let k = i - bloque.desde;
+        let antes = (horasAntes[k] || [])[0];
         if (antes === undefined || antes === null) antes = "";
         let r = resultados.get(i) || {};
         // La fila del BLOQUE también lleva hora: es cuándo llegó esa tanda,
         // la mitad de la cuenta de tiempos.
         let llevaHora = !!(r.pedimento || r.esTanda);
         let editada = i >= d && i <= hst;
-        if (editada && !llevaHora) {
-            horas.push([""]);
-            if (String(antes).trim() !== "") cambiadas.push(i);
-        } else if (!llevaHora || esHora(antes)) {
-            horas.push([antes]);
+        if (editada) editadas.add(i);
+        if (!llevaHora) {
+            if (editada) {
+                horas.push([""]);
+                if (String(antes).trim() !== "") cambiadas.push(i);
+            } else {
+                horas.push([antes]);
+            }
         } else if (editada) {
-            horas.push([ahora]);
-            nuevas.push(i);
-            cambiadas.push(i);
+            let mismoPapel = esHora(antes) && (
+                (!!r.pedimento && comoPedimento(((pedimentosAntes || [])[k] || [])[0]) === r.pedimento) ||
+                (esHora(ahora) && Math.abs(ahora - antes) < MS_HORA_RECIENTE_FINALES));
+            if (mismoPapel) {
+                horas.push([antes]);
+            } else {
+                horas.push([ahora]);
+                nuevas.push(i);
+                cambiadas.push(i);
+            }
         } else {
             horas.push([antes]);
             // Lo que alguien escribió a mano en la E no se pisa.
             if (String(antes).trim() === "") huecos.add(i);
         }
+    }
+
+    // Las horas viejas entre las de hoy, como huecos.
+    let ultima = null;
+    for (let i = bloque.desde; i <= bloque.hasta; i++) {
+        let r = resultados.get(i) || {};
+        if (r.esTanda) ultima = null;
+        if (!(r.pedimento || r.esTanda) || huecos.has(i)) continue;
+        let v = horas[i - bloque.desde][0];
+        if (!esHora(v)) continue;
+        if (ultima && !editadas.has(i) && v < ultima - MS_HORA_VIEJA_FINALES) { huecos.add(i); continue; }
+        if (!ultima || v > ultima) ultima = v;
     }
 
     if (huecos.size) {
@@ -657,8 +703,9 @@ function conTurnoDeFinales(esperaMs, fn, obligatorio) {
 
 // Recalcula los bloques de la pestaña. Con `filas` (1-based, inclusive) solo
 // los que las tocan; sin él, todos. Con `soloBloques` (los `desde` de cada
-// uno), solo esos: es lo que usa el repaso.
-function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques) {
+// uno), solo esos: es lo que usa el repaso. `ahora` es la hora del escaneo,
+// tomada al llegar y no después de esperar el turno.
+function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques, ahora) {
     let lr = Math.max(hoja.getLastRow(), filaHasta || 0, FILA_INICIO_FINALES);
     let valoresA = hoja.getRange(1, 1, lr, 1).getValues();
     let bloques = bloquesDePedimentosFinales(valoresA);
@@ -693,13 +740,15 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
         return leidas.get(k);
     };
 
-    let ahora = new Date();
+    if (!(ahora instanceof Date)) ahora = new Date();
     let paraRegistro = [];
     bloques.forEach(b => {
         let ev = evaluarBloqueFinal(b, unidades, leerUnidad);
         let n = b.hasta - b.desde + 1;
-        let horasAntes = hoja.getRange(b.desde + 1, COL_HORA_FINALES, n, 1).getValues();
-        let h = horasDelBloque(b, ev.resultados, horasAntes, filaDesde, filaHasta, ahora);
+        // La D y la E de una vez: la D dice de qué pedimento era cada hora.
+        let dye = hoja.getRange(b.desde + 1, COL_HORA_FINALES - 1, n, 2).getValues();
+        let h = horasDelBloque(b, ev.resultados, dye.map(f => [f[1]]), filaDesde, filaHasta, ahora,
+                               dye.map(f => [f[0]]));
         let resumenTandas = resumenDeTandas(b, ev.resultados, h.horas);
         let textos = [], colores = [];
         for (let i = b.desde; i <= b.hasta; i++) {
@@ -876,13 +925,17 @@ function atenderPedimentosFinales(ss, hoja, fila, numFilas, esInstalable) {
         }
     }
 
+    // LA HORA, AL LLEGAR. Con cincuenta papeles en dos minutos los recálculos
+    // hacen cola, y tomarla después de esperar el turno la retrasaba.
+    let ahora = new Date();
     anotarActividadDeFinales();
     // CUÁNTO SE ESPERA DEPENDE DE QUIÉN LLAMA. El disparador simple tiene
     // treinta segundos EN TOTAL —esperar y trabajar—, y puede haber gastado
     // ya seis esperando al instalable: con 30 de espera aquí, Google lo
     // cortaba a mitad y el escaneo se quedaba sin resultado.
     conTurnoDeFinales(esInstalable ? ESPERA_FINALES_INSTALABLE_MS : ESPERA_FINALES_SIMPLE_MS, () =>
-        recalcularPedimentosFinales(ss, hoja, Math.max(fila, FILA_INICIO_FINALES), fila + numFilas - 1));
+        recalcularPedimentosFinales(ss, hoja, Math.max(fila, FILA_INICIO_FINALES), fila + numFilas - 1,
+                                    null, ahora));
 }
 
 // EL REPASO DE CINCO MINUTOS PONE LAS HORAS QUE FALTEN. El siguiente escaneo
