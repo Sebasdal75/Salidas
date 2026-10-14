@@ -147,10 +147,16 @@ function atenderReporteDeUnidad(ss, hoja, filaInicial, notas) {
 // sus pedimentos salen mezclados y no hay forma de leer «cuánto tardó la
 // GLOBAL 1». El reporte los junta:
 //
-//   🚚 GLOBAL 1 20-AE-3H    10:03   66 pedimentos   10:04   11:20   76   2 bloques
-//   📦 BLOQUE 1             10:03   10              10:04   10:07    3   empezó 1 min después de llegar
-//      6116004              10:04                                       ✅ ESTÁ EN LA UNIDAD · Patente 6087
+//   🚚 GLOBAL 1 20-AE-3H   14/10/2026  10:03   66   10:04   11:20   76   2 bloques
+//   📦 BLOQUE 1            14/10/2026  10:03   10   10:04   10:07    3
+//      6116004             14/10/2026  10:04                            ✅ ESTÁ EN LA UNIDAD · Patente 6087
 //      …
+//
+// LA FECHA Y LA HORA VAN EN COLUMNAS APARTE, a petición: así se filtra por
+// día y se lee la hora sin la fecha delante. Las dos columnas llevan el mismo
+// valor con distinto formato; partirlo a mano (medianoche para la fecha)
+// saldría un día antes si el script y el archivo tienen zonas horarias
+// distintas.
 //
 // NO SE REHACE EN CADA ESCANEO: sería releer y reescribir días de registro por
 // cada papel, y los papeles llegan de cincuenta en cincuenta. Se rehace con
@@ -161,7 +167,7 @@ function atenderReporteDeUnidad(ss, hoja, filaInicial, notas) {
 // meses tardaría en rehacerse y nadie lo lee.
 const DIAS_REPORTE_TIEMPOS = 7;
 const FILAS_MAX_LEIDAS_TIEMPOS = 6000;
-const CABECERA_REPORTE_TIEMPOS = ["UNIDAD / BLOQUE / PEDIMENTO", "FECHA Y HORA", "PEDIMENTOS",
+const CABECERA_REPORTE_TIEMPOS = ["UNIDAD / BLOQUE / PEDIMENTO", "FECHA", "HORA", "PEDIMENTOS",
                                   "DESDE", "HASTA", "MINUTOS", "DETALLE"];
 const COLOR_REPORTE_UNIDAD = '#c9daf8';
 const COLOR_REPORTE_BLOQUE = '#d9ead3';
@@ -186,7 +192,8 @@ function numeroDeBloque(etiqueta) {
 //
 // `filas` son las del registro: [fecha, unidad, pedimento, resultado, patente,
 // bloque]. Las de llegada de un bloque traen el pedimento vacío. Devuelve las
-// filas del reporte (7 columnas) y el tipo de cada una, para pintarlas.
+// filas del reporte (8 columnas, ver CABECERA_REPORTE_TIEMPOS) y el tipo de
+// cada una, para pintarlas.
 function construirReporteDeTiempos(filas, desde) {
     let dias = new Map();   // clave de día → Map(unidad → grupo)
     (filas || []).forEach(f => {
@@ -228,7 +235,7 @@ function construirReporteDeTiempos(filas, desde) {
             todas.sort((a, b) => a - b);
             let total = todas.length;
             let conBloque = bloques.filter(b => b.etiqueta !== "(sin bloque)").length;
-            out.push(["🚚 " + g.unidad, g.primera, total,
+            out.push(["🚚 " + g.unidad, g.primera, g.primera, total,
                       total ? todas[0] : "", total ? todas[total - 1] : "",
                       total ? minutosEntre(todas[0], todas[total - 1]) : "",
                       conBloque ? conBloque + (conBloque === 1 ? " bloque" : " bloques") : ""]);
@@ -245,18 +252,18 @@ function construirReporteDeTiempos(filas, desde) {
                                             anterior ? anterior.fin : null,
                                             anterior ? anterior.etiqueta : "")
                     : "";
-                out.push(["📦 " + b.etiqueta, b.llego || "", n,
+                out.push(["📦 " + b.etiqueta, b.llego || "", b.llego || "", n,
                           n ? hs[0] : "", n ? hs[n - 1] : "", n ? minutosEntre(hs[0], hs[n - 1]) : "",
                           espera]);
                 anterior = { etiqueta: b.etiqueta, fin: n ? hs[n - 1] : null };
                 tipos.push("bloque");
                 b.peds.slice().sort((a, c) => a.hora - c.hora).forEach(p => {
-                    out.push(["   " + p.ped, p.hora, "", "", "", "",
+                    out.push(["   " + p.ped, p.hora, p.hora, "", "", "", "",
                               p.resultado + (p.patente ? " · Patente " + p.patente : "")]);
                     tipos.push("pedimento");
                 });
             });
-            out.push(["", "", "", "", "", "", ""]);
+            out.push(["", "", "", "", "", "", "", ""]);
             tipos.push("vacia");
         });
     });
@@ -309,8 +316,9 @@ function rehacerReporteDeTiempos(ss) {
             h.insertRowsAfter(h.getMaxRows(), r.filas.length + 1 - h.getMaxRows());
         }
         h.getRange(2, 1, r.filas.length, ancho).setValues(r.filas);
-        h.getRange(2, 2, r.filas.length, 1).setNumberFormat("dd/mm/yyyy hh:mm");
-        h.getRange(2, 4, r.filas.length, 2).setNumberFormat("hh:mm");
+        h.getRange(2, 2, r.filas.length, 1).setNumberFormat("dd/mm/yyyy");
+        h.getRange(2, 3, r.filas.length, 1).setNumberFormat("hh:mm");
+        h.getRange(2, 5, r.filas.length, 2).setNumberFormat("hh:mm");
         h.getRange(2, 1, r.filas.length, ancho).setBackgrounds(r.tipos.map(t => {
             let c = t === "unidad" ? COLOR_REPORTE_UNIDAD : t === "bloque" ? COLOR_REPORTE_BLOQUE : '#ffffff';
             return new Array(ancho).fill(c);

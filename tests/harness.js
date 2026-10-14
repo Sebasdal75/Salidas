@@ -3011,19 +3011,23 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        col.indexOf("🚚 GLOBAL 3 11-BB-2C") > col.indexOf("   6116010"));
     let u = r.filas[0];
     ok("la fila de la unidad: total sin repetidos, desde, hasta y minutos",
-       u[2] === 3 && u[3].getHours() === 10 && u[3].getMinutes() === 4 &&
-       u[4].getHours() === 11 && u[5] === 58 && u[6] === "2 bloques");
+       u[3] === 3 && u[4].getHours() === 10 && u[4].getMinutes() === 4 &&
+       u[5].getHours() === 11 && u[6] === 58 && u[7] === "2 bloques");
+    ok("la fecha y la hora en columnas aparte",
+       r.filas.every(x => x.length === 8 && x[1] === x[2]) && u[1] instanceof Date &&
+       require('fs').readFileSync('Registros.gs', 'utf8')
+           .indexOf('["UNIDAD / BLOQUE / PEDIMENTO", "FECHA", "HORA", "PEDIMENTOS",') !== -1);
     let b1 = r.filas[1];
-    ok("el bloque con su llegada y su resumen", b1[0] === "📦 BLOQUE 1" && b1[1].getMinutes() === 3 &&
-       b1[2] === 2 && b1[5] === 3);
-    ok("el primer bloque no dice «empezo 0 min»", b1[6] === "");
+    ok("el bloque con su llegada y su resumen", b1[0] === "📦 BLOQUE 1" && b1[2].getMinutes() === 3 &&
+       b1[3] === 2 && b1[6] === 3);
+    ok("el primer bloque no dice «empezo 0 min»", b1[7] === "");
     let b2 = r.filas.find(x => x[0] === "📦 BLOQUE 2");
     ok("el segundo dice solo el hueco con el primero",
-       b2[6] === "llegó 53 min después de terminar el BLOQUE 1");
+       b2[7] === "llegó 53 min después de terminar el BLOQUE 1");
     ok("y nunca «empezo … despues de llegar»",
-       r.filas.every(x => String(x[6]).indexOf("después de llegar") === -1));
+       r.filas.every(x => String(x[7]).indexOf("después de llegar") === -1));
     ok("y sus pedimentos debajo, con resultado y patente",
-       r.filas[2][0] === "   6116004" && r.filas[2][6] === "✅ ESTÁ EN LA UNIDAD · Patente 6087");
+       r.filas[2][0] === "   6116004" && r.filas[2][7] === "✅ ESTÁ EN LA UNIDAD · Patente 6087");
     ok("el repetido no se cuenta dos veces", col.filter(x => x === "   6116004").length === 1);
     ok("lo de otro dia va en su propio grupo", col.indexOf("🚚 GLOBAL 1 77-14-ZP") !== -1);
     ok("sin bloque tambien se ve", col.indexOf("📦 (sin bloque)") !== -1);
@@ -3058,12 +3062,12 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
         getRange: () => ({ getValues: () => [
             [hoy, "GLOBAL 1", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
             [hoy, "GLOBAL 1", "6116004", "✅ ESTÁ EN LA UNIDAD", "6087", "BLOQUE 1"]] }) };
-    let escrito = null, fondos = null;
+    let escrito = null, fondos = null, formatos = {};
     let rep = { clear: () => {}, setFrozenRows: () => {}, getMaxRows: () => 2,
         insertRowsAfter: () => {},
         getRange: (fi, c, nf, nc) => ({
             setValues: (v) => { if (fi === 2) escrito = v; return { setFontWeight: () => {} }; },
-            setNumberFormat: () => {}, setBackgrounds: (v) => { fondos = v; } }) };
+            setNumberFormat: (fmt) => { formatos[c] = fmt; }, setBackgrounds: (v) => { fondos = v; } }) };
     let ssR = { getSheetByName: (nm) => nm === "SIS_TIEMPOS_REGISTRO" ? regFalso :
                                         nm === "SIS_TIEMPOS_PEDIMENTOS" ? rep : null };
     let nr = rehacerReporteDeTiempos(ssR);
@@ -3071,6 +3075,8 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        nr === 4 && escrito && escrito[0][0] === "🚚 GLOBAL 1" && escrito[1][0] === "📦 BLOQUE 1" &&
        escrito[2][0] === "   6116004");
     ok("y se pinta por tipo de fila", fondos && fondos[0][0] === '#c9daf8' && fondos[1][0] === '#d9ead3');
+    ok("la B se ve como fecha y la C como hora",
+       formatos[2] === "dd/mm/yyyy" && formatos[3] === "hh:mm" && formatos[5] === "hh:mm");
 })();
 
 // LOS REPORTES DE LA COLUMNA D DE LAS UNIDADES.
