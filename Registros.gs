@@ -233,13 +233,22 @@ function construirReporteDeTiempos(filas, desde) {
                       total ? minutosEntre(todas[0], todas[total - 1]) : "",
                       conBloque ? conBloque + (conBloque === 1 ? " bloque" : " bloques") : ""]);
             tipos.push("unidad");
+            let anterior = null;   // {etiqueta, fin} del bloque de arriba
             bloques.forEach(b => {
                 let hs = b.peds.map(p => p.hora).sort((a, c) => a - c);
                 let n = hs.length;
-                let espera = (b.llego && n) ? minutosEntre(b.llego, hs[0]) : null;
+                // La misma frase que la pestaña: nada en el primero, y del
+                // segundo en adelante el hueco con el anterior. Ver
+                // `textoDeEsperaDeBloque`.
+                let espera = (typeof textoDeEsperaDeBloque === 'function')
+                    ? textoDeEsperaDeBloque(anterior === null, b.llego, hs[0],
+                                            anterior ? anterior.fin : null,
+                                            anterior ? anterior.etiqueta : "")
+                    : "";
                 out.push(["📦 " + b.etiqueta, b.llego || "", n,
                           n ? hs[0] : "", n ? hs[n - 1] : "", n ? minutosEntre(hs[0], hs[n - 1]) : "",
-                          espera === null ? "" : "empezó " + espera + " min después de llegar"]);
+                          espera]);
+                anterior = { etiqueta: b.etiqueta, fin: n ? hs[n - 1] : null };
                 tipos.push("bloque");
                 b.peds.slice().sort((a, c) => a.hora - c.hora).forEach(p => {
                     out.push(["   " + p.ped, p.hora, "", "", "", "",

@@ -2833,8 +2833,11 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     let rs = resumenDeTandas(bl[0], ev.resultados, horas);
     ok("cuantos pedimentos trae y en que horario",
        rs.get(2).estado === "📦 BLOQUE 1 · 2 pedimentos · 09:10 → 09:42 (32 min)");
-    ok("cuando llego y cuanto se tardo en empezar",
-       rs.get(2).detalle === "Llegó a las 09:05 · el primero se escaneó 5 min después");
+    ok("el primer bloque solo dice cuando llego, sin «empezo 0 min»",
+       rs.get(2).detalle === "Llegó a las 09:05");
+    ok("del segundo en adelante, el hueco con el anterior y cuanto tardo en empezar",
+       rs.get(5).detalle === "Llegó a las 10:00 · llegó 18 min después de terminar el BLOQUE 1 · " +
+                             "empezó 3 min después de llegar");
     ok("el repetido en la lista no cuenta como papel nuevo",
        rs.get(5).estado.indexOf("· 1 pedimento ·") !== -1);
     ok("un bloque vacio lo dice", rs.get(8).estado === "📦 BLOQUE 7 · 0 pedimentos");
@@ -2877,7 +2880,11 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        u[4].getHours() === 11 && u[5] === 58 && u[6] === "2 bloques");
     let b1 = r.filas[1];
     ok("el bloque con su llegada y su resumen", b1[0] === "📦 BLOQUE 1" && b1[1].getMinutes() === 3 &&
-       b1[2] === 2 && b1[5] === 3 && b1[6] === "empezó 1 min después de llegar");
+       b1[2] === 2 && b1[5] === 3);
+    ok("el primer bloque no dice «empezo 0 min»", b1[6] === "");
+    let b2 = r.filas.find(x => x[0] === "📦 BLOQUE 2");
+    ok("el segundo dice el hueco con el primero y cuanto tardo en empezar",
+       b2[6] === "llegó 53 min después de terminar el BLOQUE 1 · empezó 2 min después de llegar");
     ok("y sus pedimentos debajo, con resultado y patente",
        r.filas[2][0] === "   6116004" && r.filas[2][6] === "✅ ESTÁ EN LA UNIDAD · Patente 6087");
     ok("el repetido no se cuenta dos veces", col.filter(x => x === "   6116004").length === 1);

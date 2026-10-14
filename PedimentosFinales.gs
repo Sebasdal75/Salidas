@@ -264,12 +264,40 @@ function horaCorta(d) {
     return dos(d.getHours()) + ":" + dos(d.getMinutes());
 }
 
+// LAS ESPERAS DE UN BLOQUE, en palabras. Puro.
+//
+// EN EL PRIMER BLOQUE NO SE DICE NADA: llega y se empieza a escanear en el
+// momento, así que salía siempre «empezó 0 min después de llegar», que no
+// aporta. Lo que sí cuenta es del segundo en adelante: cuánto tardó en llegar
+// después de TERMINAR el anterior —el hueco entre tandas— y cuánto se tardó en
+// empezar a escanearlo.
+//
+// Si el bloque no tiene hora de llegada, el hueco se mide hasta su primer
+// pedimento.
+function textoDeEsperaDeBloque(esPrimero, llego, primero, finAnterior, etiquetaAnterior) {
+    if (esPrimero) return "";
+    let esHora = v => v instanceof Date && !isNaN(v.getTime());
+    let partes = [];
+    let inicio = esHora(llego) ? llego : primero;
+    if (esHora(finAnterior) && esHora(inicio)) {
+        partes.push((esHora(llego) ? "llegó " : "empezó ") +
+                    Math.max(0, Math.round((inicio - finAnterior) / 60000)) +
+                    " min después de terminar el " + etiquetaAnterior);
+    }
+    if (esHora(llego) && esHora(primero)) {
+        partes.push("empezó " + Math.max(0, Math.round((primero - llego) / 60000)) +
+                    " min después de llegar");
+    }
+    return partes.join(" · ");
+}
+
 // El resumen de cada fila de bloque, con las horas ya puestas. Puro.
 // Devuelve idx → {estado, detalle}.
 function resumenDeTandas(bloque, resultados, horas) {
     let out = new Map();
     let filas = (bloque.filas || []).slice().sort((a, b) => a.idx - b.idx);
     let esHora = v => v instanceof Date && !isNaN(v.getTime());
+    let anterior = null;   // {etiqueta, fin} del bloque de arriba
     filas.forEach((f, k) => {
         if (f.tipo !== "tanda") return;
         let r = resultados.get(f.idx) || {};
@@ -291,12 +319,13 @@ function resumenDeTandas(bloque, resultados, horas) {
             estado += " · " + horaCorta(hs[0]) + " → " + horaCorta(hs[hs.length - 1]) +
                       " (" + min + " min)";
         }
-        let detalle = esHora(llego)
-            ? "Llegó a las " + horaCorta(llego) +
-              (hs.length ? " · el primero se escaneó " +
-                           Math.round((hs[0] - llego) / 60000) + " min después" : "")
-            : "";
+        let espera = textoDeEsperaDeBloque(anterior === null, llego, hs[0],
+                                           anterior ? anterior.fin : null,
+                                           anterior ? anterior.etiqueta : "");
+        let detalle = [esHora(llego) ? "Llegó a las " + horaCorta(llego) : "", espera]
+            .filter(x => x !== "").join(" · ");
         out.set(f.idx, { estado: estado, detalle: detalle });
+        anterior = { etiqueta: r.tanda || "BLOQUE", fin: hs.length ? hs[hs.length - 1] : null };
     });
     return out;
 }
