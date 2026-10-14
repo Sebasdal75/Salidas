@@ -566,6 +566,11 @@ function unidadesDelArchivo(ss) {
 // como un hueco y se rellena. Lo de abajo puede ser más nuevo —un bloque de
 // ayer al que hoy se le añadió algo— y eso no se toca.
 //
+// Y LA FILA DEL BLOQUE CON HORA DE OTRO DÍA, también: una llegada de más de
+// doce horas antes que su primer pedimento es la de ayer, que se quedó en la
+// fila al reaprovecharla para la misma unidad. Toma la de su primer pedimento
+// y el reporte de hoy ya tiene llegada.
+//
 // Fuera de eso, la hora que ya está NO SE TOCA, aunque se recalcule cien
 // veces. Solo se borra si en esa fila, al editarla, ya no queda un pedimento.
 //
@@ -621,7 +626,22 @@ function horasDelBloque(bloque, resultados, horasAntes, filaDesde, filaHasta, ah
         }
     }
 
-    // Las horas viejas entre las de hoy, como huecos.
+    // Las horas viejas entre las de hoy, como huecos. Primero los BLOQUES
+    // contra su primer pedimento…
+    let conHora = (j) => {
+        let rj = resultados.get(j) || {};
+        return (rj.pedimento || rj.esTanda) && !huecos.has(j) && esHora(horas[j - bloque.desde][0]);
+    };
+    for (let i = bloque.desde; i <= bloque.hasta; i++) {
+        let r = resultados.get(i) || {};
+        if (!r.esTanda || editadas.has(i) || !conHora(i)) continue;
+        for (let j = i + 1; j <= bloque.hasta && !(resultados.get(j) || {}).esTanda; j++) {
+            if (!conHora(j)) continue;
+            if (horas[i - bloque.desde][0] < horas[j - bloque.desde][0] - MS_HORA_VIEJA_FINALES) huecos.add(i);
+            break;
+        }
+    }
+    // …y luego cada fila contra las de arriba.
     let ultima = null;
     for (let i = bloque.desde; i <= bloque.hasta; i++) {
         let r = resultados.get(i) || {};
@@ -668,6 +688,15 @@ function tramosSeguidos(indices) {
         else out.push([i, i]);
     });
     return out;
+}
+
+// ¿La F dice lo mismo que la E? Dos fechas del mismo instante, o las dos
+// vacías. Puro.
+function mismaHoraFinal(a, b) {
+    let esHora = v => v instanceof Date && !isNaN(v.getTime());
+    if (esHora(a) || esHora(b)) return esHora(a) && esHora(b) && a.getTime() === b.getTime();
+    let t = v => String(v === undefined || v === null ? "" : v).trim();
+    return t(a) === t(b);
 }
 
 // LOS RECÁLCULOS DE ESTA PESTAÑA VAN DE UNO EN UNO, con el lock del script (no
@@ -745,10 +774,11 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
     bloques.forEach(b => {
         let ev = evaluarBloqueFinal(b, unidades, leerUnidad);
         let n = b.hasta - b.desde + 1;
-        // La D y la E de una vez: la D dice de qué pedimento era cada hora.
-        let dye = hoja.getRange(b.desde + 1, COL_HORA_FINALES - 1, n, 2).getValues();
-        let h = horasDelBloque(b, ev.resultados, dye.map(f => [f[1]]), filaDesde, filaHasta, ahora,
-                               dye.map(f => [f[0]]));
+        // La D, la E y la F de una vez: la D dice de qué pedimento era cada
+        // hora, la E es la fecha y la hora, y la F la misma hora aparte.
+        let def = hoja.getRange(b.desde + 1, COL_HORA_FINALES - 1, n, 3).getValues();
+        let h = horasDelBloque(b, ev.resultados, def.map(f => [f[1]]), filaDesde, filaHasta, ahora,
+                               def.map(f => [f[0]]));
         let resumenTandas = resumenDeTandas(b, ev.resultados, h.horas);
         let textos = [], colores = [];
         for (let i = b.desde; i <= b.hasta; i++) {
@@ -763,12 +793,18 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques
         }
         hoja.getRange(b.desde + 1, 2, n, 3).setValues(textos);
         hoja.getRange(b.desde + 1, 2, n, 1).setBackgrounds(colores);
-        // LA E, SOLO DONDE CAMBIA. Reescribirla entera devolvía a la hoja lo
-        // que se leyó al empezar, y si mientras tanto otro escaneo había puesto
-        // una hora, se borraba.
-        tramosSeguidos(h.cambiadas).forEach(t => {
-            hoja.getRange(t[0] + 1, COL_HORA_FINALES, t[1] - t[0] + 1, 1)
-                .setValues(h.horas.slice(t[0] - b.desde, t[1] - b.desde + 1));
+        // LA E Y LA F, SOLO DONDE CAMBIAN. Reescribirlas enteras devolvía a la
+        // hoja lo que se leyó al empezar, y si mientras tanto otro escaneo
+        // había puesto una hora, se borraba. También donde la F no dice lo
+        // mismo que la E: así WMSACT la pone en lo escaneado antes de que
+        // existiera.
+        let aEscribir = new Set(h.cambiadas);
+        for (let i = b.desde; i <= b.hasta; i++) {
+            if (!mismaHoraFinal(h.horas[i - b.desde][0], def[i - b.desde][2])) aEscribir.add(i);
+        }
+        tramosSeguidos(Array.from(aEscribir).sort((x, y) => x - y)).forEach(t => {
+            hoja.getRange(t[0] + 1, COL_HORA_FINALES, t[1] - t[0] + 1, 2)
+                .setValues(h.horas.slice(t[0] - b.desde, t[1] - b.desde + 1).map(x => [x[0], x[0]]));
         });
 
         let unidadDelBloque = ev.unidad ? ev.unidad.nombre : (b.unidad || "(sin unidad)");
@@ -841,6 +877,10 @@ const COL_CODIGOS_UNIDAD = 7;
 // LA HORA DE CADA PEDIMENTO, en la E. Se pone AL ESCANEARLO y no se vuelve a
 // tocar: los papeles llegan por tandas y esta hora es la que dice cuándo llegó
 // cada una. Ver `horasDelBloque`.
+// LA FECHA Y LA HORA VAN APARTE, a petición: la E con la fecha y la F con
+// la hora. Las dos guardan el mismo valor —la fecha y hora entera— con
+// distinto formato. La que se lee para todo es la E; la F se escribe siempre
+// junto con ella.
 const COL_HORA_FINALES = 5;
 
 function escribirCodigosDeUnidades(ss, hoja) {
@@ -880,12 +920,16 @@ function ponerTitulosFinales(hoja) {
     if (hoja.getMaxColumns() < COL_CODIGOS_UNIDAD + 1) {
         hoja.insertColumnsAfter(hoja.getMaxColumns(), COL_CODIGOS_UNIDAD + 1 - hoja.getMaxColumns());
     }
-    hoja.getRange(1, 1, 1, 5)
-        .setValues([["UNIDAD Y SUS PEDIMENTOS", "RESULTADO", "ERRORES Y DETALLE", "PEDIMENTO", "HORA"]])
+    hoja.getRange(1, 1, 1, 6)
+        .setValues([["UNIDAD Y SUS PEDIMENTOS", "RESULTADO", "ERRORES Y DETALLE", "PEDIMENTO",
+                     "FECHA", "HORA"]])
         .setFontWeight("bold");
     hoja.getRange(2, COL_HORA_FINALES, Math.max(hoja.getMaxRows() - 1, 1), 1)
-        .setNumberFormat("dd/mm/yyyy hh:mm:ss");
-    hoja.setColumnWidth(COL_HORA_FINALES, 150);
+        .setNumberFormat("dd/mm/yyyy");
+    hoja.getRange(2, COL_HORA_FINALES + 1, Math.max(hoja.getMaxRows() - 1, 1), 1)
+        .setNumberFormat("hh:mm:ss");
+    hoja.setColumnWidth(COL_HORA_FINALES, 95);
+    hoja.setColumnWidth(COL_HORA_FINALES + 1, 80);
     // COMO TEXTO, la A y la D: un número que empiece por cero perdería el
     // cero al convertirse en número, y dejaría de tener siete dígitos.
     let filas = hoja.getMaxRows();
@@ -1037,8 +1081,8 @@ function prepararPedimentosFinales() {
         "LOS PAPELES POR TANDAS: antes de cada tanda escribe (o escanea) " +
         "«BLOQUE» debajo de la unidad. Se numeran solos; la fila del bloque " +
         "dice cuántos pedimentos trae y en qué horario se escanearon.\n\n" +
-        "La columna E guarda la HORA en que escaneaste cada pedimento, y no " +
-        "cambia aunque se recalcule. Si a alguno se le escapa, se le pone la " +
+        "Las columnas E y F guardan la FECHA y la HORA en que escaneaste cada " +
+        "pedimento, y no cambian aunque se recalcule. Si a alguno se le escapa, se le pone la " +
         "del de arriba en cuanto escaneas el siguiente (o con WMSACT, o en el " +
         "repaso de cinco minutos). Cada hora queda apuntada en «" +
         "SIS_TIEMPOS_REGISTRO», que no se borra aunque limpies esta pestaña, y " +

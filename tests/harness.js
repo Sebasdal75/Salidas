@@ -2865,6 +2865,13 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        suelta.horas[4][0].getTime() === D(14, 12, 20).getTime());
     let deAyer = horasDelBloque(bloque, res, [[""], [D(13, 18, 0)], [D(13, 18, 1)], [D(14, 9, 0)], [D(14, 9, 1)]]);
     ok("un bloque de ayer al que hoy se le añadio algo no se toca", deAyer.nuevas.length === 0);
+    // LA FILA DEL BLOQUE DE AYER, reaprovechada hoy para la misma unidad: el
+    // reporte de hoy salia con el BLOQUE sin hora de llegada.
+    let bloqueDeAyer = horasDelBloque(conT, resT, [[""], [D(14, 12, 8)], [D(15, 12, 9)], [""], [""], [""]]);
+    ok("el BLOQUE con hora de ayer toma la de su primer pedimento de hoy",
+       bloqueDeAyer.horas[1][0].getTime() === D(15, 12, 9).getTime() && bloqueDeAyer.nuevas.join() === "2");
+    let bloqueBien = horasDelBloque(conT, resT, [[""], [D(15, 11, 50)], [D(15, 12, 9)], [""], [""], [""]]);
+    ok("un BLOQUE que llego un rato antes se queda como esta", bloqueBien.nuevas.length === 0);
 
     ok("las filas seguidas se juntan", JSON.stringify(tramosSeguidos([3, 4, 5, 9])) === "[[3,5],[9,9]]");
     ok("sin filas, nada", tramosSeguidos([]).length === 0);
@@ -2872,9 +2879,10 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     // DE PUNTA A PUNTA: la E solo se escribe donde cambia, y el registro lleva
     // la hora rellenada, no la de ahora.
     let escritosE = [], apuntado = [];
-    let rejilla = [["T", "", "", "", ""], ["global 1", "", "", "", ""],
-                   ["6116004", "", "", "", H(9, 1)], ["6116008", "", "", "", ""],
-                   ["6116010", "", "", "", H(9, 3)], ["6116012", "", "", "", ""]];
+    // La E con la fecha y la F con la hora: el mismo valor en las dos.
+    let rejilla = [["T", "", "", "", "", ""], ["global 1", "", "", "", "", ""],
+                   ["6116004", "", "", "", H(9, 1), H(9, 1)], ["6116008", "", "", "", "", ""],
+                   ["6116010", "", "", "", H(9, 3), H(9, 3)], ["6116012", "", "", "", "", ""]];
     let finales = { getName: () => "PEDIMENTOS FINALES", getLastRow: () => rejilla.length,
         getRange: (f, c, nf, nc) => ({
             getValues: () => rejilla.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
@@ -2889,9 +2897,34 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     recalcularPedimentosFinales(ss, finales, 6, 6);
     ok("la E se escribe solo en las filas que cambian",
        escritosE.length === 2 && escritosE[0].f === 4 && escritosE[0].n === 1 && escritosE[1].f === 6);
+    ok("y con ella la F, con el mismo valor",
+       escritosE[0].v[0].length === 2 && escritosE[0].v[0][0] === escritosE[0].v[0][1] &&
+       escritosE[0].v[0][0] instanceof Date);
     ok("la que ya tenia hora no se reescribe", !escritosE.some(e => e.f === 3 || e.f === 5));
     ok("al registro van las dos", apuntado.length === 2 && apuntado[0][2] === "6116008");
     ok("la rellenada con la hora de arriba", apuntado[0][0].getTime() === H(9, 1).getTime());
+
+    // LO ESCANEADO ANTES DE PARTIR LA FECHA Y LA HORA: tiene la E y no la F.
+    // WMSACT le pone la F, sin tocar su hora ni apuntarlo otra vez.
+    let antesDeLaF = rejilla.map(r => r.slice());
+    antesDeLaF[2][5] = "";
+    let soloF = [], apuntadoF = [];
+    let hojaF = { getName: () => "PEDIMENTOS FINALES", getLastRow: () => antesDeLaF.length,
+        getRange: (f, c, nf, nc) => ({
+            getValues: () => antesDeLaF.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
+            setValues: (v) => { if (c === 5) soloF.push({ f: f, v: v }); },
+            setBackgrounds: () => {} }) };
+    let registroF = { appendRow: (fila) => apuntadoF.push(fila), getMaxColumns: () => 6,
+                      getRange: () => ({ getValue: () => "BLOQUE" }) };
+    recalcularPedimentosFinales({ getSheets: () => [unidad, hojaF],
+        getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? registroF : null }, hojaF);
+    let filaTres = soloF.find(x => x.f === 3);
+    ok("WMSACT pone la F a lo que solo tenia la E",
+       !!filaTres && filaTres.v[0][1].getTime() === H(9, 1).getTime() &&
+       filaTres.v[0][0].getTime() === H(9, 1).getTime());
+    ok("y eso no se apunta otra vez en el registro", !apuntadoF.some(a => a[2] === "6116004"));
+    ok("misma hora: dos fechas iguales, o las dos vacias",
+       mismaHoraFinal(H(9, 1), H(9, 1)) && mismaHoraFinal("", null) && !mismaHoraFinal(H(9, 1), ""));
 
     // EL TURNO: todo a la hoja ANTES de soltar el lock. Google guarda al
     // terminar la ejecucion, y el escaneo siguiente leia la E todavia vacia.
@@ -3077,6 +3110,8 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("y se pinta por tipo de fila", fondos && fondos[0][0] === '#c9daf8' && fondos[1][0] === '#d9ead3');
     ok("la B se ve como fecha y la C como hora",
        formatos[2] === "dd/mm/yyyy" && formatos[3] === "hh:mm" && formatos[5] === "hh:mm");
+    ok("y los pedimentos y los minutos como numeros, no «00:00»",
+       formatos[4] === "0" && formatos[7] === "0");
 })();
 
 // LOS REPORTES DE LA COLUMNA D DE LAS UNIDADES.

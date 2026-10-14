@@ -319,6 +319,11 @@ function rehacerReporteDeTiempos(ss) {
         h.getRange(2, 2, r.filas.length, 1).setNumberFormat("dd/mm/yyyy");
         h.getRange(2, 3, r.filas.length, 1).setNumberFormat("hh:mm");
         h.getRange(2, 5, r.filas.length, 2).setNumberFormat("hh:mm");
+        // LOS NÚMEROS, COMO NÚMEROS. La columna de los pedimentos salía en
+        // «00:00»: se quedó con el formato de hora de cuando ahí iban las
+        // horas, y un 19 con formato de hora es «00:00».
+        h.getRange(2, 4, r.filas.length, 1).setNumberFormat("0");
+        h.getRange(2, 7, r.filas.length, 1).setNumberFormat("0");
         h.getRange(2, 1, r.filas.length, ancho).setBackgrounds(r.tipos.map(t => {
             let c = t === "unidad" ? COLOR_REPORTE_UNIDAD : t === "bloque" ? COLOR_REPORTE_BLOQUE : '#ffffff';
             return new Array(ancho).fill(c);
