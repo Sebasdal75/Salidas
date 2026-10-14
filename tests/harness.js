@@ -2779,7 +2779,8 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
             setBackgrounds: () => {} }) };
     let unidad = { getName: () => "GLOBAL 1 20-AE-3H", getLastRow: () => 1,
                    getRange: () => ({ getValues: () => [["6116004"]] }) };
-    let registro = { appendRow: (fila) => apuntado.push(fila) };
+    let registro = { appendRow: (fila) => apuntado.push(fila), getMaxColumns: () => 6,
+                     getRange: () => ({ getValue: () => "BLOQUE" }) };
     let ss = { getSheets: () => [unidad, finales],
                getSheetByName: (n) => n === "SIS_TIEMPOS_PEDIMENTOS" ? registro : null };
     recalcularPedimentosFinales(ss, finales, 3, 3);
@@ -2799,6 +2800,57 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
             setNumberFormat: () => {} }) };
     ponerTitulosFinales(vieja);
     ok("los codigos viejos de la E y la F se borran", borrados.some(b => b[0] === 5 && b[1] === 2));
+})();
+
+// LOS BLOQUES DE PAPELES: los pedimentos llegan por tandas.
+(function () {
+    ok("«BLOQUE» es un bloque, no una unidad", tipoDeCeldaFinal("bloque").tipo === "tanda");
+    ok("con su numero si se escribe", tipoDeCeldaFinal("BLOQUE 3").numero === 3);
+    ok("«TANDA» vale igual", tipoDeCeldaFinal("Tanda").tipo === "tanda");
+    ok("una unidad sigue siendo unidad", tipoDeCeldaFinal("GLOBAL 1").tipo === "unidad");
+
+    let col = [["T"], ["GLOBAL 1"], ["BLOQUE"], ["6116004"], ["6116008"],
+               ["BLOQUE"], ["6116010"], ["6116004"], ["BLOQUE 7"], ["BLOQUE"]];
+    let bl = bloquesDePedimentosFinales(col);
+    ok("los bloques no parten la unidad", bl.length === 1);
+    let et = etiquetasDeTandas(bl[0].filas);
+    ok("se numeran solos", et.get(2) === "BLOQUE 1" && et.get(5) === "BLOQUE 2");
+    ok("cada pedimento lleva el suyo", et.get(3) === "BLOQUE 1" && et.get(6) === "BLOQUE 2");
+    ok("con numero fijo, los siguientes siguen desde ahi", et.get(8) === "BLOQUE 7" && et.get(9) === "BLOQUE 8");
+
+    let enU = pedimentosDeLaUnidad([["6116004"], ["6116008"], ["6116010"]]);
+    let ev = evaluarBloqueFinal(bl[0], [{ nombre: "GLOBAL 1 20-AE-3H" }], () => enU);
+    ok("la fila del bloque dice su nombre", ev.resultados.get(2).estado === "📦 BLOQUE 1");
+    ok("y los pedimentos saben su bloque", ev.resultados.get(6).tanda === "BLOQUE 2");
+    ok("el bloque no cuenta como pedimento en la unidad",
+       ev.resultados.get(1).detalle.indexOf("en la lista: 3") !== -1 &&
+       ev.resultados.get(1).estado.indexOf("1 repetido") !== -1 &&
+       ev.resultados.get(1).estado.indexOf("mal escaneado") === -1);
+
+    // El resumen con las horas.
+    let H = (h, m) => new Date(2026, 9, 14, h, m, 0);
+    let horas = [[""], [H(9, 5)], [H(9, 10)], [H(9, 42)], [H(10, 0)], [H(10, 3)], [H(10, 4)], [""], [""]];
+    let rs = resumenDeTandas(bl[0], ev.resultados, horas);
+    ok("cuantos pedimentos trae y en que horario",
+       rs.get(2).estado === "📦 BLOQUE 1 · 2 pedimentos · 09:10 → 09:42 (32 min)");
+    ok("cuando llego y cuanto se tardo en empezar",
+       rs.get(2).detalle === "Llegó a las 09:05 · el primero se escaneó 5 min después");
+    ok("el repetido en la lista no cuenta como papel nuevo",
+       rs.get(5).estado.indexOf("· 1 pedimento ·") !== -1);
+    ok("un bloque vacio lo dice", rs.get(8).estado === "📦 BLOQUE 7 · 0 pedimentos");
+
+    // La fila del bloque lleva hora: es cuando llego la tanda.
+    let h = horasDelBloque(bl[0], ev.resultados, [[""], [""], [""], [""], [""], [""], [""], [""], [""]],
+                           3, 3, H(9, 5));
+    ok("al escribir BLOQUE se apunta su hora de llegada", h.horas[1][0] instanceof Date && h.nuevas[0] === 2);
+
+    // Un BLOQUE detras de un codigo de barras corto no se toma por relleno.
+    let cc = clasificarFilasFinales([["T"], ["GLOBAL 1"], ["6087"], ["6114956"], ["T1"], ["BLOQUE"]], 1);
+    ok("BLOQUE corta el relleno del codigo", cc[5].tipo === "tanda");
+
+    // Y el codigo de barras de BLOQUE sale con los de las unidades.
+    let f = require('fs').readFileSync('PedimentosFinales.gs', 'utf8');
+    ok("hay codigo de barras para BLOQUE", f.indexOf('filas.push(["(cada nuevo bloque de pedimentos)", "BLOQUE"]);') !== -1);
 })();
 
 // LOS REPORTES DE LA COLUMNA D DE LAS UNIDADES.

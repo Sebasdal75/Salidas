@@ -136,6 +136,11 @@ function tipoDeCeldaFinal(valor) {
         }
     } catch (err) { /* sigue */ }
     if (/^\d{7}$/.test(v)) return { tipo: "pedimento", valor: v };
+    // UN BLOQUE (una tanda de papeles): «BLOQUE», o «BLOQUE 3» si se quiere
+    // fijar el número. «TANDA» vale igual. Va ANTES de la unidad: si no, la
+    // palabra se tomaría por el nombre de una pestaña.
+    let mb = /^(BLOQUE|TANDA)(?:\s*(\d+))?$/.exec(v);
+    if (mb) return { tipo: "tanda", valor: v, numero: mb[2] ? Number(mb[2]) : null };
     // El código entero en una celda: se queda con el número de pedimento.
     if (/[\r\n]|<CR>|<LF>/.test(v) || /^\d{11}/.test(v) || /^\d{4}\s+\d{7}(\s|$)/.test(v)) {
         let c = leerCodigoDePedimento(crudo);
@@ -193,7 +198,8 @@ function clasificarFilasFinales(valoresA, primeraFila) {
             // pedimento suelto, un comando, o un nombre con espacios dentro
             // —«GLOBAL 1»—, que es como se escanea una unidad. Los datos del
             // código no llevan espacios dentro.
-            if (empiezaCodigo(m) || cm.tipo === "pedimento" || cm.tipo === "comando") break;
+            if (empiezaCodigo(m) || cm.tipo === "pedimento" || cm.tipo === "comando" ||
+                cm.tipo === "tanda") break;
             if (cm.tipo === "unidad" && /\s/.test(cm.valor)) break;
             let campo = consumidos === 0 ? "clave" : consumidos === 1 ? "RFC" : "dato";
             if (consumidos === 0) celdas[j].clave = cm.valor;
@@ -213,6 +219,86 @@ function textoDeRellenoFinal(celda) {
     if (campo === "clave") return "↳ clave de pedimento";
     if (campo === "RFC") return "↳ RFC";
     return "↳ dato del código del pedimento";
+}
+
+// -------------------------------------------------------------------------
+// LOS BLOQUES DE PAPELES (TANDAS)
+// -------------------------------------------------------------------------
+//
+// Los pedimentos finales no llegan todos a la vez: diez, luego cincuenta,
+// luego el resto. Para medir esos tiempos, antes de cada tanda se escribe —o
+// se escanea— «BLOQUE» en la columna A, debajo de la unidad. Se numeran
+// solos (BLOQUE 1, BLOQUE 2…); con «BLOQUE 3» se fija el número y los
+// siguientes siguen desde ahí.
+//
+// La fila del bloque dice cuántos pedimentos trae y en qué horario se
+// escanearon, y su hora (columna E) es la de cuándo llegó la tanda. Cada
+// pedimento va al registro de tiempos con su bloque.
+const COLOR_FINAL_TANDA = '#d9ead3';
+
+// Qué bloque le toca a cada fila: idx → «BLOQUE n». Puro.
+function etiquetasDeTandas(filas) {
+    let porFila = new Map();
+    let actual = "", n = 0;
+    (filas || []).forEach(f => {
+        if (f.tipo === "tanda") {
+            n = f.numero ? f.numero : n + 1;
+            actual = "BLOQUE " + n;
+            porFila.set(f.idx, actual);
+        } else if (f.tipo === "pedimento") {
+            porFila.set(f.idx, actual);
+        }
+    });
+    return porFila;
+}
+
+function ponerTandas(out, tandas) {
+    tandas.forEach((etiqueta, idx) => {
+        let r = out.get(idx);
+        if (r && !r.esTanda) r.tanda = etiqueta;
+    });
+}
+
+function horaCorta(d) {
+    let dos = x => ("0" + x).slice(-2);
+    return dos(d.getHours()) + ":" + dos(d.getMinutes());
+}
+
+// El resumen de cada fila de bloque, con las horas ya puestas. Puro.
+// Devuelve idx → {estado, detalle}.
+function resumenDeTandas(bloque, resultados, horas) {
+    let out = new Map();
+    let filas = (bloque.filas || []).slice().sort((a, b) => a.idx - b.idx);
+    let esHora = v => v instanceof Date && !isNaN(v.getTime());
+    filas.forEach((f, k) => {
+        if (f.tipo !== "tanda") return;
+        let r = resultados.get(f.idx) || {};
+        let miembros = [];
+        for (let j = k + 1; j < filas.length && filas[j].tipo !== "tanda"; j++) {
+            if (filas[j].tipo !== "pedimento") continue;
+            let rr = resultados.get(filas[j].idx) || {};
+            // Los repetidos en la lista no son papeles nuevos: no cuentan.
+            if (String(rr.estado || "").indexOf("REPETIDO") !== -1) continue;
+            miembros.push(filas[j].idx);
+        }
+        let hs = miembros.map(i => (horas[i - bloque.desde] || [])[0]).filter(esHora)
+                         .sort((a, b) => a - b);
+        let llego = (horas[f.idx - bloque.desde] || [])[0];
+        let estado = "📦 " + (r.tanda || "BLOQUE") + " · " + miembros.length +
+                     (miembros.length === 1 ? " pedimento" : " pedimentos");
+        if (hs.length) {
+            let min = Math.round((hs[hs.length - 1] - hs[0]) / 60000);
+            estado += " · " + horaCorta(hs[0]) + " → " + horaCorta(hs[hs.length - 1]) +
+                      " (" + min + " min)";
+        }
+        let detalle = esHora(llego)
+            ? "Llegó a las " + horaCorta(llego) +
+              (hs.length ? " · el primero se escaneó " +
+                           Math.round((hs[0] - llego) / 60000) + " min después" : "")
+            : "";
+        out.set(f.idx, { estado: estado, detalle: detalle });
+    });
+    return out;
 }
 
 // Parte la columna A en bloques: una unidad y los pedimentos de debajo. Lo que
@@ -238,7 +324,7 @@ function bloquesDePedimentosFinales(valoresA) {
         }
         actual.filas.push({ idx: i, tipo: celda.tipo, valor: celda.valor, campo: celda.campo,
                             patente: celda.patente || "", clave: celda.clave || "",
-                            rfc: celda.rfc || "" });
+                            rfc: celda.rfc || "", numero: celda.numero || null });
     }
     if (actual) { actual.hasta = n - 1; bloques.push(actual); }
     return bloques;
@@ -302,6 +388,15 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad) {
             out.set(f.idx, { estado: textoDeRellenoFinal(f), color: COLOR_FINAL_RELLENO, detalle: "" });
         }
     });
+    // Los bloques de papeles. Su resumen —cuántos y en qué horario— se pone
+    // después, cuando ya se saben las horas: ver `resumenDeTandas`.
+    let tandas = etiquetasDeTandas(bloque.filas);
+    bloque.filas.forEach(f => {
+        if (f.tipo === "tanda") {
+            out.set(f.idx, { estado: "📦 " + tandas.get(f.idx), color: COLOR_FINAL_TANDA,
+                             detalle: "", esTanda: true, tanda: tandas.get(f.idx) });
+        }
+    });
 
     let r = bloque.filaUnidad === -1 ? { error: "sin" } : resolverUnidad(bloque.unidad, unidades);
     if (!r.unidad) {
@@ -324,6 +419,7 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad) {
                 out.set(f.idx, filaDeCapturaMalaFinal(f.valor));
             }
         });
+        ponerTandas(out, tandas);
         return { resultados: out };
     }
 
@@ -385,6 +481,7 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad) {
     if (sinPapel.length) detalleU += " · SIN PAPEL: " + sinPapel.join(", ");
     out.set(bloque.filaUnidad, { estado: estadoU, color: colorU, detalle: detalleU });
 
+    ponerTandas(out, tandas);
     return { resultados: out, sinPapel: sinPapel, noEstan: noEstan, estan: estan, unidad: unidad };
 }
 
@@ -430,7 +527,9 @@ function horasDelBloque(bloque, resultados, horasAntes, filaDesde, filaHasta, ah
         let r = resultados.get(i) || {};
         let editada = i >= d && i <= hst;
         if (!editada) { horas.push([antes === undefined || antes === null ? "" : antes]); continue; }
-        if (!r.pedimento) { horas.push([""]); continue; }
+        // La fila del BLOQUE también lleva hora: es cuándo llegó esa tanda,
+        // la mitad de la cuenta de tiempos.
+        if (!r.pedimento && !r.esTanda) { horas.push([""]); continue; }
         if (tieneHora) { horas.push([antes]); continue; }
         horas.push([ahora]);
         nuevas.push(i);
@@ -481,9 +580,11 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
         let n = b.hasta - b.desde + 1;
         let horasAntes = hoja.getRange(b.desde + 1, COL_HORA_FINALES, n, 1).getValues();
         let h = horasDelBloque(b, ev.resultados, horasAntes, filaDesde, filaHasta, ahora);
+        let resumenTandas = resumenDeTandas(b, ev.resultados, h.horas);
         let textos = [], colores = [];
         for (let i = b.desde; i <= b.hasta; i++) {
             let r = ev.resultados.get(i) || { estado: "", color: COLOR_FINAL_NEUTRO, detalle: "" };
+            if (resumenTandas.has(i)) r = Object.assign({}, r, resumenTandas.get(i));
             // La D lleva SOLO el número de pedimento, limpio. Cuando se escanea
             // el código de barras la columna A trae doce datos (en una celda o
             // en varias filas) y lo que interesa es uno: aquí queda a la vista,
@@ -498,7 +599,9 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
         h.nuevas.forEach(i => {
             let r = ev.resultados.get(i) || {};
             let f = b.filas.find(x => x.idx === i) || {};
-            paraRegistro.push([ahora, unidadDelBloque, r.pedimento || "", r.estado || "", f.patente || ""]);
+            paraRegistro.push([ahora, unidadDelBloque, r.pedimento || "",
+                               r.esTanda ? "📦 LLEGÓ EL " + r.tanda : (r.estado || ""),
+                               f.patente || "", r.tanda || ""]);
         });
     });
     // AL REGISTRO, solo las horas que se acaban de poner. Así un pedimento
@@ -570,6 +673,8 @@ function escribirCodigosDeUnidades(ss, hoja) {
         let c = codigoCortoDeUnidad(u.nombre, unidades);
         filas.push([u.nombre, cabeEnCode39(c) ? c : c + "   (usa Code 128)"]);
     });
+    // Y el de los bloques de papeles: se escanea antes de cada tanda.
+    filas.push(["(cada nuevo bloque de pedimentos)", "BLOQUE"]);
     let maxFilas = hoja.getMaxRows();
     if (maxFilas > 0) hoja.getRange(1, COL_CODIGOS_UNIDAD, maxFilas, 2).clearContent();
     if (hoja.getMaxRows() < filas.length + 1) {
@@ -704,6 +809,9 @@ function prepararPedimentosFinales() {
         "La columna B dice si cada pedimento ESTÁ en esa unidad, y la D trae el " +
         "número de pedimento limpio. La fila de la unidad dice el total, los que " +
         "NO ESTÁN en la unidad y los que están en la unidad SIN PAPEL.\n\n" +
+        "LOS PAPELES POR TANDAS: antes de cada tanda escribe (o escanea) " +
+        "«BLOQUE» debajo de la unidad. Se numeran solos; la fila del bloque " +
+        "dice cuántos pedimentos trae y en qué horario se escanearon.\n\n" +
         "La columna E guarda la HORA en que escaneaste cada pedimento, y no " +
         "cambia aunque se recalcule. Cada hora queda también en «" +
         "SIS_TIEMPOS_PEDIMENTOS», que no se borra aunque limpies esta pestaña.\n\n" +

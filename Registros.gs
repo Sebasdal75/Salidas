@@ -23,7 +23,8 @@
 // =========================================================================
 
 const HOJA_SIS_TIEMPOS = "SIS_TIEMPOS_PEDIMENTOS";
-const CABECERA_SIS_TIEMPOS = ["FECHA Y HORA", "UNIDAD", "PEDIMENTO", "RESULTADO AL ESCANEARLO", "PATENTE"];
+const CABECERA_SIS_TIEMPOS = ["FECHA Y HORA", "UNIDAD", "PEDIMENTO", "RESULTADO AL ESCANEARLO",
+                              "PATENTE", "BLOQUE"];
 
 const HOJA_SIS_REPORTES = "SIS_REPORTE_ERRORES";
 const CABECERA_SIS_REPORTES = ["FECHA Y HORA", "UNIDAD", "FILA", "PEDIMENTO", "GUÍA", "REPORTE", "QUIÉN"];
@@ -48,6 +49,15 @@ function anotarEnRegistro(ss, nombre, cabecera, filas) {
         h.setFrozenRows(1);
         h.getRange(2, 1, Math.max(h.getMaxRows() - 1, 1), 1)
          .setNumberFormat("dd/mm/yyyy hh:mm:ss");
+    } else if (h.getMaxColumns() < cabecera.length ||
+               String(h.getRange(1, cabecera.length).getValue()).trim() !== cabecera[cabecera.length - 1]) {
+        // UNA COLUMNA NUEVA EN UN REGISTRO QUE YA EXISTÍA (pasó con BLOQUE):
+        // sin título, los datos entrarían en una columna que nadie sabe qué es.
+        // Solo se toca la fila de títulos; lo apuntado se queda como está.
+        if (h.getMaxColumns() < cabecera.length) {
+            h.insertColumnsAfter(h.getMaxColumns(), cabecera.length - h.getMaxColumns());
+        }
+        h.getRange(1, 1, 1, cabecera.length).setValues([cabecera]).setFontWeight("bold");
     }
     filas.forEach(f => h.appendRow(f));
     return filas.length;
