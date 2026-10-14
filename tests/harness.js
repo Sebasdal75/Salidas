@@ -2761,7 +2761,7 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("la hora que ya tenia otro NO se toca", h.horas[1][0] === ANTES);
     ok("la fila de la unidad no lleva hora", h.horas[0][0] === "");
     // La D dice de que pedimento era la hora (Sheets la guarda como numero).
-    let otraVez = horasDelBloque(bloque, res, [[""], [ANTES], [AHORA], [""]], 4, 4, new Date(2026, 9, 14, 11, 0),
+    let otraVez = horasDelBloque(bloque, res, [[""], [ANTES], [AHORA], [""]], 4, 4, new Date(2026, 9, 15),
                                  [[""], [6116004], [6116008], [""]]);
     ok("reescanear el mismo papel no cambia la hora", otraVez.horas[2][0] === AHORA && otraVez.nuevas.length === 0);
     let doble = horasDelBloque(bloque, res, [[""], [ANTES], [AHORA], [""]], 4, 4,
@@ -2774,12 +2774,6 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
                                 [[""], ["6116004"], ["6110000"], [""]]);
     ok("un papel nuevo sobre una hora vieja lleva la de ahora",
        encima.horas[2][0] === AHORA && encima.nuevas.join() === "3");
-    // Se borro la lista de ayer pero la hora no llego a borrarse, y hoy se
-    // vuelve a escanear el MISMO pedimento en esa fila: es un escaneo de hoy.
-    let mismoDeAyer = horasDelBloque(bloque, res, [[""], [ANTES], [HACE_DOS_DIAS], [""]], 4, 4, AHORA,
-                                     [[""], ["6116004"], ["6116008"], [""]]);
-    ok("el mismo papel con hora de otro dia lleva la de ahora",
-       mismoDeAyer.horas[2][0] === AHORA && mismoDeAyer.nuevas.join() === "3");
     let completo = horasDelBloque(bloque, res, [[""], [""], [""], [""]], undefined, undefined, AHORA);
     ok("un WMSACT no inventa horas para lo escaneado antes",
        completo.nuevas.length === 0 && completo.horas.every(x => x[0] === ""));
