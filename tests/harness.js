@@ -2775,7 +2775,11 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     let finales = { getName: () => "PEDIMENTOS FINALES", getLastRow: () => rejilla.length,
         getRange: (f, c, nf, nc) => ({
             getValues: () => rejilla.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
-            setValues: (v) => v.forEach((fila, k) => { escrito[f + k] = fila; }),
+            // Por celdas, desde la B (indice 0): la B:D y la E se escriben aparte.
+            setValues: (v) => v.forEach((fila, k) => {
+                escrito[f + k] = escrito[f + k] || [];
+                fila.forEach((x, j) => { escrito[f + k][c - 2 + j] = x; });
+            }),
             setBackgrounds: () => {} }) };
     let unidad = { getName: () => "GLOBAL 1 20-AE-3H", getLastRow: () => 1,
                    getRange: () => ({ getValues: () => [["6116004"]] }) };
@@ -2800,6 +2804,113 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
             setNumberFormat: () => {} }) };
     ponerTitulosFinales(vieja);
     ok("los codigos viejos de la E y la F se borran", borrados.some(b => b[0] === 5 && b[1] === 2));
+})();
+
+// LAS HORAS QUE SE ESCAPAN SE RELLENAN CON LA DE ARRIBA, como en los escaneos.
+// Un pedimento cuyo escaneo Google no llegó a procesar salía bien en la B (el
+// siguiente recalcula el bloque) pero sin hora, y no iba al registro.
+(function () {
+    const H = (h, m) => new Date(2026, 9, 14, h, m, 0);
+    const P = (p) => ({ estado: "✅ ESTÁ EN LA UNIDAD", pedimento: p });
+    const T = { estado: "📦 BLOQUE", esTanda: true };
+    let bloque = { desde: 1, hasta: 5, filaUnidad: 1, filas: [] };
+    let res = new Map([[1, { estado: "✅ UNIDAD CUADRA" }], [2, P("6116004")], [3, P("6116008")],
+                       [4, P("6116010")], [5, P("6116012")]]);
+    // El 6116008 (fila 4) se quedo sin hora; ahora se escanea el 6116012 (fila 6).
+    let h = horasDelBloque(bloque, res, [[""], [H(9, 1)], [""], [H(9, 3)], [""]], 6, 6, H(9, 4));
+    ok("el que se escapo toma la hora de arriba", h.horas[2][0] === h.horas[1][0]);
+    ok("el escaneado lleva la de ahora", h.horas[4][0].getTime() === H(9, 4).getTime());
+    ok("los dos van al registro, en orden", h.nuevas.join() === "3,5");
+    ok("y solo esos dos se escriben", h.cambiadas.join() === "3,5");
+
+    let primero = horasDelBloque(bloque, res, [[""], [""], [H(9, 2)], [H(9, 3)], [""]]);
+    ok("si es el primero, toma la del de abajo", primero.horas[1][0] === primero.horas[2][0]);
+    ok("un WMSACT tambien rellena, sin poner la hora de ahora",
+       primero.nuevas.join() === "2,5" && primero.horas[4][0].getTime() === H(9, 3).getTime());
+
+    let aMano = horasDelBloque(bloque, res, [[""], [H(9, 1)], ["revisar"], [H(9, 3)], [H(9, 4)]]);
+    ok("lo escrito a mano en la E no se pisa", aMano.horas[2][0] === "revisar" && aMano.nuevas.length === 0);
+
+    // NUNCA DE UN BLOQUE A OTRO: la hora del anterior diria que el siguiente
+    // llego cuando el otro termino.
+    let conT = { desde: 1, hasta: 6, filaUnidad: 1, filas: [] };
+    let resT = new Map([[1, {}], [2, T], [3, P("6116004")], [4, T], [5, P("6116008")], [6, P("6116010")]]);
+    let t = horasDelBloque(conT, resT, [[""], [H(9, 0)], [H(9, 1)], [""], [""], [H(9, 40)]]);
+    ok("el BLOQUE sin hora toma la de su primer pedimento", t.horas[3][0] === t.horas[5][0]);
+    ok("y su pedimento no toma la del bloque anterior", t.horas[4][0] === t.horas[5][0]);
+    let vacio = horasDelBloque(conT, resT, [[""], [H(9, 0)], [H(9, 1)], [""], [""], [""]]);
+    ok("un bloque donde nadie tiene hora se queda como esta", vacio.nuevas.length === 0);
+
+    ok("las filas seguidas se juntan", JSON.stringify(tramosSeguidos([3, 4, 5, 9])) === "[[3,5],[9,9]]");
+    ok("sin filas, nada", tramosSeguidos([]).length === 0);
+
+    // DE PUNTA A PUNTA: la E solo se escribe donde cambia, y el registro lleva
+    // la hora rellenada, no la de ahora.
+    let escritosE = [], apuntado = [];
+    let rejilla = [["T", "", "", "", ""], ["global 1", "", "", "", ""],
+                   ["6116004", "", "", "", H(9, 1)], ["6116008", "", "", "", ""],
+                   ["6116010", "", "", "", H(9, 3)], ["6116012", "", "", "", ""]];
+    let finales = { getName: () => "PEDIMENTOS FINALES", getLastRow: () => rejilla.length,
+        getRange: (f, c, nf, nc) => ({
+            getValues: () => rejilla.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
+            setValues: (v) => { if (c === 5) escritosE.push({ f: f, n: nf, v: v }); },
+            setBackgrounds: () => {} }) };
+    let unidad = { getName: () => "GLOBAL 1 20-AE-3H", getLastRow: () => 4,
+                   getRange: () => ({ getValues: () => [["6116004"], ["6116008"], ["6116010"], ["6116012"]] }) };
+    let registro = { appendRow: (fila) => apuntado.push(fila), getMaxColumns: () => 6,
+                     getRange: () => ({ getValue: () => "BLOQUE" }) };
+    let ss = { getSheets: () => [unidad, finales],
+               getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? registro : null };
+    recalcularPedimentosFinales(ss, finales, 6, 6);
+    ok("la E se escribe solo en las filas que cambian",
+       escritosE.length === 2 && escritosE[0].f === 4 && escritosE[0].n === 1 && escritosE[1].f === 6);
+    ok("la que ya tenia hora no se reescribe", !escritosE.some(e => e.f === 3 || e.f === 5));
+    ok("al registro van las dos", apuntado.length === 2 && apuntado[0][2] === "6116008");
+    ok("la rellenada con la hora de arriba", apuntado[0][0].getTime() === H(9, 1).getTime());
+
+    // EL TURNO: todo a la hoja ANTES de soltar el lock. Google guarda al
+    // terminar la ejecucion, y el escaneo siguiente leia la E todavia vacia.
+    let orden = [];
+    let lockViejo = global.LockService, appViejo = global.SpreadsheetApp;
+    global.LockService = { getScriptLock: () => ({
+        waitLock: () => orden.push("espera"), tryLock: () => false,
+        releaseLock: () => orden.push("suelta") }) };
+    global.SpreadsheetApp = { getActiveSpreadsheet: () => null, flush: () => orden.push("guarda") };
+    try {
+        let r = conTurnoDeFinales(1000, () => { orden.push("trabaja"); return 7; });
+        ok("se guarda antes de soltar el turno", orden.join() === "espera,trabaja,guarda,suelta" && r === 7);
+        let corrio = false;
+        let r2 = conTurnoDeFinales(1000, () => { corrio = true; }, true);
+        ok("el repaso sin turno no hace nada", r2 === null && !corrio);
+    } finally {
+        global.LockService = lockViejo;
+        global.SpreadsheetApp = appViejo;
+    }
+
+    // EL REPASO: solo mira si se escaneo aqui hace poco, y rellena.
+    let leyo = false;
+    let hojaR = { getName: () => "PEDIMENTOS FINALES",
+                  getLastRow: () => { leyo = true; return rejilla.length; },
+                  getRange: finales.getRange };
+    let ssR = { getSheets: () => [unidad, hojaR], getSheetByName: ss.getSheetByName };
+    global.CacheService = { getScriptCache: () => ({ get: () => null }) };
+    global.LockService = { getScriptLock: () => ({ tryLock: () => true, releaseLock: () => {} }) };
+    try {
+        ok("sin escaneos recientes el repaso no lee nada", repasarHorasDeFinales(ssR) === 0 && !leyo);
+        global.CacheService = { getScriptCache: () => ({ get: () => '1' }) };
+        escritosE = []; apuntado = [];
+        let n = repasarHorasDeFinales(ssR);
+        ok("con escaneos recientes rellena los huecos", n === 1 && escritosE.length === 2);
+        ok("sin poner la hora de ahora a nadie",
+           apuntado.length === 2 && apuntado.every(a => a[0].getTime() <= H(9, 3).getTime()));
+    } finally { delete global.CacheService; global.LockService = lockViejo; }
+
+    let fuente = require('fs').readFileSync('Codigo.gs', 'utf8');
+    let i = fuente.indexOf("repasarHorasDeFinales(ss)");
+    ok("el repaso de cinco minutos lo llama antes de rehacer el reporte",
+       i !== -1 && i < fuente.indexOf("rehacerReporteDeTiempos(ss);", i));
+    ok("WMSACT en la pestaña recalcula en su turno",
+       fuente.indexOf("conTurnoDeFinales(30000, () => recalcularPedimentosFinales(ss, hoja))") !== -1);
 })();
 
 // LOS BLOQUES DE PAPELES: los pedimentos llegan por tandas.
@@ -6762,7 +6873,10 @@ ok("y se asegura hasta la ultima, la de las fechas",
         let hojaB = { getLastRow: () => rejillaB.length,
             getRange: (f, c, nf, nc) => ({
                 getValues: () => rejillaB.slice(f - 1, f - 1 + nf).map(r => [r[0]]),
-                setValues: (v) => v.forEach((fila, k) => { escrito[f + k] = fila; }),
+                setValues: (v) => v.forEach((fila, k) => {
+                    escrito[f + k] = escrito[f + k] || [];
+                    fila.forEach((x, j) => { escrito[f + k][c - 2 + j] = x; });
+                }),
                 setBackgrounds: () => {} }) };
         let unidadH = { getName: () => "GLOBAL 1 20-AE-3H", getLastRow: () => 1,
                         getRange: () => ({ getValues: () => [["6116004"]] }) };
@@ -6941,7 +7055,10 @@ ok("y se asegura hasta la ultima, la de las fechas",
                     }
                     return out;
                 },
-                setValues: (v) => v.forEach((fila, i) => { escrito.valores[f + i] = fila; }),
+                setValues: (v) => v.forEach((fila, i) => {
+                    escrito.valores[f + i] = escrito.valores[f + i] || [];
+                    fila.forEach((x, j) => { escrito.valores[f + i][c - 2 + j] = x; });
+                }),
                 setBackgrounds: (v) => v.forEach((fila, i) => { escrito.fondos[f + i] = fila[0]; })
             })
         };

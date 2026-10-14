@@ -7390,7 +7390,8 @@ function forzarActualizacionHojaActiva() {
         // pestaña nueva, su código aparece sin ir al menú.
         try { ponerTitulosFinales(hoja); } catch (err) { /* da igual */ }
         try { escribirCodigosDeUnidades(ss, hoja); } catch (err) { /* da igual */ }
-        let n = recalcularPedimentosFinales(ss, hoja);
+        // En su turno, como los escaneos de la pestaña: ver `conTurnoDeFinales`.
+        let n = conTurnoDeFinales(30000, () => recalcularPedimentosFinales(ss, hoja));
         // Y el reporte de tiempos agrupado por unidad, al momento.
         try { if (typeof rehacerReporteDeTiempos === 'function') rehacerReporteDeTiempos(ss); }
         catch (err) { /* el reporte nunca puede tumbar el cuadre */ }
@@ -7557,6 +7558,13 @@ function actualizadorAutomaticoGlobal() {
         invalidarCacheRAM();
         sincronizarSalidasMS(ss, getCacheData(ss), null, obj);
     }));
+
+    // Las horas de pedimentos finales que se quedaron sin poner. Va ANTES del
+    // reporte: lo que rellene entra al registro y sale ya en este repaso. SIN
+    // el lock del documento: solo toca su pestaña y el registro.
+    try {
+        if (typeof repasarHorasDeFinales === 'function') repasarHorasDeFinales(ss);
+    } catch (err) { /* jamás puede tumbar el repaso */ }
 
     // El reporte de tiempos de los pedimentos finales, si entró algo nuevo.
     // SIN el lock del documento: solo toca sus dos hojas SIS_.

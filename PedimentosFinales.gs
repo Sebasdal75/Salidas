@@ -531,40 +531,134 @@ function unidadesDelArchivo(ss) {
 
 // Las horas de la columna E de un bloque. Puro.
 //
-// SOLO SE PONEN AL ESCANEAR: a las filas de pedimento que están dentro de lo
-// editado (`filaDesde`-`filaHasta`) y que todavía no tienen hora. Un recálculo
-// completo —WMSACT— no pone ninguna. Si lo hiciera, los pedimentos escaneados
-// antes de que existiera esta columna saldrían todos con la hora del WMSACT, y
-// esa hora inventada es justo la que estropea la cuenta de tiempos.
+// LA HORA DE AHORA SOLO SE PONE AL ESCANEAR: a las filas de pedimento que
+// están dentro de lo editado (`filaDesde`-`filaHasta`) y que todavía no tienen
+// hora. Un recálculo completo —WMSACT— no pone la suya a nadie. Si lo hiciera,
+// los pedimentos escaneados antes de que existiera esta columna saldrían todos
+// con la hora del WMSACT, y esa hora inventada es justo la que estropea la
+// cuenta de tiempos.
+//
+// LOS HUECOS SE RELLENAN CON LA DE ARRIBA, como la columna L de los escaneos.
+// Un pedimento se queda sin hora cuando Google no llega a procesar SU escaneo
+// —se le cae el disparador con muchos a la vez, o se corta—: el siguiente
+// escaneo sí recalcula el bloque y su columna B sale bien, pero la hora solo
+// la ponía el escaneo de esa misma fila. Ahora cualquier recálculo se la pone:
+//   · un pedimento, la de la fila de arriba con hora, dentro del mismo BLOQUE
+//     —se escanean seguidos, así que es la más cercana a la de verdad—; si es
+//     el primero, la del de abajo;
+//   · la fila de un BLOQUE, la de su primer pedimento: se empieza a escanear
+//     en cuanto llega.
+// Nunca se cruza de un BLOQUE a otro: la hora del anterior diría que el
+// siguiente llegó cuando el otro terminó. Y un bloque donde nadie tiene hora
+// —lo escaneado antes de la columna— se queda como está.
 //
 // La hora que ya está NO SE TOCA NUNCA, aunque se recalcule cien veces. Solo
 // se borra si en esa fila, al editarla, ya no queda un pedimento.
 //
-// Devuelve las horas en el formato de `getValues` y los índices de las filas a
-// las que se les acaba de poner, que son las que van al registro.
+// Devuelve las horas en el formato de `getValues`, los índices de las filas a
+// las que se les acaba de poner (las que van al registro) y los de TODAS las
+// que cambian, que son las únicas que se escriben.
 function horasDelBloque(bloque, resultados, horasAntes, filaDesde, filaHasta, ahora) {
-    let horas = [], nuevas = [];
+    let esHora = v => v instanceof Date && !isNaN(v.getTime());
+    let horas = [], nuevas = [], cambiadas = [], huecos = new Set();
     let d = filaDesde ? filaDesde - 1 : -1;
     let hst = filaDesde ? (filaHasta || filaDesde) - 1 : -2;
     for (let i = bloque.desde; i <= bloque.hasta; i++) {
         let antes = (horasAntes[i - bloque.desde] || [])[0];
-        let tieneHora = antes instanceof Date && !isNaN(antes.getTime());
+        if (antes === undefined || antes === null) antes = "";
         let r = resultados.get(i) || {};
-        let editada = i >= d && i <= hst;
-        if (!editada) { horas.push([antes === undefined || antes === null ? "" : antes]); continue; }
         // La fila del BLOQUE también lleva hora: es cuándo llegó esa tanda,
         // la mitad de la cuenta de tiempos.
-        if (!r.pedimento && !r.esTanda) { horas.push([""]); continue; }
-        if (tieneHora) { horas.push([antes]); continue; }
-        horas.push([ahora]);
-        nuevas.push(i);
+        let llevaHora = !!(r.pedimento || r.esTanda);
+        let editada = i >= d && i <= hst;
+        if (editada && !llevaHora) {
+            horas.push([""]);
+            if (String(antes).trim() !== "") cambiadas.push(i);
+        } else if (!llevaHora || esHora(antes)) {
+            horas.push([antes]);
+        } else if (editada) {
+            horas.push([ahora]);
+            nuevas.push(i);
+            cambiadas.push(i);
+        } else {
+            horas.push([antes]);
+            // Lo que alguien escribió a mano en la E no se pisa.
+            if (String(antes).trim() === "") huecos.add(i);
+        }
     }
-    return { horas: horas, nuevas: nuevas };
+
+    if (huecos.size) {
+        let rellenar = (i, hora) => {
+            horas[i - bloque.desde] = [hora];
+            nuevas.push(i);
+            cambiadas.push(i);
+        };
+        let arriba = null, sinNadaArriba = [];
+        for (let i = bloque.desde; i <= bloque.hasta; i++) {
+            let r = resultados.get(i) || {};
+            // Cada BLOQUE empieza de cero.
+            if (r.esTanda) { arriba = null; sinNadaArriba = []; }
+            let v = horas[i - bloque.desde][0];
+            if (huecos.has(i)) {
+                if (arriba && !r.esTanda) rellenar(i, arriba);
+                else sinNadaArriba.push(i);
+            } else if (esHora(v)) {
+                sinNadaArriba.forEach(k => rellenar(k, v));
+                sinNadaArriba = [];
+                arriba = v;
+            }
+        }
+        nuevas.sort((a, b) => a - b);
+    }
+    return { horas: horas, nuevas: nuevas, cambiadas: cambiadas.sort((a, b) => a - b) };
+}
+
+// Las filas seguidas, juntas: [3, 4, 5, 9] → [[3, 5], [9, 9]]. Puro.
+function tramosSeguidos(indices) {
+    let out = [];
+    (indices || []).forEach(i => {
+        let u = out[out.length - 1];
+        if (u && i === u[1] + 1) u[1] = i;
+        else out.push([i, i]);
+    });
+    return out;
+}
+
+// LOS RECÁLCULOS DE ESTA PESTAÑA VAN DE UNO EN UNO, con el lock del script (no
+// el del documento: no frena ningún escaneo).
+//
+// Y ANTES DE SOLTARLO, TODO A LA HOJA (`flush`). Google guarda lo escrito al
+// TERMINAR la ejecución, no al soltar el lock: el escaneo siguiente entraba en
+// ese medio segundo, leía la columna E todavía vacía y le volvía a escribir el
+// vacío encima. Así se perdían horas de pedimentos que sí se habían escaneado.
+//
+// Con `obligatorio`, si no hay turno no se hace (el repaso: ya lo hará otro).
+// Sin él, se hace igual: un escaneo sin resultado es peor que dos a la vez.
+function conTurnoDeFinales(esperaMs, fn, obligatorio) {
+    let lock = null;
+    try {
+        lock = LockService.getScriptLock();
+        if (obligatorio) {
+            if (!lock.tryLock(esperaMs)) return null;
+        } else {
+            lock.waitLock(esperaMs);
+        }
+    } catch (err) {
+        if (obligatorio) return null;
+        lock = null;
+    }
+    try {
+        return fn();
+    } finally {
+        try { SpreadsheetApp.flush(); } catch (err) { /* nada */ }
+        if (lock) { try { lock.releaseLock(); } catch (err) { /* nada */ } }
+    }
 }
 
 // Recalcula los bloques de la pestaña. Con `filas` (1-based, inclusive) solo
-// los que las tocan; sin él, todos.
-function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
+// los que las tocan; sin él, todos. Con `soloBloques` (los `desde` de cada
+// uno), solo esos: es lo que usa el repaso.
+function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta, soloBloques) {
     let lr = Math.max(hoja.getLastRow(), filaHasta || 0, FILA_INICIO_FINALES);
     let valoresA = hoja.getRange(1, 1, lr, 1).getValues();
     let bloques = bloquesDePedimentosFinales(valoresA);
@@ -579,6 +673,7 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
         // de antes.
         bloques = bloques.filter(b => b.hasta >= d - 1 && b.desde <= hst);
     }
+    if (soloBloques) bloques = bloques.filter(b => soloBloques.has(b.desde));
 
     // Se lee HASTA LA FILA EDITADA aunque esté vacía (`lr` la incluye): así
     // una celda recién borrada al final entra en su bloque y se le quita el
@@ -614,17 +709,25 @@ function recalcularPedimentosFinales(ss, hoja, filaDesde, filaHasta) {
             // el código de barras la columna A trae doce datos (en una celda o
             // en varias filas) y lo que interesa es uno: aquí queda a la vista,
             // listo para copiar o filtrar.
-            textos.push([r.estado, r.detalle, r.pedimento || "", h.horas[i - b.desde][0]]);
+            textos.push([r.estado, r.detalle, r.pedimento || ""]);
             colores.push([r.estado === "" ? COLOR_FINAL_NEUTRO : r.color]);
         }
-        hoja.getRange(b.desde + 1, 2, n, 4).setValues(textos);
+        hoja.getRange(b.desde + 1, 2, n, 3).setValues(textos);
         hoja.getRange(b.desde + 1, 2, n, 1).setBackgrounds(colores);
+        // LA E, SOLO DONDE CAMBIA. Reescribirla entera devolvía a la hoja lo
+        // que se leyó al empezar, y si mientras tanto otro escaneo había puesto
+        // una hora, se borraba.
+        tramosSeguidos(h.cambiadas).forEach(t => {
+            hoja.getRange(t[0] + 1, COL_HORA_FINALES, t[1] - t[0] + 1, 1)
+                .setValues(h.horas.slice(t[0] - b.desde, t[1] - b.desde + 1));
+        });
 
         let unidadDelBloque = ev.unidad ? ev.unidad.nombre : (b.unidad || "(sin unidad)");
         h.nuevas.forEach(i => {
             let r = ev.resultados.get(i) || {};
             let f = b.filas.find(x => x.idx === i) || {};
-            paraRegistro.push([ahora, unidadDelBloque, r.pedimento || "",
+            // Con SU hora, que en un hueco rellenado es la de arriba.
+            paraRegistro.push([h.horas[i - b.desde][0], unidadDelBloque, r.pedimento || "",
                                r.esTanda ? "📦 LLEGÓ EL " + r.tanda : (r.estado || ""),
                                f.patente || "", r.tanda || ""]);
         });
@@ -773,20 +876,62 @@ function atenderPedimentosFinales(ss, hoja, fila, numFilas, esInstalable) {
         }
     }
 
+    anotarActividadDeFinales();
     // CUÁNTO SE ESPERA DEPENDE DE QUIÉN LLAMA. El disparador simple tiene
     // treinta segundos EN TOTAL —esperar y trabajar—, y puede haber gastado
     // ya seis esperando al instalable: con 30 de espera aquí, Google lo
     // cortaba a mitad y el escaneo se quedaba sin resultado.
-    let lock = null;
-    try {
-        lock = LockService.getScriptLock();
-        lock.waitLock(esInstalable ? ESPERA_FINALES_INSTALABLE_MS : ESPERA_FINALES_SIMPLE_MS);
-    } catch (err) { lock = null; }   // sin lock, se recalcula igual
-    try {
-        recalcularPedimentosFinales(ss, hoja, Math.max(fila, FILA_INICIO_FINALES), fila + numFilas - 1);
-    } finally {
-        if (lock) { try { lock.releaseLock(); } catch (err) { /* nada */ } }
-    }
+    conTurnoDeFinales(esInstalable ? ESPERA_FINALES_INSTALABLE_MS : ESPERA_FINALES_SIMPLE_MS, () =>
+        recalcularPedimentosFinales(ss, hoja, Math.max(fila, FILA_INICIO_FINALES), fila + numFilas - 1));
+}
+
+// EL REPASO DE CINCO MINUTOS PONE LAS HORAS QUE FALTEN. El siguiente escaneo
+// ya rellena los huecos de su bloque, pero si el que se perdió fue el último
+// del día no habría siguiente. Solo mira si se escaneó aquí en la última media
+// hora: si no, no lee nada.
+const CLAVE_FINALES_ACTIVIDAD = 'WMS_FINALES_ACTIVIDAD';
+const SEGUNDOS_FINALES_ACTIVIDAD = 1800;
+
+function anotarActividadDeFinales() {
+    try { CacheService.getScriptCache().put(CLAVE_FINALES_ACTIVIDAD, '1', SEGUNDOS_FINALES_ACTIVIDAD); }
+    catch (err) { /* sin marca, lo arregla el siguiente escaneo o WMSACT */ }
+}
+
+// Lo que necesita `horasDelBloque` sin leer ninguna unidad: qué filas son
+// pedimento y cuáles BLOQUE. Puro.
+function filasConHoraDelBloque(bloque) {
+    let m = new Map();
+    bloque.filas.forEach(f => {
+        if (f.tipo === "pedimento") m.set(f.idx, { pedimento: f.valor });
+        else if (f.tipo === "tanda") m.set(f.idx, { esTanda: true });
+    });
+    return m;
+}
+
+// Devuelve cuántos bloques tenían horas que poner.
+function repasarHorasDeFinales(ss) {
+    let hubo = false;
+    try { hubo = CacheService.getScriptCache().get(CLAVE_FINALES_ACTIVIDAD) === '1'; }
+    catch (err) { hubo = false; }
+    if (!hubo) return 0;
+    let hoja = null;
+    ss.getSheets().forEach(h => { if (!hoja && esHojaPedimentosFinales(h.getName())) hoja = h; });
+    if (!hoja) return 0;
+    // Si hay un escaneo recalculando, no se le espera: ese ya rellena.
+    let n = conTurnoDeFinales(3000, () => {
+        let lr = hoja.getLastRow();
+        if (lr < FILA_INICIO_FINALES) return 0;
+        let valoresA = hoja.getRange(1, 1, lr, 1).getValues();
+        let horasE = hoja.getRange(1, COL_HORA_FINALES, lr, 1).getValues();
+        let conHuecos = new Set();
+        bloquesDePedimentosFinales(valoresA).forEach(b => {
+            let h = horasDelBloque(b, filasConHoraDelBloque(b), horasE.slice(b.desde, b.hasta + 1));
+            if (h.nuevas.length) conHuecos.add(b.desde);
+        });
+        if (conHuecos.size) recalcularPedimentosFinales(ss, hoja, null, null, conHuecos);
+        return conHuecos.size;
+    }, true);
+    return n || 0;
 }
 
 // El botón: crea la pestaña si no está y la revisa entera.
@@ -814,7 +959,7 @@ function prepararPedimentosFinales() {
     try { cods = escribirCodigosDeUnidades(ss, hoja); } catch (err) { cods = -1; }
     hoja.setColumnWidth(COL_CODIGOS_UNIDAD, 220);
     hoja.setColumnWidth(COL_CODIGOS_UNIDAD + 1, 260);
-    let n = recalcularPedimentosFinales(ss, hoja);
+    let n = conTurnoDeFinales(ESPERA_FINALES_INSTALABLE_MS, () => recalcularPedimentosFinales(ss, hoja));
     try { if (typeof rehacerReporteDeTiempos === 'function') rehacerReporteDeTiempos(ss); }
     catch (err) { /* el reporte nunca puede tumbar el cuadre */ }
     ss.setActiveSheet(hoja);
@@ -840,7 +985,9 @@ function prepararPedimentosFinales() {
         "«BLOQUE» debajo de la unidad. Se numeran solos; la fila del bloque " +
         "dice cuántos pedimentos trae y en qué horario se escanearon.\n\n" +
         "La columna E guarda la HORA en que escaneaste cada pedimento, y no " +
-        "cambia aunque se recalcule. Cada hora queda apuntada en «" +
+        "cambia aunque se recalcule. Si a alguno se le escapa, se le pone la " +
+        "del de arriba en cuanto escaneas el siguiente (o con WMSACT, o en el " +
+        "repaso de cinco minutos). Cada hora queda apuntada en «" +
         "SIS_TIEMPOS_REGISTRO», que no se borra aunque limpies esta pestaña, y " +
         "«SIS_TIEMPOS_PEDIMENTOS» lo enseña AGRUPADO POR UNIDAD, con cada bloque " +
         "resumido. Ese reporte se pone al día con WMSACT aquí, o solo cada cinco " +
