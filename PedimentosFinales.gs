@@ -266,11 +266,11 @@ function horaCorta(d) {
 
 // LAS ESPERAS DE UN BLOQUE, en palabras. Puro.
 //
-// EN EL PRIMER BLOQUE NO SE DICE NADA: llega y se empieza a escanear en el
-// momento, así que salía siempre «empezó 0 min después de llegar», que no
-// aporta. Lo que sí cuenta es del segundo en adelante: cuánto tardó en llegar
-// después de TERMINAR el anterior —el hueco entre tandas— y cuánto se tardó en
-// empezar a escanearlo.
+// SOLO EL HUECO ENTRE TANDAS, del segundo bloque en adelante: cuánto tardó en
+// llegar después de TERMINAR el anterior. En el primero no se dice nada.
+//
+// «Empezó N min después de llegar» se quitó a petición: cada bloque se empieza
+// a escanear en cuanto llega, así que salía siempre en 0 y no decía nada.
 //
 // Si el bloque no tiene hora de llegada, el hueco se mide hasta su primer
 // pedimento.
@@ -283,10 +283,6 @@ function textoDeEsperaDeBloque(esPrimero, llego, primero, finAnterior, etiquetaA
         partes.push((esHora(llego) ? "llegó " : "empezó ") +
                     Math.max(0, Math.round((inicio - finAnterior) / 60000)) +
                     " min después de terminar el " + etiquetaAnterior);
-    }
-    if (esHora(llego) && esHora(primero)) {
-        partes.push("empezó " + Math.max(0, Math.round((primero - llego) / 60000)) +
-                    " min después de llegar");
     }
     return partes.join(" · ");
 }
