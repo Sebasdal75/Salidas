@@ -1,0 +1,15 @@
+{
+  "name": "wms-salidas-app",
+  "version": "0.1.0",
+  "description": "WMS Salidas ESCANEOS UPS: app web para escanear las Globales (reemplaza la hoja de Google Sheets).",
+  "private": true,
+  "type": "commonjs",
+  "engines": {
+    "node": ">=22.5"
+  },
+  "scripts": {
+    "start": "node --disable-warning=ExperimentalWarning src/servidor.js",
+    "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.js",
+    "respaldar": "node --disable-warning=ExperimentalWarning scripts/respaldar.js"
+  }
+}

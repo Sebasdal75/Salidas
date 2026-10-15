@@ -1,0 +1,83 @@
+:root {
+  --fondo: #f3f5f7; --tarjeta: #ffffff; --texto: #14212b; --suave: #5b6b78; --linea: #d5dce2;
+  --marca: #0b3d5c; --marca-texto: #ffffff; --acento: #178ccc; --peligro: #b3261e;
+  --radio: 10px; --sombra: 0 1px 2px rgba(11, 61, 92, .12);
+}
+@media (prefers-color-scheme: dark) {
+  :root { --fondo: #10181e; --tarjeta: #19242c; --texto: #e8eef2; --suave: #9db0bd; --linea: #2c3b46;
+          --marca: #0b3d5c; --acento: #5cb8ea; --peligro: #ff8a80; color-scheme: dark; }
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; background: var(--fondo); color: var(--texto);
+  font: 16px/1.4 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+body { padding-bottom: env(safe-area-inset-bottom, 0); }
+[hidden] { display: none !important; }
+
+.barra { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: .5rem;
+  background: var(--marca); color: var(--marca-texto); padding: .6rem 1rem; padding-top: calc(.6rem + env(safe-area-inset-top, 0)); }
+.barra h1 { margin: 0; font-size: 1.1rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.operador { font-size: .85rem; opacity: .85; }
+.boton-barra { background: transparent; color: inherit; border: 1px solid rgba(255,255,255,.4); border-radius: 8px;
+  padding: .4rem .7rem; font: inherit; min-height: 40px; }
+
+main { max-width: 980px; margin: 0 auto; padding: 1rem; }
+.pantalla { display: grid; gap: 1rem; }
+.tarjeta { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: var(--radio); padding: 1rem;
+  box-shadow: var(--sombra); display: grid; gap: .6rem; }
+.fila-form { grid-template-columns: 1fr auto; align-items: center; }
+label { font-weight: 600; }
+.solo-lector { position: absolute; left: -9999px; }
+input, textarea { width: 100%; font: inherit; padding: .7rem .8rem; border: 1px solid var(--linea); border-radius: 8px;
+  background: var(--tarjeta); color: var(--texto); min-height: 48px; }
+textarea { font-family: ui-monospace, Menlo, Consolas, monospace; }
+input:focus, textarea:focus, button:focus-visible { outline: 3px solid var(--acento); outline-offset: 1px; }
+button { font: inherit; border-radius: 8px; border: 1px solid var(--linea); padding: .6rem 1rem; min-height: 48px;
+  background: var(--tarjeta); color: var(--texto); cursor: pointer; }
+.primario { background: var(--marca); color: var(--marca-texto); border-color: var(--marca); font-weight: 600; }
+.secundario { background: var(--tarjeta); }
+
+.lista-unidades { list-style: none; margin: 0; padding: 0; display: grid; gap: .6rem; }
+.lista-unidades button { width: 100%; text-align: left; display: flex; justify-content: space-between; gap: 1rem;
+  align-items: center; padding: .9rem 1rem; box-shadow: var(--sombra); }
+.unidad-nombre { font-weight: 700; font-size: 1.05rem; }
+.unidad-datos { color: var(--suave); font-size: .9rem; white-space: nowrap; }
+.vacio { color: var(--suave); text-align: center; }
+
+.totales { display: flex; flex-wrap: wrap; gap: .5rem; }
+.totales .dato { background: var(--tarjeta); border: 1px solid var(--linea); border-radius: 999px; padding: .25rem .8rem;
+  font-size: .9rem; font-variant-numeric: tabular-nums; }
+.totales .dato b { font-size: 1.05rem; }
+
+.fijo { position: sticky; top: calc(56px + env(safe-area-inset-top, 0)); z-index: 4; background: var(--fondo);
+  padding: .25rem 0 .5rem; display: grid; gap: .5rem; }
+.escaneo input { font-size: 1.35rem; font-weight: 600; min-height: 60px; border-width: 3px; border-color: var(--acento);
+  text-transform: uppercase; letter-spacing: .02em; }
+
+.resultado { border-radius: var(--radio); padding: .9rem 1rem; border: 2px solid rgba(0,0,0,.25); box-shadow: var(--sombra); }
+.resultado-valor { font: 600 1rem ui-monospace, Menlo, Consolas, monospace; word-break: break-all; opacity: .9; }
+.resultado-estado { font-size: 1.35rem; font-weight: 800; line-height: 1.2; margin-top: .2rem; }
+.cola { background: #fff3cd; color: #5f4b00; border: 2px solid #ffc107; border-radius: var(--radio); padding: .6rem 1rem; font-weight: 600; }
+
+.pestanas { display: flex; gap: .4rem; border-bottom: 2px solid var(--linea); }
+.pestanas button { border: 0; border-bottom: 4px solid transparent; border-radius: 0; background: transparent; min-height: 48px; flex: 1; }
+.pestanas button[aria-selected="true"] { border-bottom-color: var(--acento); font-weight: 700; }
+.acciones { display: flex; justify-content: flex-end; margin-bottom: .5rem; }
+.vista { display: grid; gap: .6rem; }
+
+.tabla-envoltura { overflow-x: auto; border: 1px solid var(--linea); border-radius: var(--radio); background: var(--tarjeta); }
+.tabla { width: 100%; border-collapse: collapse; font-size: .95rem; }
+.tabla th { text-align: left; background: var(--fondo); position: sticky; top: 0; padding: .5rem .6rem; font-size: .8rem;
+  text-transform: uppercase; letter-spacing: .04em; color: var(--suave); }
+.tabla td { padding: .45rem .6rem; border-top: 1px solid var(--linea); vertical-align: top; }
+.tabla td.num { color: var(--suave); font-variant-numeric: tabular-nums; width: 3.2rem; }
+.tabla td.valor { font-family: ui-monospace, Menlo, Consolas, monospace; font-weight: 600; word-break: break-all; }
+.tabla td.hora { font-variant-numeric: tabular-nums; white-space: nowrap; color: var(--suave); }
+.tabla tr.tocable { cursor: pointer; }
+.tabla tr.tocable:hover td { filter: brightness(.96); }
+
+dialog { border: 1px solid var(--linea); border-radius: var(--radio); padding: 1rem; width: min(92vw, 460px);
+  background: var(--tarjeta); color: var(--texto); }
+dialog::backdrop { background: rgba(0,0,0,.5); }
+dialog h2 { margin: 0 0 .4rem; font-size: 1.1rem; }
+.dialogo-estado { margin: 0 0 .6rem; color: var(--suave); }
+.dialogo-botones { display: flex; gap: .6rem; justify-content: flex-end; margin-top: .8rem; }

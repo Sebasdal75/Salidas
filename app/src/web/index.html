@@ -1,0 +1,101 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b3d5c">
+<title>WMS Salidas</title>
+<link rel="icon" href="data:,">
+<link rel="stylesheet" href="estilos.css">
+</head>
+<body>
+<header class="barra">
+  <button id="atras" class="boton-barra" hidden aria-label="Volver a las unidades">←</button>
+  <h1 id="titulo">WMS Salidas</h1>
+  <span id="operador" class="operador"></span>
+  <button id="salir" class="boton-barra" hidden>Salir</button>
+</header>
+
+<main>
+  <!-- 1. QUIÉN ESCANEA -->
+  <section id="pantalla-entrada" class="pantalla" hidden>
+    <form id="form-entrada" class="tarjeta">
+      <label for="nombre-operador">¿Quién escanea?</label>
+      <input id="nombre-operador" autocomplete="off" autocapitalize="words" required maxlength="60" placeholder="Tu nombre">
+      <button type="submit" class="primario">Entrar</button>
+    </form>
+  </section>
+
+  <!-- 2. LAS UNIDADES -->
+  <section id="pantalla-unidades" class="pantalla" hidden>
+    <form id="form-unidad" class="tarjeta fila-form">
+      <label for="nombre-unidad" class="solo-lector">Nueva unidad</label>
+      <input id="nombre-unidad" autocomplete="off" autocapitalize="characters" maxlength="80" placeholder="Nueva unidad, ej. GLOBAL 1 20-AE-3H">
+      <button type="submit" class="primario">Crear</button>
+    </form>
+    <ul id="lista-unidades" class="lista-unidades"></ul>
+    <p id="sin-unidades" class="vacio" hidden>Todavía no hay unidades abiertas. Crea la primera arriba.</p>
+  </section>
+
+  <!-- 3. UNA UNIDAD -->
+  <section id="pantalla-unidad" class="pantalla" hidden>
+    <div class="totales" id="totales" aria-live="polite"></div>
+
+    <div class="fijo">
+      <form id="form-escaneo" class="escaneo">
+        <label for="campo-escaneo" class="solo-lector">Escanea aquí</label>
+        <input id="campo-escaneo" autocomplete="off" autocapitalize="characters" spellcheck="false"
+               placeholder="Escanea pedimento o guía" enterkeyhint="send">
+      </form>
+      <div id="resultado" class="resultado" role="status" aria-live="assertive" hidden>
+        <div id="resultado-valor" class="resultado-valor"></div>
+        <div id="resultado-estado" class="resultado-estado"></div>
+      </div>
+      <div id="cola" class="cola" hidden></div>
+    </div>
+
+    <nav class="pestanas" role="tablist">
+      <button role="tab" data-vista="fisico" aria-selected="true">Escaneos</button>
+      <button role="tab" data-vista="preforma" aria-selected="false">Lista esperada</button>
+      <button role="tab" data-vista="historial" aria-selected="false">Historial</button>
+    </nav>
+
+    <div id="vista-fisico" class="vista">
+      <div class="acciones"><button id="forzar" class="secundario">Forzar actualización</button></div>
+      <div class="tabla-envoltura"><table class="tabla" id="tabla-fisico">
+        <thead><tr><th>#</th><th>Escaneado</th><th>Estado</th><th>Hora</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div id="vista-preforma" class="vista" hidden>
+      <form id="form-preforma" class="tarjeta">
+        <label for="texto-preforma">Pega la lista esperada (un valor por renglón; el pedimento va debajo de sus guías)</label>
+        <textarea id="texto-preforma" rows="6" spellcheck="false"></textarea>
+        <button type="submit" class="primario">Guardar lista esperada</button>
+      </form>
+      <div class="tabla-envoltura"><table class="tabla" id="tabla-preforma">
+        <thead><tr><th>#</th><th>Esperado</th><th>Estado</th></tr></thead><tbody></tbody></table></div>
+    </div>
+
+    <div id="vista-historial" class="vista" hidden>
+      <div class="tabla-envoltura"><table class="tabla" id="tabla-historial">
+        <thead><tr><th>Cuándo</th><th>Quién</th><th>Fila</th><th>Valor</th><th>Motivo</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </section>
+</main>
+
+<dialog id="dialogo-fila">
+  <form method="dialog" id="form-fila">
+    <h2 id="dialogo-titulo">Fila</h2>
+    <p id="dialogo-estado" class="dialogo-estado"></p>
+    <label for="dialogo-valor">Nuevo valor (déjalo vacío para borrar la fila)</label>
+    <input id="dialogo-valor" autocomplete="off" autocapitalize="characters">
+    <div class="dialogo-botones">
+      <button value="cancelar" class="secundario" type="button" id="dialogo-cancelar">Cancelar</button>
+      <button value="guardar" class="primario" type="submit">Guardar</button>
+    </div>
+  </form>
+</dialog>
+
+<script src="app.js"></script>
+</body>
+</html>
