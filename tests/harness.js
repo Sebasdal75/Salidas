@@ -3124,7 +3124,7 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("y los pedimentos saben su bloque", ev.resultados.get(6).tanda === "BLOQUE 2");
     ok("el bloque no cuenta como pedimento en la unidad",
        ev.resultados.get(1).detalle.indexOf("en la lista: 3") !== -1 &&
-       ev.resultados.get(1).estado.indexOf("1 repetido") !== -1 &&
+       ev.resultados.get(1).estado.indexOf("🔄 1 duplicado") !== -1 &&
        ev.resultados.get(1).estado.indexOf("mal escaneado") === -1);
 
     // El resumen con las horas.
@@ -7053,8 +7053,29 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("y cuales", fu.detalle.indexOf("NO ESTÁN EN LA UNIDAD: 6116099") !== -1);
     ok("y el papel que falta", ev.sinPapel.length === 1 && ev.sinPapel[0] === "6116010" &&
        fu.detalle.indexOf("SIN PAPEL: 6116010") !== -1);
-    ok("el repetido en la lista se marca", ev.resultados.get(5).estado === "🔄 REPETIDO EN LA LISTA");
+    ok("el duplicado en la lista se marca", ev.resultados.get(5).estado === "🔄 DUPLICADO EN LA LISTA");
     ok("y dice donde esta el primero", ev.resultados.get(5).detalle === "Ya está en la fila 3");
+    ok("la unidad lo dice en el texto y en el detalle",
+       fu.estado.indexOf("🔄 1 duplicado") !== -1 && fu.detalle.indexOf("DUPLICADOS: 6116004") !== -1);
+
+    // UN DUPLICADO SE DICE, PERO NO DESCUADRA: con todo lo demás bien, la
+    // unidad cuadra y avisa del duplicado.
+    let soloDup = evaluarBloqueFinal(bloquesDePedimentosFinales(
+        [["T"], ["GLOBAL 1"], ["6116004"], ["6116008"], ["6116010"], ["6116008"], ["6116008"]])[0],
+        unidadesB, () => enU);
+    ok("solo con duplicados la unidad CUADRA",
+       soloDup.resultados.get(1).estado === "✅ UNIDAD CUADRA: 3 pedimentos · 🔄 2 duplicados");
+    ok("en verde", soloDup.resultados.get(1).color === '#07c369');
+    ok("y en el detalle cuál, una sola vez",
+       soloDup.resultados.get(1).detalle.indexOf("DUPLICADOS: 6116008") !== -1 &&
+       soloDup.resultados.get(1).detalle.indexOf("6116008, 6116008") === -1);
+    ok("las dos filas de más dicen DUPLICADO",
+       soloDup.resultados.get(5).estado === "🔄 DUPLICADO EN LA LISTA" &&
+       soloDup.resultados.get(6).estado === "🔄 DUPLICADO EN LA LISTA");
+    ok("un duplicado no cuenta como papel en su bloque",
+       resumenDeTandas({ desde: 0, filas: [{ idx: 0, tipo: "tanda" }, { idx: 1, tipo: "pedimento" }, { idx: 2, tipo: "pedimento" }] },
+           new Map([[0, { tanda: "BLOQUE 1" }], [1, { estado: "✅ ESTÁ EN LA UNIDAD" }], [2, { estado: "🔄 DUPLICADO EN LA LISTA" }]]),
+           [[""], [""], [""]]).get(0).estado === "📦 BLOQUE 1 · 1 pedimento");
     ok("el mal escaneado tambien", ev.resultados.get(6).estado.indexOf("7 DÍGITOS") !== -1);
 
     let todo = [["T"], ["GLOBAL 1"], ["6116004"], ["6116008"], ["6116010"]];

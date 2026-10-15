@@ -301,8 +301,10 @@ function resumenDeTandas(bloque, resultados, horas) {
         for (let j = k + 1; j < filas.length && filas[j].tipo !== "tanda"; j++) {
             if (filas[j].tipo !== "pedimento") continue;
             let rr = resultados.get(filas[j].idx) || {};
-            // Los repetidos en la lista no son papeles nuevos: no cuentan.
-            if (String(rr.estado || "").indexOf("REPETIDO") !== -1) continue;
+            // Los duplicados en la lista no son papeles nuevos: no cuentan.
+            // («REPETIDO» era el texto de antes: se sigue reconociendo.)
+            let est = String(rr.estado || "");
+            if (est.indexOf("DUPLICADO") !== -1 || est.indexOf("REPETIDO") !== -1) continue;
             miembros.push(filas[j].idx);
         }
         let hs = miembros.map(i => (horas[i - bloque.desde] || [])[0]).filter(esHora)
@@ -452,13 +454,14 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad) {
     let enLaUnidad = leerUnidad(unidad) || new Map();
 
     let vistos = new Map();       // pedimento -> primera fila de la lista
-    let estan = 0, noEstan = [], repetidos = 0, malos = 0;
+    let estan = 0, noEstan = [], repetidos = 0, malos = 0, duplicados = [];
     bloque.filas.forEach(f => {
         if (f.tipo === "error") { out.set(f.idx, filaDeCapturaMalaFinal(f.valor)); malos++; return; }
         if (f.tipo !== "pedimento") return;
         if (vistos.has(f.valor)) {
             repetidos++;
-            out.set(f.idx, { estado: "🔄 REPETIDO EN LA LISTA", color: COLOR_FINAL_REPETIDO,
+            if (duplicados.indexOf(f.valor) === -1) duplicados.push(f.valor);
+            out.set(f.idx, { estado: "🔄 DUPLICADO EN LA LISTA", color: COLOR_FINAL_REPETIDO,
                              pedimento: f.valor,
                              detalle: "Ya está en la fila " + (vistos.get(f.valor) + 1) });
             return;
@@ -485,8 +488,14 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad) {
     let partes = [];
     if (noEstan.length) partes.push(noEstan.length + (noEstan.length === 1 ? " no está" : " no están") + " en la unidad");
     if (sinPapel.length) partes.push("falta el papel de " + sinPapel.length);
-    if (repetidos) partes.push(repetidos + (repetidos === 1 ? " repetido" : " repetidos"));
     if (malos) partes.push(malos + " mal escaneado" + (malos === 1 ? "" : "s"));
+
+    // UN DUPLICADO SE DICE, PERO NO DESCUADRA. Se pidió así: el mismo papel
+    // escaneado dos veces no es un papel de menos ni uno que sobre —cuenta una
+    // vez—, así que la unidad sigue cuadrando. Se avisa en el texto para que se
+    // vea y se borre la fila de más.
+    let notaDuplicados = repetidos
+        ? "🔄 " + repetidos + (repetidos === 1 ? " duplicado" : " duplicados") : "";
 
     let total = vistos.size;
     let estadoU, colorU;
@@ -494,16 +503,18 @@ function evaluarBloqueFinal(bloque, unidades, leerUnidad) {
         estadoU = "ℹ️ " + unidad.nombre + ": no tiene pedimentos escaneados";
         colorU = COLOR_FINAL_NEUTRO;
     } else if (partes.length === 0) {
-        estadoU = "✅ UNIDAD CUADRA: " + total + (total === 1 ? " pedimento" : " pedimentos");
+        estadoU = "✅ UNIDAD CUADRA: " + total + (total === 1 ? " pedimento" : " pedimentos") +
+                  (notaDuplicados ? " · " + notaDuplicados : "");
         colorU = COLOR_FINAL_OK;
     } else {
-        estadoU = "❌ NO CUADRA · " + partes.join(" · ");
+        estadoU = "❌ NO CUADRA · " + partes.join(" · ") + (notaDuplicados ? " · " + notaDuplicados : "");
         colorU = COLOR_FINAL_MAL;
     }
     let detalleU = "Pestaña: " + unidad.nombre + " · en la unidad: " + enLaUnidad.size +
                    " · en la lista: " + total;
     if (noEstan.length) detalleU += " · NO ESTÁN EN LA UNIDAD: " + noEstan.join(", ");
     if (sinPapel.length) detalleU += " · SIN PAPEL: " + sinPapel.join(", ");
+    if (duplicados.length) detalleU += " · DUPLICADOS: " + duplicados.join(", ");
     out.set(bloque.filaUnidad, { estado: estadoU, color: colorU, detalle: detalleU });
 
     ponerTandas(out, tandas);
