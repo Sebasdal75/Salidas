@@ -228,8 +228,20 @@ function construirReporteDeTiempos(filas, desde) {
     Array.from(dias.keys()).sort((a, b) => b - a).forEach(kd => {
         let grupos = Array.from(dias.get(kd).values()).sort((a, b) => a.primera - b.primera);
         grupos.forEach(g => {
+            // LOS BLOQUES POR TIEMPO, NO POR NÚMERO. Se pidió así: el número es
+            // el orden en la pestaña, y la pestaña se arregla a mano —un BLOQUE
+            // metido después encima de papeles que ya estaban—. Lo que se quiere
+            // medir es cuándo pasó cada tanda. Cada bloque empieza en lo primero
+            // que se ve de él: su llegada o su primer papel, lo que fue antes.
+            // Los que no tienen ninguna hora van al final, por número.
+            let inicioDe = (b) => {
+                let horas = b.peds.map(p => p.hora.getTime());
+                if (b.llego) horas.push(b.llego.getTime());
+                return horas.length ? Math.min.apply(null, horas) : Infinity;
+            };
             let bloques = Array.from(g.bloques.values())
-                .sort((a, b) => numeroDeBloque(a.etiqueta) - numeroDeBloque(b.etiqueta));
+                .sort((a, b) => (inicioDe(a) - inicioDe(b)) ||
+                                (numeroDeBloque(a.etiqueta) - numeroDeBloque(b.etiqueta)));
             let todas = [];
             bloques.forEach(b => b.peds.forEach(p => todas.push(p.hora)));
             todas.sort((a, b) => a - b);

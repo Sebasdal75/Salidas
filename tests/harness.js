@@ -3196,6 +3196,28 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("lo de otro dia va en su propio grupo", col.indexOf("🚚 GLOBAL 1 77-14-ZP") !== -1);
     ok("sin bloque tambien se ve", col.indexOf("📦 (sin bloque)") !== -1);
     ok("lo de hace mas de una semana no sale", col.indexOf("🚚 GLOBAL 9") === -1);
+    // LOS BLOQUES POR TIEMPO, NO POR NÚMERO (la A1 76-AZ-8E: el BLOQUE 3 se
+    // metió encima de papeles escaneados a las 11:37, antes que los otros).
+    let regT = [
+        [D(15, 13, 47), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+        [D(15, 13, 47), "A1 76-AZ-8E", "6054425", "✅", "3407", "BLOQUE 1"],
+        [D(15, 13, 49), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 2", "", "BLOQUE 2"],
+        [D(15, 13, 49), "A1 76-AZ-8E", "6054145", "✅", "3407", "BLOQUE 2"],
+        [D(15, 13, 50), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 3", "", "BLOQUE 3"],
+        [D(15, 11, 37), "A1 76-AZ-8E", "6054497", "✅", "3407", "BLOQUE 3"],
+        [D(15, 11, 38), "A1 76-AZ-8E", "6043603", "✅", "3407", "BLOQUE 3"]];
+    let rT = construirReporteDeTiempos(regT, D(8, 0, 0));
+    let ordenT = rT.filas.map(f => f[0]).filter(x => x.indexOf("📦") === 0);
+    ok("los bloques del reporte van por hora, no por número",
+       ordenT.join() === "📦 BLOQUE 3,📦 BLOQUE 1,📦 BLOQUE 2");
+    let b3 = rT.filas.find(f => f[0] === "📦 BLOQUE 3");
+    let b1T = rT.filas.find(f => f[0] === "📦 BLOQUE 1");
+    ok("el primero en el tiempo no dice hueco", b3[7] === "");
+    ok("y el siguiente lo mide contra el que de verdad fue antes",
+       b1T[7].indexOf("después de terminar el BLOQUE 3") !== -1);
+    ok("sus pedimentos siguen debajo de su bloque",
+       rT.filas[rT.filas.indexOf(b3) + 1][0] === "   6054497");
+
     ok("las filas de unidad y bloque se marcan para pintarlas",
        r.tipos[0] === "unidad" && r.tipos[1] === "bloque" && r.tipos[2] === "pedimento");
 
