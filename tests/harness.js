@@ -2816,6 +2816,31 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
             setNumberFormat: () => {} }) };
     ponerTitulosFinales(vieja);
     ok("los codigos viejos de la E y la F se borran", borrados.some(b => b[0] === 5 && b[1] === 2));
+
+    // UNA LINEA AZUL CADA CIEN FILAS, donde va cada unidad.
+    ok("las filas de las unidades: la 2, la 102, la 202…",
+       filasDeUnidadFinales(350).join() === "2,102,202,302");
+    ok("en una hoja de mil, diez unidades", filasDeUnidadFinales(1000).length === 10);
+    let pintado = [], rayas = [], limpio = [];
+    let appViejo = global.SpreadsheetApp;
+    global.SpreadsheetApp = { getActiveSpreadsheet: () => null, BorderStyle: { SOLID_THICK: "GRUESA" } };
+    try {
+        let hojaAzul = { getMaxRows: () => 250,
+            getRange: (f, c, nf, nc) => ({ setBackground: (x) => limpio.push(["fondo", f, nf, x]),
+                                           setBorder: () => limpio.push(["rayas", f, nf, nc]) }),
+            getRangeList: (l) => ({ setBackground: (x) => pintado.push([l, x]),
+                                    setBorder: (t, a1, a2, a3, a4, a5, color, estilo) =>
+                                        rayas.push([l, t, color, estilo]) }) };
+        let n = marcarFilasDeUnidades(hojaAzul);
+        ok("pinta la A de cada fila de unidad en azul",
+           n === 3 && pintado[0][0].join() === "A2,A102,A202" && pintado[0][1] === '#c9daf8');
+        ok("con una raya azul gruesa encima, de la A a la F",
+           rayas[0][0].join() === "A2:F2,A102:F102,A202:F202" && rayas[0][1] === true &&
+           rayas[0][2] === '#1155cc' && rayas[0][3] === "GRUESA");
+        ok("y antes quita las rayas viejas, por si se movieron filas",
+           limpio.some(x => x[0] === "fondo" && x[1] === 2 && x[2] === 249 && x[3] === null) &&
+           limpio.some(x => x[0] === "rayas" && x[3] === 6));
+    } finally { global.SpreadsheetApp = appViejo; }
 })();
 
 // LAS HORAS QUE SE ESCAPAN SE RELLENAN CON LA DE ARRIBA, como en los escaneos.
@@ -7297,6 +7322,25 @@ ok("y se asegura hasta la ultima, la de las fechas",
     ok("las de ayer se quitan igual", s2.quitadas.has('R-AYER'));
 
     ok("no deja fechas de lo borrado", !s.fechas.has('R-AYER') && s.fechas.get('R-HOY') === HOY);
+
+    // LAS SIN EMPEZAR SE QUEDAN aunque sean de ayer: salen hoy. Empezada es la
+    // que tiene algo escaneado (o quedo atada a un pedimento).
+    let empezadas = new Set(['R-AYER']);
+    let s3 = separarReferenciasPorDia(piezas, houses, ataduras, fechas, HOY, false, empezadas);
+    ok("la de ayer empezada se borra", s3.quitadas.has('R-AYER') && !s3.piezas.has('1ZA'));
+    ok("la de ayer sin empezar se queda", s3.quedan.has('R-VIEJA') && s3.piezas.has('1ZD') &&
+       s3.sinEmpezar.has('R-VIEJA'));
+    ok("con su fecha de entonces", s3.fechas.get('R-VIEJA') === '20261001');
+    ok("la sin fecha sin empezar tambien, fechada hoy, y sin preguntar por ella",
+       s3.quedan.has('R-SINFECHA') && s3.fechas.get('R-SINFECHA') === HOY && s3.sinFecha === 0);
+    ok("las de hoy no cuentan como sin empezar", s3.quedan.has('R-HOY') && !s3.sinEmpezar.has('R-HOY'));
+    ok("sin la lista de empezadas, todo como antes",
+       s.quitadas.has('R-VIEJA') && s.sinEmpezar.size === 0);
+    let fuenteP = require('fs').readFileSync('Pedimentos.gs', 'utf8');
+    let iB = fuenteP.indexOf("function borrarReferenciasDeDiasAnteriores");
+    let cuerpoB = fuenteP.substring(iB, fuenteP.indexOf("\n}\n", iB));
+    ok("el boton de borrar guarda las sin empezar",
+       (cuerpoB.match(/hoy, (false|sinFechaEsDeHoy), empezadas\)/g) || []).length === 3);
     ok("sin nada no revienta",
        separarReferenciasPorDia(null, null, null, null, HOY, false).quitadas.size === 0);
 

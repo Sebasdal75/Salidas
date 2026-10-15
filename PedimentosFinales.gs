@@ -965,6 +965,41 @@ function ponerTitulosFinales(hoja) {
     hoja.getRange(1, 1, filas, 1).setNumberFormat("@");
     hoja.getRange(1, 4, filas, 1).setNumberFormat("@");
     hoja.setColumnWidth(4, 110);
+    try { marcarFilasDeUnidades(hoja); } catch (err) { /* el dibujo nunca tumba el cuadre */ }
+}
+
+// UNA LÍNEA AZUL CADA CIEN FILAS, a petición: ahí va cada unidad (la 2, la
+// 102, la 202…) y debajo caben sus tandas, que llegan a lo largo del día. La
+// celda A de esa fila va en azul y la fila lleva una raya azul gruesa encima,
+// de la A a la F.
+//
+// Se repinta entero cada vez —con «Forzar Actualización»—: si se borran o se
+// meten filas, las rayas viejas se corren de sitio, y así no se quedan rayas
+// donde ya no toca. Si hacen falta más unidades, se añaden filas al final y
+// «Forzar Actualización» pinta las nuevas.
+const FILAS_POR_UNIDAD_FINALES = 100;
+const COLOR_FILA_UNIDAD_FINALES = '#c9daf8';
+const COLOR_RAYA_UNIDAD_FINALES = '#1155cc';
+
+// Las filas donde va una unidad, hasta `maxFilas`. Puro.
+function filasDeUnidadFinales(maxFilas) {
+    let out = [];
+    for (let f = FILA_INICIO_FINALES; f <= maxFilas; f += FILAS_POR_UNIDAD_FINALES) out.push(f);
+    return out;
+}
+
+function marcarFilasDeUnidades(hoja) {
+    let max = hoja.getMaxRows();
+    let filas = filasDeUnidadFinales(max);
+    if (filas.length === 0) return 0;
+    let n = max - FILA_INICIO_FINALES + 1;
+    hoja.getRange(FILA_INICIO_FINALES, 1, n, 1).setBackground(null);
+    hoja.getRange(FILA_INICIO_FINALES, 1, n, 6).setBorder(false, false, false, false, false, false);
+    hoja.getRangeList(filas.map(f => "A" + f)).setBackground(COLOR_FILA_UNIDAD_FINALES);
+    hoja.getRangeList(filas.map(f => "A" + f + ":F" + f))
+        .setBorder(true, null, null, null, null, null, COLOR_RAYA_UNIDAD_FINALES,
+                   SpreadsheetApp.BorderStyle.SOLID_THICK);
+    return filas.length;
 }
 
 // Lo llama `procesarEdicion` cuando se escribe en la columna A de esta pestaña.
@@ -1098,7 +1133,9 @@ function prepararPedimentosFinales() {
         "Trae doce datos y la pistola puede repartirlos en varias filas: no " +
         "pasa nada, se reconoce el número de pedimento y el resto sale como " +
         "«↳ dato del código». También vale teclear los 7 dígitos.\n" +
-        "   3. Para la siguiente unidad, escanea su código y sigue debajo.\n\n" +
+        "   3. Cada unidad va en una FILA AZUL (cada cien filas: la 2, la 102, " +
+        "la 202…). Las tandas que lleguen después van debajo de su unidad, sin " +
+        "volver a escanearla.\n\n" +
         "LOS CÓDIGOS DE LAS UNIDADES están en las columnas G y H" +
         (cods > 0 ? " (" + cods + " unidades)" : "") + ". Genera cada uno en " +
         "Code 39 con tu programa de etiquetas de siempre, igual que los WMS. " +

@@ -508,17 +508,29 @@ function fecharReferencias(fechas, entradas, hoy) {
 // Las que no tienen fecha se cargaron antes de que existiera esto, y no hay
 // forma de saber de qué día son. `sinFechaEsDeHoy` decide qué hacer con ellas:
 // lo decide la persona, no el programa.
-function separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, sinFechaEsDeHoy) {
+//
+// LAS SIN EMPEZAR SE QUEDAN aunque sean de ayer, si se pasa `empezadas` (las
+// referencias que SÍ tienen algo escaneado): se pidió así porque salen hoy.
+// Conservan su fecha —si siguen sin empezar mañana, se vuelven a quedar—; las
+// sin fecha se fechan hoy, para no volver a preguntar por ellas.
+function separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, sinFechaEsDeHoy, empezadas) {
     let refs = new Set();
     [piezas, houses].forEach(m => (m || new Map()).forEach(ref => refs.add(ref)));
     (ataduras || new Map()).forEach((ped, ref) => refs.add(ref));
 
     let quitadas = new Set(), quedan = new Set(), porDia = new Map(), sinFecha = 0;
-    let fechasQuedan = new Map();
+    let fechasQuedan = new Map(), sinEmpezar = new Set();
     refs.forEach(ref => {
         let dia = String((fechas && fechas.get(ref)) || "");
+        let esDeHoy = dia !== "" && dia >= hoy;
+        if (!esDeHoy && empezadas && !empezadas.has(ref)) {
+            sinEmpezar.add(ref);
+            quedan.add(ref);
+            fechasQuedan.set(ref, dia === "" ? hoy : dia);
+            return;
+        }
         if (dia === "") sinFecha++;
-        let esDeHoy = dia === "" ? !!sinFechaEsDeHoy : dia >= hoy;
+        if (dia === "") esDeHoy = !!sinFechaEsDeHoy;
         if (esDeHoy) {
             quedan.add(ref);
             fechasQuedan.set(ref, dia === "" ? hoy : dia);
@@ -542,7 +554,8 @@ function separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, sinFech
 
     return { piezas: filtrar(piezas), houses: filtrar(houses), ataduras: atQuedan,
              fechas: fechasQuedan, quitadas: quitadas, quedan: quedan,
-             porDia: porDia, sinFecha: sinFecha, clavesQuitadas: clavesQuitadas };
+             porDia: porDia, sinFecha: sinFecha, clavesQuitadas: clavesQuitadas,
+             sinEmpezar: sinEmpezar };
 }
 
 // Un Map clave → referencia vuelto a la lista de {clave, referencia}.
@@ -896,13 +909,33 @@ function importarPedimentos() {
 // están en las pestañas.
 //
 // QUÉ SE BORRA: las referencias de antes de hoy, enteras —piezas, houses,
-// atadura a su pedimento y fecha—. QUÉ NO SE TOCA: ninguna pestaña de escaneo,
+// atadura a su pedimento y fecha—, MENOS LAS QUE SIGUEN SIN EMPEZAR: esas
+// salen hoy (ver `separarReferenciasPorDia`). QUÉ NO SE TOCA: ninguna pestaña de escaneo,
 // y la lista de archivos ya leídos. Esa última es a propósito: si se olvidara,
 // los Excel de ayer que sigan en la carpeta se volverían a cargar en la
 // siguiente pasada y todo lo borrado volvería.
 //
 // Pregunta antes, y dice cuántas son y de qué día. Borrar es irreversible:
 // para recuperarlo habría que volver a pasar los Excel.
+
+// LAS QUE TIENEN ALGO ESCANEADO, con la misma cuenta que la confronta: lo que
+// la confronta enseña como «⏳ SIN EMPEZAR» es justo lo que NO está aquí. Y
+// también las que la última confronta dejó atadas a un pedimento: si después
+// se vació la pestaña de esa unidad, sus bultos ya no se ven, pero se
+// empezaron. Si no se pueden leer las pestañas, solo las atadas.
+function referenciasEmpezadas(ss, piezas, houses, ataduras) {
+    let empezadas = new Set();
+    (ataduras || new Map()).forEach((ped, ref) => empezadas.add(ref));
+    try {
+        let refDeClave = new Map();
+        (piezas || new Map()).forEach((ref, clave) => refDeClave.set(clave, ref));
+        (houses || new Map()).forEach((ref, clave) => { if (!refDeClave.has(clave)) refDeClave.set(clave, ref); });
+        atarReferenciasAPedimentos(refDeClave, housesEscaneadasPorPedimento(ss))
+            .cuenta.forEach((porPed, ref) => empezadas.add(ref));
+    } catch (err) { /* con las atadas basta para no borrar de más */ }
+    return empezadas;
+}
+
 function borrarReferenciasDeDiasAnteriores() {
     const ss = obtenerArchivo();
     const ui = SpreadsheetApp.getUi();
@@ -916,12 +949,20 @@ function borrarReferenciasDeDiasAnteriores() {
     let fechas = fechasDeReferencias(ss);
     let hoy = diaDeHoyPed(ss);
 
-    let prueba = separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, false);
+    ss.toast('⏳ Mirando qué referencias siguen sin empezar…', 'Confronta', 20);
+    let empezadas = referenciasEmpezadas(ss, piezas, houses, ataduras);
+    let prueba = separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, false, empezadas);
+    // Lo que se queda, en palabras: las de hoy y las de antes sin empezar.
+    let textoQuedan = (x) => {
+        let deHoy = x.quedan.size - x.sinEmpezar.size;
+        return deHoy + " de hoy (" + textoDeDiaPed(hoy) + ")" +
+               (x.sinEmpezar.size ? " y " + x.sinEmpezar.size + " de días anteriores que siguen " +
+                                    "SIN EMPEZAR (ningún bulto escaneado: salen hoy)" : "");
+    };
     if (prueba.quitadas.size === 0) {
         ui.alert(TITULO, prueba.quedan.size === 0
             ? "No hay nada cargado."
-            : "No hay nada de días anteriores: las " + prueba.quedan.size +
-              " referencias cargadas son de hoy (" + textoDeDiaPed(hoy) + ").",
+            : "No hay nada que borrar. Se quedan " + textoQuedan(prueba) + ".",
             ui.ButtonSet.OK);
         return;
     }
@@ -943,7 +984,7 @@ function borrarReferenciasDeDiasAnteriores() {
         sinFechaEsDeHoy = (r0 === ui.Button.NO);
     }
 
-    let s = separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, sinFechaEsDeHoy);
+    let s = separarReferenciasPorDia(piezas, houses, ataduras, fechas, hoy, sinFechaEsDeHoy, empezadas);
     if (s.quitadas.size === 0) {
         // Solo había sin fecha y se decidió conservarlas: se fechan hoy para
         // no volver a preguntar.
@@ -961,7 +1002,7 @@ function borrarReferenciasDeDiasAnteriores() {
     let r = ui.alert(TITULO,
         "Voy a borrar " + s.quitadas.size + " referencias de días anteriores (" +
         s.clavesQuitadas.toLocaleString() + " guías y houses):\n" + dias + "\n\n" +
-        "Se quedan " + s.quedan.size + " de hoy (" + textoDeDiaPed(hoy) + ").\n\n" +
+        "Se quedan " + textoQuedan(s) + ".\n\n" +
         "NO se toca ninguna pestaña de escaneo. Para recuperar lo borrado habría " +
         "que volver a pasar sus Excel.\n\n¿Las borro?",
         ui.ButtonSet.YES_NO);
@@ -978,7 +1019,7 @@ function borrarReferenciasDeDiasAnteriores() {
             mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_PIEZAS)),
             mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_HOUSES)),
             mapaDesdeBlobPedimentos(leerTextoDeColumna(ss, COL_SIS_ATADURAS)),
-            fechasDeReferencias(ss), hoy, sinFechaEsDeHoy);
+            fechasDeReferencias(ss), hoy, sinFechaEsDeHoy, empezadas);
 
         guardarBlobReferencias(ss, entradasDesdeMapa(s.piezas), entradasDesdeMapa(s.houses));
         guardarBlobAtaduras(ss, s.ataduras);
@@ -1003,7 +1044,8 @@ function borrarReferenciasDeDiasAnteriores() {
     } finally { soltarTurnoPedimentos(); }
 
     ui.alert(TITULO,
-        "Listo: " + s.quitadas.size + " referencias borradas.\n\n" + informe + "\n\n" +
+        "Listo: " + s.quitadas.size + " referencias borradas. Se quedan " +
+        textoQuedan(s) + ".\n\n" + informe + "\n\n" +
         "Si en alguna pestaña de escaneo quedó un aviso de esas referencias en la " +
         "columna B, se quita al actualizarla (WMSACT).",
         ui.ButtonSet.OK);
