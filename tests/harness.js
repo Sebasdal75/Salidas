@@ -3002,7 +3002,8 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ok("el repetido mas abajo no le cambia el bloque al de arriba", bloquesB[4] !== "BLOQUE 3");
     ok("lo de otra unidad no se toca", bloquesB[2] === "" && escritoB[6].f === 2);
     ok("la llegada que falta se apunta", faltanB.length === 1 && faltanB[0][5] === "BLOQUE 2");
-    ok("y no se toca el texto de una llegada que ya cuadra", !escritoB[4]);
+    ok("y no se toca el texto de una llegada que ya cuadra",
+       !escritoB[4] || escritoB[4].v[0][0] === "📦 LLEGÓ EL BLOQUE 1");
     let regC = [regLleno[0], [MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"]];
     let escritoC = {};
     let hojaRegC = { getLastRow: () => regC.length,
@@ -3024,6 +3025,18 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
         [MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
         [MAS(1), "A1 76-AZ-8E", "6054497", "✅", "3407", "BLOQUE 1"]], []);
     ok("con la pestaña renombrada no se apunta otra vez", faltanN.length === 0);
+
+    // EL RESULTADO DE AHORA: se escaneó antes de estar en la unidad y después
+    // se agregó; la pestaña ya dice que está y el reporte tiene que decirlo.
+    let regR = [regLleno[0], [MAS(1), "A1 76-AZ-8E", 6054497, "❌ NO ESTÁ EN ESTA UNIDAD", "6087", "BLOQUE 1"]];
+    let escritoR = {};
+    let hojaRegR = { getLastRow: () => regR.length,
+        getRange: (f, c, nf, nc) => ({ getValues: () => regR.slice(f - 1, f - 1 + nf),
+                                       setValues: (v) => { escritoR[c] = v; } }) };
+    cuadrarRegistroConLaHoja({ getSheetByName: () => hojaRegR },
+        [[MAS(1), "A1 76-AZ-8E", "6054497", "✅ ESTÁ EN LA UNIDAD", "6087", "BLOQUE 1"]], []);
+    ok("el resultado viejo del escaneo se cambia por el de ahora",
+       escritoR[4] && escritoR[4][0][0] === "✅ ESTÁ EN LA UNIDAD");
     ok("y el registro pasa al nombre de ahora",
        escritoN[2] && escritoN[2][0][0] === "A1 76-AZ-8E" && escritoN[2][1][0] === "A1 76-AZ-8E");
 

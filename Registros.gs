@@ -321,6 +321,9 @@ function construirReporteDeTiempos(filas, desde) {
 // número; las llegadas de un bloque, por su hora exacta. Si un pedimento está
 // dos veces en la pestaña, manda el de más arriba, que es el que cuenta.
 //
+// Y EL RESULTADO TAMBIÉN: el registro guarda el de cuando se escaneó, y si
+// después cambió (se agregó el pedimento a la unidad) se pone el de ahora.
+//
 // Se compara por día, unidad y pedimento (y por bloque en las llegadas), que
 // es como agrupa el reporte. `yaVan` son filas que se van a apuntar ahora.
 //
@@ -410,6 +413,15 @@ function cuadrarRegistroConLaHoja(ss, filas, yaVan) {
                     leidas[i][1] = unidad; cambiaUnidad = true;
                 }
                 if (String(leidas[i][5] || "").trim() !== tanda) { leidas[i][5] = tanda; cambiaBloque = true; }
+                // EL RESULTADO DE AHORA, no el del momento del escaneo. Un
+                // pedimento escaneado antes de estar en la columna A de su
+                // unidad se quedaba en el reporte con «❌ NO ESTÁ EN ESTA UNIDAD»
+                // aunque después se agregara y la pestaña ya dijera que está.
+                let resultado = String(f[3] || "");
+                if (ped !== "" && resultado !== "" && String(leidas[i][3] || "") !== resultado) {
+                    leidas[i][3] = resultado;
+                    cambiaTexto = true;
+                }
                 let texto = "📦 LLEGÓ EL " + tanda;
                 if (ped === "" && tanda !== "" && String(leidas[i][3] || "") !== texto) {
                     leidas[i][3] = texto;
@@ -423,9 +435,15 @@ function cuadrarRegistroConLaHoja(ss, filas, yaVan) {
         hay.add(k);
         out.push(f);
     });
-    if (cambiaUnidad) reg.getRange(desdeFila, 2, leidas.length, 1).setValues(leidas.map(f => [f[1]]));
-    if (cambiaBloque) reg.getRange(desdeFila, 6, leidas.length, 1).setValues(leidas.map(f => [f[5]]));
-    if (cambiaTexto) reg.getRange(desdeFila, 4, leidas.length, 1).setValues(leidas.map(f => [f[3]]));
+    // Cada corrección por su cuenta: si una no se puede escribir, las demás
+    // sí, y lo que falta por apuntar se devuelve igual.
+    let escribir = (col, i) => {
+        try { reg.getRange(desdeFila, col, leidas.length, 1).setValues(leidas.map(f => [f[i]])); }
+        catch (err) { /* lo arregla el siguiente «Forzar actualización» */ }
+    };
+    if (cambiaUnidad) escribir(2, 1);
+    if (cambiaBloque) escribir(6, 5);
+    if (cambiaTexto) escribir(4, 3);
     if (cambiaUnidad || cambiaBloque || cambiaTexto) marcarReporteDeTiemposPendiente();
     return out;
 }
