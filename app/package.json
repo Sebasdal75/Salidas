@@ -5,11 +5,12 @@
   "private": true,
   "type": "commonjs",
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.13"
   },
   "scripts": {
     "start": "node --disable-warning=ExperimentalWarning src/servidor.js",
     "test": "node --disable-warning=ExperimentalWarning --test tests/*.test.js",
-    "respaldar": "node --disable-warning=ExperimentalWarning scripts/respaldar.js"
+    "respaldar": "node --disable-warning=ExperimentalWarning scripts/respaldar.js",
+    "comparar": "node --disable-warning=ExperimentalWarning scripts/comparar-con-hoja.js"
   }
 }

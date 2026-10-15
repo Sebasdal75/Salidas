@@ -20,6 +20,16 @@ Abre la dirección en el navegador, escribe tu nombre, crea una unidad
 (por ejemplo `GLOBAL 1 20-AE-3H`) y escanea. En la pistola Zebra funciona igual:
 el campo de escaneo siempre tiene el cursor.
 
+## Probarla antes del servidor
+
+[`docs/APP-PRUEBAS.md`](../docs/APP-PRUEBAS.md): compararla contra tu hoja con
+CSV (`npm run comparar`), instalarla en una Raspberry en la red local
+(`bash scripts/instalar-raspberry.sh`) y la lista de pruebas en piso.
+
+`tests/paridad.test.js` pasa casos al azar por el motor de la app **y por el de
+la hoja de Google** (los `.gs` de la raíz) y exige que digan lo mismo, fila por
+fila. Para una barrida grande: `PARIDAD_CASOS=100000 npm test`.
+
 ## Qué hay aquí
 
 ```
@@ -35,6 +45,10 @@ app/
                    PostgreSQL o Azure SQL)
     servidor.js    HTTP: la pantalla y la API
     web/           la pantalla (HTML + CSS + JS, sin compilar)
+  scripts/
+    comparar-con-hoja.js    la app contra CSV exportados de la hoja
+    instalar-raspberry.sh   servicio en una Raspberry, solo en la red local
+    respaldar.js            respaldo seguro de la base
   tests/           pruebas (motor, servicio, servidor)
   Dockerfile
 ```
@@ -48,3 +62,4 @@ app/
 | [`APP-REGLAS-GLOBALES.md`](../docs/APP-REGLAS-GLOBALES.md) | Todos: qué mensaje sale y por qué (la «constitución» de una Global) |
 | [`APP-FASES.md`](../docs/APP-FASES.md) | Quien decida: qué está hecho y qué falta |
 | [`APP-MANUAL-OPERADOR.md`](../docs/APP-MANUAL-OPERADOR.md) | Los operadores |
+| [`APP-PRUEBAS.md`](../docs/APP-PRUEBAS.md) | Quien la pruebe: Raspberry, comparación con la hoja, pruebas en piso |

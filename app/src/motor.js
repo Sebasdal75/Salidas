@@ -35,6 +35,15 @@ const HOOKS_VACIOS = {
 
 function texto(v) { return String(v === undefined || v === null ? '' : v); }
 
+// El orden en que JavaScript recorre las claves de un objeto: primero las que
+// son índices de arreglo («6100001», no «0610001» con el cero delante) de menor
+// a mayor, después las demás en el orden en que entraron.
+function ordenDeObjeto(claves) {
+  const esIndice = (k) => /^(0|[1-9]\d*)$/.test(k) && Number(k) < 4294967295;
+  const indices = claves.filter(esIndice).sort((a, b) => Number(a) - Number(b));
+  return indices.concat(claves.filter(k => !esIndice(k)));
+}
+
 // horaPreservada: solo sella la hora cuando la celda estaba vacía.
 function horaPreservada(valorFila, previa, ahora) {
   if (texto(valorFila).trim() === '') return '';
@@ -149,7 +158,8 @@ function calcularUnidad(entrada) {
   }
 
   const esRezago = nombre.indexOf('REZAGO') !== -1;
-  const rezagoCruzaMS = esRezago && nombre.indexOf('MS') !== -1;
+  // «REZAGO MS»: MS como palabra suelta, con o sin guion (esRezagoConMS).
+  const rezagoCruzaMS = esRezago && /(^|[^A-Z0-9])M-?S($|[^A-Z0-9])/.test(nombre);
   const esTransito = nombre.indexOf('TRANSITO') !== -1 || nombre.indexOf('TRÁNSITO') !== -1;
   // En un arribo no se exige registro previo en M-S. Y mientras no exista el
   // módulo de las M-S (fase 2) tampoco se exige en ninguna: `exigirMS` lo prende.
@@ -398,8 +408,15 @@ function calcularUnidad(entrada) {
   });
 
   // Mismos 1Z, otro número: un dedazo en el pedimento, no guías descolocadas.
+  //
+  // Si DOS pedimentos de la lista traen exactamente las mismas guías, gana el
+  // último EN EL ORDEN EN QUE LOS RECORRE LA HOJA, que no es el de la lista: la
+  // hoja los guarda en un objeto de JavaScript, y un objeto recorre primero las
+  // claves numéricas de menor a mayor. Se reproduce ese orden (`ordenDeObjeto`)
+  // para que el «gemelo» sea el mismo. Lo encontró la prueba de paridad.
   const preformaPorConjunto = new Map();
-  mapaPreformas.forEach((set, p) => {
+  ordenDeObjeto(Array.from(mapaPreformas.keys())).forEach(p => {
+    const set = mapaPreformas.get(p);
     if (set.size === 0) return;
     preformaPorConjunto.set(Array.from(set).sort().join('|'), p);
   });
@@ -638,4 +655,4 @@ function calcularUnidad(entrada) {
   };
 }
 
-module.exports = { calcularUnidad, pedimentosPorFila, horaPreservada };
+module.exports = { calcularUnidad, pedimentosPorFila, horaPreservada, ordenDeObjeto };

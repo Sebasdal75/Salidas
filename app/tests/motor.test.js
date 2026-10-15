@@ -187,3 +187,11 @@ test('el pedimento «ya usado otro día» no pisa un 🛑 de hoy', () => {
   const r = calc({ fisico: col('6100001', G[0], '6100001'), hooks });
   assert.ok(r.filas[0].estado.startsWith('🛑 PEDIMENTO REPETIDO'));
 });
+
+test('dos pedimentos de la lista con las mismas guías: el gemelo es el mismo que elige la hoja', () => {
+  const { ordenDeObjeto } = require('../src/motor');
+  assert.deepStrictEqual(ordenDeObjeto(['6100002', 'SIN_CABECERA', '6100001', '0610001']),
+                         ['6100001', '6100002', 'SIN_CABECERA', '0610001']);
+  const r = calc({ fisico: col('6100009', G[0]), preforma: col(G[0], '6100002', G[0], '6100001') });
+  assert.ok(r.filas[0].estado.indexOf('bajo el pedimento 6100002') !== -1, r.filas[0].estado);
+});

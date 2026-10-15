@@ -4,6 +4,8 @@
 // nada que instalar.
 //
 //   PORT      puerto (3000)
+//   HOST      en qué dirección escucha: 0.0.0.0 (por defecto) = toda la red
+//             local, para que lleguen las pistolas; 127.0.0.1 = solo este equipo
 //   DB_PATH   archivo de la base (./datos/wms.sqlite)
 //   TZ        zona horaria para las horas del escaneo (America/Mexico_City)
 //   DB_JOURNAL WAL (por defecto) o DELETE; DELETE si la base está en un disco de red
@@ -24,6 +26,7 @@
 // =========================================================================
 
 const http = require('node:http');
+const os = require('node:os');
 const fs = require('node:fs');
 const path = require('node:path');
 const { abrir } = require('./db');
@@ -137,15 +140,35 @@ function crearServidor(servicio, opciones) {
   });
 }
 
+// Las direcciones de este equipo en la red local: las que hay que abrir en la
+// pistola. (Una dirección de red local no se ve desde internet.)
+function direccionesLocales() {
+  const out = [];
+  Object.values(os.networkInterfaces()).forEach(lista => (lista || []).forEach(d => {
+    if (d.family === 'IPv4' && !d.internal) out.push(d.address);
+  }));
+  return out;
+}
+
 if (require.main === module) {
+  const [mayor, menor] = process.versions.node.split('.').map(Number);
+  if (mayor < 22 || (mayor === 22 && menor < 13)) {
+    console.error('Esta app necesita Node.js 22.13 o más nuevo (tienes ' + process.versions.node + ').');
+    process.exit(1);
+  }
   const ruta = process.env.DB_PATH || path.join(__dirname, '..', 'datos', 'wms.sqlite');
   fs.mkdirSync(path.dirname(ruta), { recursive: true });
   const servicio = crearServicio(abrir(ruta, { journal: process.env.DB_JOURNAL }));
   const puerto = Number(process.env.PORT) || 3000;
   const servidor = crearServidor(servicio, {
     cabeceraSso: process.env.AUTH_HEADER, exigirSso: process.env.EXIGIR_SSO === '1' });
-  servidor.listen(puerto, () => console.log('WMS Salidas en http://localhost:' + puerto +
-    (process.env.EXIGIR_SSO === '1' ? ' (solo con inicio de sesión de la empresa)' : '')));
+  const host = process.env.HOST || '0.0.0.0';
+  servidor.listen(puerto, host, () => {
+    console.log('WMS Salidas lista' + (process.env.EXIGIR_SSO === '1' ? ' (solo con inicio de sesión de la empresa)' : '') + '.');
+    console.log('  En este equipo:  http://localhost:' + puerto);
+    if (host === '0.0.0.0') direccionesLocales().forEach(ip => console.log('  En la pistola:   http://' + ip + ':' + puerto));
+    console.log('  Base de datos:   ' + ruta);
+  });
 }
 
-module.exports = { crearServidor };
+module.exports = { crearServidor, direccionesLocales };

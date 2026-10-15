@@ -5,9 +5,12 @@ Para sistemas. La arquitectura y el porqué están en
 
 ---
 
+> **Para probar antes de instalar en un servidor** (en una Raspberry, en la red
+> local, sin internet): [`APP-PRUEBAS.md`](APP-PRUEBAS.md).
+
 ## 1. Requisitos
 
-- **Node.js 22.5 o más** (la app usa el SQLite que ya trae Node). Nada más:
+- **Node.js 22.13 o más** (la app usa el SQLite que ya trae Node). Nada más:
   `npm install` no descarga nada.
 - Un disco donde guardar el archivo de la base y que se respalde.
 - Para producción: nombre con HTTPS e inicio de sesión de la empresa
@@ -26,6 +29,7 @@ Variables de entorno (todas opcionales):
 | Variable | Qué hace | Por defecto |
 |---|---|---|
 | `PORT` | Puerto en el que escucha | `3000` |
+| `HOST` | `0.0.0.0` = toda la red local (para que lleguen las pistolas); `127.0.0.1` = solo este equipo | `0.0.0.0` |
 | `DB_PATH` | Archivo de la base | `app/datos/wms.sqlite` |
 | `TZ` | Zona horaria de las horas de escaneo | `America/Mexico_City` |
 | `DB_JOURNAL` | `WAL` o `DELETE`. **`DELETE` si la base está en un disco de red** (ver §4) | `WAL` |
@@ -141,7 +145,7 @@ La base es **un archivo** (más `-wal` y `-shm` mientras corre).
   un disco de red. Debe haber un solo proceso de la app por base y la base en un
   disco local (o `DB_JOURNAL=DELETE`).
 - **Las horas salen corridas**: revisar `TZ`.
-- **No arranca por «node:sqlite»**: la versión de Node es menor de 22.5.
+- **«Esta app necesita Node.js 22.13 o más nuevo»**: actualizar Node.
 
 ## 10. Qué guardar fuera del repositorio
 
