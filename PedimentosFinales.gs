@@ -1162,8 +1162,9 @@ function prepararPedimentosFinales() {
         "pedimento, y no cambian aunque se recalcule. Si a alguno se le escapa, se le pone la " +
         "del de arriba en cuanto escaneas el siguiente (o con «🔄 Forzar " +
         "Actualización», o en el " +
-        "repaso de cinco minutos). Cada hora queda apuntada en «" +
-        "SIS_TIEMPOS_REGISTRO», que no se borra aunque limpies esta pestaña, y " +
+        "repaso de cinco minutos). Cada hora queda apuntada en un registro " +
+        "oculto (SIS_TIEMPOS_REGISTRO, no lo borres: de ahí sale el reporte), " +
+        "que no se borra aunque limpies esta pestaña, y " +
         "«SIS_TIEMPOS_PEDIMENTOS» lo enseña AGRUPADO POR UNIDAD, con cada bloque " +
         "resumido. Ese reporte se pone al día con «🔄 Forzar Actualización» " +
         "en esta pestaña, o solo cada cinco " +

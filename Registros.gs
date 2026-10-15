@@ -49,6 +49,18 @@ function nombreHojaSisTiempos() { return HOJA_SIS_TIEMPOS; }
 function cabeceraSisTiempos() { return CABECERA_SIS_TIEMPOS.slice(); }
 function nombreHojaSisReportes() { return HOJA_SIS_REPORTES; }
 
+// EL REGISTRO CRUDO DE TIEMPOS VA OCULTO. Se pidió quitarlo de la vista («no lo
+// ocupo, lo voy a borrar»), pero NO se puede borrar: el reporte agrupado sale
+// de él, y sin él se pierde todo lo que ya no esté en PEDIMENTOS FINALES. Oculto
+// sigue funcionando igual y no estorba. Si alguien lo borra, el siguiente
+// «Forzar actualización» lo rehace con lo que quede en la pestaña.
+function ocultarRegistroDeTiempos(ss) {
+    try {
+        let h = ss.getSheetByName(HOJA_SIS_TIEMPOS);
+        if (h && !h.isSheetHidden()) h.hideSheet();
+    } catch (err) { /* que se vea no rompe nada */ }
+}
+
 // Añade filas a un registro, creándolo si no existe.
 function anotarEnRegistro(ss, nombre, cabecera, filas) {
     if (!filas || filas.length === 0) return 0;
@@ -59,6 +71,7 @@ function anotarEnRegistro(ss, nombre, cabecera, filas) {
         h.setFrozenRows(1);
         h.getRange(2, 1, Math.max(h.getMaxRows() - 1, 1), 1)
          .setNumberFormat("dd/mm/yyyy hh:mm:ss");
+        if (nombre === HOJA_SIS_TIEMPOS) ocultarRegistroDeTiempos(ss);
     } else if (h.getMaxColumns() < cabecera.length ||
                String(h.getRange(1, cabecera.length).getValue()).trim() !== cabecera[cabecera.length - 1]) {
         // UNA COLUMNA NUEVA EN UN REGISTRO QUE YA EXISTÍA (pasó con BLOQUE):
@@ -196,6 +209,12 @@ function numeroDeBloque(etiqueta) {
 // cada una, para pintarlas.
 function construirReporteDeTiempos(filas, desde) {
     let dias = new Map();   // clave de día → Map(unidad → grupo)
+    // UN PEDIMENTO, UNA VEZ AL DÍA, aunque el registro lo tenga en dos
+    // unidades: pasaba al cambiarle el nombre a la pestaña (la «A1» pasó a
+    // «A1 76-AZ-8E») y al escanear el mismo papel en dos unidades. Vale el
+    // primero que se apuntó. «Forzar actualización» en PEDIMENTOS FINALES
+    // además lo pasa a la unidad donde está ahora (`cuadrarRegistroConLaHoja`).
+    let pedsDelDia = new Map();   // clave de día → Set(pedimento)
     (filas || []).forEach(f => {
         let fecha = f[0];
         if (!esFechaValida(fecha) || (desde && fecha < desde)) return;
@@ -203,10 +222,14 @@ function construirReporteDeTiempos(filas, desde) {
         let ped = String(f[2] === undefined || f[2] === null ? "" : f[2]).trim();
         let bloque = String(f[5] || "").trim() || "(sin bloque)";
         let kd = claveDeDia(fecha);
-        if (!dias.has(kd)) dias.set(kd, new Map());
+        if (!dias.has(kd)) { dias.set(kd, new Map()); pedsDelDia.set(kd, new Set()); }
+        if (ped !== "") {
+            if (pedsDelDia.get(kd).has(ped)) return;
+            pedsDelDia.get(kd).add(ped);
+        }
         let porUnidad = dias.get(kd);
         if (!porUnidad.has(unidad)) {
-            porUnidad.set(unidad, { unidad: unidad, primera: fecha, bloques: new Map(), vistos: new Set() });
+            porUnidad.set(unidad, { unidad: unidad, primera: fecha, bloques: new Map() });
         }
         let g = porUnidad.get(unidad);
         if (fecha < g.primera) g.primera = fecha;
@@ -217,10 +240,6 @@ function construirReporteDeTiempos(filas, desde) {
             if (!b.llego || fecha < b.llego) b.llego = fecha;
             return;
         }
-        // Un pedimento escaneado dos veces en la misma unidad el mismo día
-        // cuenta una: vale la primera hora, que es cuando llegó el papel.
-        if (g.vistos.has(ped)) return;
-        g.vistos.add(ped);
         b.peds.push({ ped: ped, hora: fecha, resultado: String(f[3] || ""), patente: String(f[4] || "") });
     });
 
@@ -342,36 +361,54 @@ function cuadrarRegistroConLaHoja(ss, filas, yaVan) {
             if (masVieja > desde) desde = masVieja;
         }
     }
-    let base = f => claveDeDia(f[0]) + "|" + unidadDeRegistro(f[1]) + "|";
+    let dia = f => claveDeDia(f[0]) + "|";
+    let base = f => dia(f) + unidadDeRegistro(f[1]) + "|";
     let segundo = d => Math.round(d.getTime() / 1000);
     let apuntar = (m, k, i) => { if (!m.has(k)) m.set(k, []); m.get(k).push(i); };
-    let hay = new Set(), pedimentos = new Map(), llegadas = new Map();
+    // Los pedimentos se buscan por DÍA Y NÚMERO, sin la unidad: si la pestaña
+    // cambió de nombre, el registro lo tiene con el nombre viejo y hay que
+    // reconocerlo igual. Las llegadas de un bloque, por su hora exacta (con la
+    // unidad si se puede; si no, solo por la hora, si hay una sola así).
+    let hay = new Set(), pedimentos = new Map(), llegadas = new Map(), llegadasPorHora = new Map();
     leidas.forEach((f, i) => {
         let c = claveDeTiempo(f);
         if (c === "") return;
         hay.add(c);
         let ped = pedimentoDeRegistro(f[2]);
-        if (ped !== "") apuntar(pedimentos, base(f) + ped, i);
-        else apuntar(llegadas, base(f) + segundo(f[0]), i);
+        if (ped !== "") apuntar(pedimentos, dia(f) + ped, i);
+        else {
+            apuntar(llegadas, base(f) + segundo(f[0]), i);
+            apuntar(llegadasPorHora, dia(f) + segundo(f[0]), i);
+        }
     });
     (yaVan || []).forEach(f => hay.add(claveDeTiempo(f)));
 
-    let out = [], vistos = new Set(), cambiaBloque = false, cambiaTexto = false;
+    let out = [], vistos = new Set(), cambiaBloque = false, cambiaTexto = false, cambiaUnidad = false;
     (filas || []).forEach(f => {
         if (!esFechaValida(f[0]) || f[0] < desde) return;
         let ped = pedimentoDeRegistro(f[2]);
         let tanda = String(f[5] || "").trim();
+        let unidad = String(f[1] || "").trim();
         let enRegistro;
         if (ped !== "") {
-            let c = base(f) + ped;
+            // Si el pedimento está dos veces en la pestaña, manda el de más
+            // arriba: es el que cuenta.
+            let c = dia(f) + ped;
             if (vistos.has(c)) return;
             vistos.add(c);
             enRegistro = pedimentos.get(c);
         } else {
             enRegistro = llegadas.get(base(f) + segundo(f[0]));
+            if (!enRegistro) {
+                let porHora = llegadasPorHora.get(dia(f) + segundo(f[0]));
+                if (porHora && porHora.length === 1) enRegistro = porHora;
+            }
         }
         if (enRegistro) {
             enRegistro.forEach(i => {
+                if (unidad !== "" && unidadDeRegistro(leidas[i][1]) !== unidadDeRegistro(unidad)) {
+                    leidas[i][1] = unidad; cambiaUnidad = true;
+                }
                 if (String(leidas[i][5] || "").trim() !== tanda) { leidas[i][5] = tanda; cambiaBloque = true; }
                 let texto = "📦 LLEGÓ EL " + tanda;
                 if (ped === "" && tanda !== "" && String(leidas[i][3] || "") !== texto) {
@@ -386,11 +423,10 @@ function cuadrarRegistroConLaHoja(ss, filas, yaVan) {
         hay.add(k);
         out.push(f);
     });
-    if (cambiaBloque) {
-        reg.getRange(desdeFila, 6, leidas.length, 1).setValues(leidas.map(f => [f[5]]));
-        marcarReporteDeTiemposPendiente();
-    }
+    if (cambiaUnidad) reg.getRange(desdeFila, 2, leidas.length, 1).setValues(leidas.map(f => [f[1]]));
+    if (cambiaBloque) reg.getRange(desdeFila, 6, leidas.length, 1).setValues(leidas.map(f => [f[5]]));
     if (cambiaTexto) reg.getRange(desdeFila, 4, leidas.length, 1).setValues(leidas.map(f => [f[3]]));
+    if (cambiaUnidad || cambiaBloque || cambiaTexto) marcarReporteDeTiemposPendiente();
     return out;
 }
 
@@ -417,6 +453,7 @@ function mudarRegistroDeTiemposViejo(ss) {
 // Rehace el reporte. Devuelve cuántas filas escribió.
 function rehacerReporteDeTiempos(ss) {
     try { mudarRegistroDeTiemposViejo(ss); } catch (err) { /* se intentará la próxima vez */ }
+    ocultarRegistroDeTiempos(ss);
     let reg = ss.getSheetByName(HOJA_SIS_TIEMPOS);
     let filas = [];
     if (reg && reg.getLastRow() > 1) {

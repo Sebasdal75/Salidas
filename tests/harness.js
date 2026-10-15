@@ -3010,6 +3010,30 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
                                        setValues: (v) => { escritoC[c] = v; } }) };
     cuadrarRegistroConLaHoja({ getSheetByName: () => hojaRegC },
         [[MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 2", "", "BLOQUE 2"]], []);
+    // LA PESTAÑA CAMBIÓ DE NOMBRE: el registro tiene «A1» y la hoja «A1 76-AZ-8E».
+    // Se reconoce por día y pedimento (y la llegada por su hora), se le pone el
+    // nombre de ahora, y NO se apunta otra vez.
+    let regN = [regLleno[0],
+                [MAS(0), "A1", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+                [MAS(1), "A1", 6054497, "✅", "3407", "BLOQUE 1"]];
+    let escritoN = {};
+    let hojaRegN = { getLastRow: () => regN.length,
+        getRange: (f, c, nf, nc) => ({ getValues: () => regN.slice(f - 1, f - 1 + nf),
+                                       setValues: (v) => { escritoN[c] = v; } }) };
+    let faltanN = cuadrarRegistroConLaHoja({ getSheetByName: () => hojaRegN }, [
+        [MAS(0), "A1 76-AZ-8E", "", "📦 LLEGÓ EL BLOQUE 1", "", "BLOQUE 1"],
+        [MAS(1), "A1 76-AZ-8E", "6054497", "✅", "3407", "BLOQUE 1"]], []);
+    ok("con la pestaña renombrada no se apunta otra vez", faltanN.length === 0);
+    ok("y el registro pasa al nombre de ahora",
+       escritoN[2] && escritoN[2][0][0] === "A1 76-AZ-8E" && escritoN[2][1][0] === "A1 76-AZ-8E");
+
+    // El registro crudo va OCULTO: no se borra, de ahí sale el reporte.
+    let oculta = false;
+    ocultarRegistroDeTiempos({ getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO"
+        ? { isSheetHidden: () => false, hideSheet: () => { oculta = true; } } : null });
+    ok("el registro de tiempos se oculta", oculta);
+    ocultarRegistroDeTiempos({ getSheetByName: () => null });   // si no existe, nada
+
     ok("una llegada que ahora es otro bloque se renombra, por su hora",
        escritoC[6] && escritoC[6][0][0] === "BLOQUE 2" && escritoC[4][0][0] === "📦 LLEGÓ EL BLOQUE 2");
 
@@ -3217,6 +3241,22 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
        b1T[7].indexOf("después de terminar el BLOQUE 3") !== -1);
     ok("sus pedimentos siguen debajo de su bloque",
        rT.filas[rT.filas.indexOf(b3) + 1][0] === "   6054497");
+
+    // UN PEDIMENTO, UNA VEZ AL DÍA: la pestaña «A1» pasó a llamarse
+    // «A1 76-AZ-8E» y el mismo pedimento quedó en el registro con los dos nombres.
+    let regDos = [
+        [D(15, 11, 37), "A1", "6054497", "✅", "3407", "BLOQUE 1"],
+        [D(15, 11, 38), "A1", "6043603", "✅", "3407", "BLOQUE 1"],
+        [D(15, 13, 47), "A1 76-AZ-8E", "6054497", "✅", "3407", "BLOQUE 1"],
+        [D(15, 13, 48), "A1 76-AZ-8E", "6054425", "✅", "3407", "BLOQUE 1"],
+        [D(14, 9, 0), "A1 76-AZ-8E", "6054497", "✅", "3407", "BLOQUE 1"]];
+    let rDos = construirReporteDeTiempos(regDos, D(8, 0, 0));
+    let veces = rDos.filas.filter(f => f[0] === "   6054497").length;
+    ok("el mismo pedimento el mismo día sale una vez, aunque esté en dos unidades", veces === 2);   // 15 y 14
+    ok("y cuenta una vez en el total",
+       rDos.filas.filter(f => String(f[0]).indexOf("🚚") === 0).reduce((n, f) => n + f[3], 0) === 4);
+    ok("una unidad no se queda con un renglón vacío por eso",
+       rDos.filas.filter(f => String(f[0]).indexOf("🚚") === 0).every(f => f[3] > 0));
 
     ok("las filas de unidad y bloque se marcan para pintarlas",
        r.tipos[0] === "unidad" && r.tipos[1] === "bloque" && r.tipos[2] === "pedimento");
