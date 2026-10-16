@@ -231,7 +231,7 @@ function minutosEntre(a, b) { return Math.round((b - a) / 60000); }
 // -------------------------------------------------------------------------
 //
 // Cuando UPS dice que la unidad ya es todo, se escanea WMSCIERRA (en la pestaña
-// de la unidad o en su espacio de PEDIMENTOS FINALES) y se apunta la hora en el
+// de la unidad, columna A o E; la pestaña se oculta) y se apunta la hora en el
 // registro de tiempos. WMSABRE la vuelve a abrir —un error, o llegó algo más—.
 // Sirve para medir CUÁNTO TARDAN EN PASAR LOS PEDIMENTOS DESPUÉS DEL CIERRE: el
 // reporte pone la fila «🔒 CIERRE DE LA UNIDAD» con el primer y el último papel

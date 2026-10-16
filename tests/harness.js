@@ -8241,6 +8241,8 @@ ok("los dos estan en el menu",
 
 // WMSHOUSE: SOLO LA PESTAÑA DONDE SE ESCANEA.
 const FUENTE_CMD_H = require('fs').readFileSync('Comandos.gs', 'utf8');
+const FUENTE_PF_CMD = require('fs').readFileSync('PedimentosFinales.gs', 'utf8');
+const FUENTE_COD_CMD = require('fs').readFileSync('Codigo.gs', 'utf8');
 ok("WMSHOUSE trabaja sobre la pestaña donde se escanea",
    FUENTE_CMD_H.indexOf("correrRellenoDeHouses(hoja ? hoja.getName() : \"\")") !== -1);
 ok("y a los comandos se les pasa la hoja (y la fila)",
@@ -8305,24 +8307,61 @@ ok("y a los comandos se les pasa la hoja (y la fila)",
        filas.length === 3 && filas[2][5] === "APERTURA");
     ok("otra unidad no se entera", abrirUnidad(ssH, "GLOBAL 2", ahora).indexOf("no estaba cerrada") !== -1);
 
-    // ¿De qué unidad? De la pestaña, o del espacio en PEDIMENTOS FINALES.
-    let colF = [["UNIDAD Y SUS PEDIMENTOS"], ["global 1"], ["6116004"], ["WMSCIERRA"], ["A1"], ["WMSABRE"]];
-    let finales = { getName: () => "PEDIMENTOS FINALES",
-                    getRange: (f, cc, nf) => ({ getValues: () => colF.slice(0, nf) }) };
-    let unidadesH = [{ getName: () => "GLOBAL 1 20-AE-3H" }, { getName: () => "A1 76-AZ-8E" }, finales];
-    let ssU = { getSheets: () => unidadesH };
-    ok("en PEDIMENTOS FINALES, la unidad de ese espacio",
-       unidadDondeSeEscanea(ssU, finales, 4) === "GLOBAL 1 20-AE-3H" &&
-       unidadDondeSeEscanea(ssU, finales, 6) === "A1 76-AZ-8E");
-    ok("en la pestaña de la unidad, esa", unidadDondeSeEscanea(ssU, { getName: () => "GLOBAL 1 20-AE-3H" }, 9) === "GLOBAL 1 20-AE-3H");
+    // ¿De qué unidad? SOLO de la pestaña de la unidad.
+    ok("en la pestaña de la unidad, esa", unidadDondeSeEscanea({ getName: () => "GLOBAL 1 20-AE-3H" }) === "GLOBAL 1 20-AE-3H");
     let lanzo = "";
-    try { unidadDondeSeEscanea(ssU, { getName: () => "M-S T1" }, 3); } catch (e) { lanzo = e.message; }
+    try { unidadDondeSeEscanea({ getName: () => "M-S T1" }); } catch (e) { lanzo = e.message; }
     ok("en otra pestaña lo dice", lanzo.indexOf("pestaña de la unidad") !== -1);
     lanzo = "";
-    let colSin = [["UNIDAD Y SUS PEDIMENTOS"], ["WMSCIERRA"]];
-    try { unidadDondeSeEscanea(ssU, { getName: () => "PEDIMENTOS FINALES",
-          getRange: (f, cc, nf) => ({ getValues: () => colSin.slice(0, nf) }) }, 2); } catch (e) { lanzo = e.message; }
-    ok("en PEDIMENTOS FINALES sin unidad arriba, lo dice", lanzo.indexOf("debajo de la unidad") !== -1);
+    try { unidadDondeSeEscanea({ getName: () => "PEDIMENTOS FINALES" }); } catch (e) { lanzo = e.message; }
+    ok("en PEDIMENTOS FINALES ya no: solo en la unidad", lanzo.indexOf("pestaña de la unidad") !== -1);
+    ok("y ya no salen en la lista de códigos de PEDIMENTOS FINALES",
+       FUENTE_PF_CMD.indexOf('"WMSCIERRA"]') === -1 && FUENTE_PF_CMD.indexOf('"WMSABRE"]') === -1);
+
+    // En la COLUMNA E de la unidad también, pero solo esos dos.
+    ok("WMSCIERRA en la E de la unidad es comando",
+       edicionEsComandoDeUnidad("GLOBAL 1 20-AE-3H", 5, 1, 1, "WMSCIERRA").codigo === "WMSCIERRA" &&
+       edicionEsComandoDeUnidad("A1 76-AZ-8E", 5, 1, 1, "wms abre").codigo === "WMSABRE");
+    ok("los demás comandos en la E no", edicionEsComandoDeUnidad("GLOBAL 1 20-AE-3H", 5, 1, 1, "WMSACT") === null);
+    ok("en la E de otra pestaña no",
+       edicionEsComandoDeUnidad("M-S T1", 5, 1, 1, "WMSCIERRA") === null &&
+       edicionEsComandoDeUnidad("PEDIMENTOS FINALES", 5, 1, 1, "WMSCIERRA") === null);
+    ok("en otra columna, o pegando varias celdas, no",
+       edicionEsComandoDeUnidad("GLOBAL 1 20-AE-3H", 4, 1, 1, "WMSCIERRA") === null &&
+       edicionEsComandoDeUnidad("GLOBAL 1 20-AE-3H", 5, 2, 1, "WMSCIERRA") === null);
+    ok("y el motor lo mira antes de descartar la E",
+       FUENTE_COD_CMD.indexOf("edicionEsComandoDeUnidad") !== -1 &&
+       FUENTE_COD_CMD.indexOf("edicionEsComandoDeUnidad") < FUENTE_COD_CMD.indexOf("if (!tocaValida && !tocaMacho && !tocaSinInfo) return;"));
+
+    // Escaneado en la E: cierra, OCULTA la pestaña y borra solo la E.
+    let celdas = { "7,1": "1Z999AA10123456784", "7,2": "✅", "7,5": "WMSCIERRA", "7,12": "10:00" };
+    let oculta = false;
+    let hojaU = { getName: () => "GLOBAL 1 20-AE-3H", hideSheet: () => { oculta = true; },
+        getRange: (f, c, nf, nc) => ({
+            getValue: () => celdas[f + "," + c] || "",
+            setValue: (v) => { celdas[f + "," + c] = v; },
+            clearContent: () => { for (let i = 0; i < (nf || 1); i++) for (let j = 0; j < (nc || 1); j++) delete celdas[(f + i) + "," + (c + j)]; } }) };
+    let filasC = [["FECHA Y HORA", "UNIDAD", "PEDIMENTO", "RESULTADO AL ESCANEARLO", "PATENTE", "BLOQUE"]];
+    let regC = { appendRow: (f) => filasC.push(f), getLastRow: () => filasC.length, getMaxColumns: () => 6,
+        isSheetHidden: () => true, getLastColumn: () => 6,
+        getRange: (f, cc, nf, nc) => ({ getValue: () => "BLOQUE", getValues: () => filasC.slice(f - 1, f - 1 + nf) }) };
+    let avisos = [];
+    let ssC = { getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? regC : null, toast: (t) => avisos.push(t) };
+    let okC = atenderComando(ssC, hojaU, 7, comandoDeBarras("WMSCIERRA"), 5);
+    ok("WMSCIERRA en la E cierra la unidad", okC === true && filasC.length === 2 && filasC[1][5] === "CIERRE");
+    ok("y oculta la pestaña", oculta === true);
+    ok("y borra solo la E: la guía, su resultado y su hora siguen",
+       celdas["7,5"] === undefined && celdas["7,1"] === "1Z999AA10123456784" &&
+       celdas["7,2"] === "✅" && celdas["7,12"] === "10:00");
+    ok("y lo dice", avisos.some(t => t.indexOf("cerrada a las") !== -1));
+    oculta = false;
+    celdas["8,1"] = "WMSCIERRA";
+    atenderComando(ssC, hojaU, 8, comandoDeBarras("WMSCIERRA"));
+    ok("cerrarla otra vez (ya estaba) también la oculta", oculta === true && filasC.length === 2);
+    ok("en la A se sigue borrando la A", celdas["8,1"] === undefined);
+
+    ok("el menú tiene cómo ver una unidad oculta",
+       FUENTE_COD_CMD.indexOf("'mostrarUnidadOculta'") !== -1 && typeof mostrarUnidadOculta === 'function');
 })();
 ok("el titulo lo dice", comandoDeBarras("WMSHOUSE").titulo.indexOf("esta pestaña") !== -1);
 

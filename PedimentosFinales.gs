@@ -932,10 +932,6 @@ function escribirCodigosDeUnidades(ss, hoja) {
     });
     // Y el de los bloques de papeles: se escanea antes de cada tanda.
     filas.push(["(cada nuevo bloque de pedimentos)", "BLOQUE"]);
-    // Y los de cerrar y abrir la unidad (Comandos.gs): se escanean en el
-    // espacio de la unidad, y la hora del cierre va al reporte de tiempos.
-    filas.push(["(cerrar la unidad: UPS dijo que es todo)", "WMSCIERRA"]);
-    filas.push(["(volver a abrir la unidad)", "WMSABRE"]);
     let maxFilas = hoja.getMaxRows();
     if (maxFilas > 0) hoja.getRange(1, COL_CODIGOS_UNIDAD, maxFilas, 2).clearContent();
     if (hoja.getMaxRows() < filas.length + 1) {
@@ -947,8 +943,7 @@ function escribirCodigosDeUnidades(ss, hoja) {
         hoja.getRange(2, COL_CODIGOS_UNIDAD + 1, filas.length - 1, 1)
             .setFontFamily("Courier New").setFontSize(14).setNumberFormat("@");
     }
-    // Cuántas UNIDADES: el aviso dice «(N unidades)», y BLOQUE y los de
-    // cerrar/abrir no lo son.
+    // Cuántas UNIDADES: el aviso dice «(N unidades)», y BLOQUE no lo es.
     return unidades.length;
 }
 

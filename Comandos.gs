@@ -127,44 +127,37 @@ function comandosDeBarras() {
         {
             codigo: "WMSCIERRA",
             titulo: "Cerrar esta unidad (UPS dijo que es todo)",
-            correr: function (ss, hoja, fila) {
+            correr: function (ss, hoja) {
                 // La hora del cierre va al registro de tiempos: con ella se mide
                 // cuánto tardan los pedimentos en pasar después. Ver
                 // `cerrarUnidad` en Registros.gs.
                 if (typeof cerrarUnidad !== 'function') throw new Error("El módulo de tiempos no está instalado");
-                return cerrarUnidad(ss, unidadDondeSeEscanea(ss, hoja, fila));
+                let aviso = cerrarUnidad(ss, unidadDondeSeEscanea(hoja));
+                // Y LA PESTAÑA SE OCULTA: una unidad cerrada ya no se escanea.
+                // También si ya estaba cerrada —se mostró para mirarla y se
+                // vuelve a guardar—. Para verla otra vez: «🔓 Mostrar una
+                // unidad oculta» en el menú.
+                try { hoja.hideSheet(); } catch (err) { /* era la única a la vista */ }
+                return aviso;
             }
         },
         {
             codigo: "WMSABRE",
             titulo: "Volver a abrir esta unidad",
-            correr: function (ss, hoja, fila) {
+            correr: function (ss, hoja) {
                 if (typeof abrirUnidad !== 'function') throw new Error("El módulo de tiempos no está instalado");
-                return abrirUnidad(ss, unidadDondeSeEscanea(ss, hoja, fila));
+                return abrirUnidad(ss, unidadDondeSeEscanea(hoja));
             }
         }
     ];
 }
 
-// ¿De qué unidad habla un comando? De la pestaña donde se escanea, si es una
-// unidad; o, en PEDIMENTOS FINALES, de la unidad del espacio donde se escanea
-// (la que está arriba de esa fila). Si no se puede saber, lo dice: un cierre
-// apuntado a la unidad equivocada estropea la cuenta de tiempos.
-function unidadDondeSeEscanea(ss, hoja, fila) {
+// ¿De qué unidad habla un comando? De la pestaña donde se escanea, y SOLO si es
+// una unidad: un cierre apuntado a otra cosa estropea la cuenta de tiempos.
+function unidadDondeSeEscanea(hoja) {
     let nombre = hoja ? hoja.getName() : "";
-    if (typeof esHojaPedimentosFinales === 'function' && esHojaPedimentosFinales(nombre)) {
-        let f = Math.max(Number(fila) || 0, 1);
-        let bloques = bloquesDePedimentosFinales(hoja.getRange(1, 1, f, 1).getValues());
-        let b = bloques.filter(x => x.desde <= f - 1 && x.hasta >= f - 1)[0];
-        if (!b || b.filaUnidad === -1) {
-            throw new Error("Escanéalo debajo de la unidad, en su espacio de PEDIMENTOS FINALES");
-        }
-        let r = resolverUnidad(b.unidad, unidadesDelArchivo(ss));
-        if (!r.unidad) throw new Error("No encuentro la unidad «" + b.unidad + "»");
-        return r.unidad.nombre;
-    }
     if (typeof esHojaDeUnidad === 'function' && esHojaDeUnidad(nombre)) return nombre;
-    throw new Error("Escanéalo en la pestaña de la unidad o en su espacio de PEDIMENTOS FINALES");
+    throw new Error("Escanéalo en la pestaña de la unidad (columna A o E)");
 }
 
 // ¿Lo que se acaba de escribir es un comando? Devuelve el comando o null.
@@ -223,7 +216,12 @@ function edicionEsComando(nombreHoja, colInicial, numRows, numCols, valor) {
 // con el lock ya tomado sería un bloqueo contra uno mismo —el archivo entero
 // parado hasta que Google corte la ejecución—, que es exactamente el fallo que
 // ya costó una tarde con el cierre del día.
-function atenderComando(ss, hoja, fila, cmd) {
+//
+// `col` es dónde se escaneó: la A (lo normal) o la E de una unidad —ver
+// `edicionEsComandoDeUnidad`—. En la E solo se borra ESA celda: la A, la B y la
+// L de esa fila son de una guía y no se tocan.
+function atenderComando(ss, hoja, fila, cmd, col) {
+    col = col || 1;
     // EL CÓDIGO SE QUEDA A LA VISTA MIENTRAS CORRE, y se borra al terminar.
     //
     // Antes se borraba antes de empezar, por miedo a que una ejecución cortada
@@ -237,9 +235,11 @@ function atenderComando(ss, hoja, fila, cmd) {
     // se queda con el código, la columna B dice «⏳ COMANDO SIN TERMINAR ·
     // borra esta celda» —ver `textoCapturaInvalida`—. Ya no hay misterio que
     // evitar, así que no hace falta pagar el precio de borrar a ciegas.
-    try {
-        hoja.getRange(fila, 2).setValue("⏳ " + cmd.titulo + "…");
-    } catch (err) { /* el aviso de la B es un extra, no puede parar nada */ }
+    if (col === 1) {
+        try {
+            hoja.getRange(fila, 2).setValue("⏳ " + cmd.titulo + "…");
+        } catch (err) { /* el aviso de la B es un extra, no puede parar nada */ }
+    }
 
     ss.toast('⏳ ' + cmd.titulo + '…', 'Comando', 30);
 
@@ -247,8 +247,7 @@ function atenderComando(ss, hoja, fila, cmd) {
     globalComandoEnCurso = true;
     try {
         // Se pasa la HOJA y la FILA donde se escaneó: hay comandos que trabajan
-        // solo sobre esa (o, en PEDIMENTOS FINALES, sobre la unidad de esa
-        // fila). Los que no las usan, las ignoran.
+        // solo sobre esa. Los que no las usan, las ignoran.
         resultado = cmd.correr(ss, hoja, fila);
     } catch (err) {
         fallo = err.message;
@@ -268,9 +267,11 @@ function atenderComando(ss, hoja, fila, cmd) {
     // línea del informe recién hecho —y la L ahí es la columna FILA del
     // detalle—. Si la A ya no dice el comando, esa fila es de otro y no se toca.
     let sigueAhi = false;
-    try { sigueAhi = !!comandoDeBarras(hoja.getRange(fila, 1).getValue()); }
+    try { sigueAhi = !!comandoDeBarras(hoja.getRange(fila, col).getValue()); }
     catch (err) { sigueAhi = false; }
-    if (sigueAhi) {
+    if (sigueAhi && col !== 1) {
+        try { hoja.getRange(fila, col).clearContent(); } catch (err) { /* sigue */ }
+    } else if (sigueAhi) {
         try { hoja.getRange(fila, 1, 1, 2).clearContent(); } catch (err) { /* sigue */ }
         // Y LA HORA, en la columna L. El recálculo ya no se la pone a un
         // comando, pero una hora estampada antes de ese arreglo se quedaría
@@ -288,6 +289,46 @@ function atenderComando(ss, hoja, fila, cmd) {
     }
     ss.toast(TXT_COMANDO_OK + (resultado || cmd.titulo), 'Comando', 10);
     return true;
+}
+
+// CERRAR Y ABRIR TAMBIÉN EN LA COLUMNA E de la pestaña de la unidad.
+//
+// Solo esos dos y solo en una unidad: en la E no se escanea nada más, así que
+// un código ahí no puede ser otra cosa. Los demás comandos siguen yendo en la A.
+const COL_COMANDO_UNIDAD = 5;
+const COMANDOS_DE_LA_E = ["WMSCIERRA", "WMSABRE"];
+
+function edicionEsComandoDeUnidad(nombreHoja, colInicial, numRows, numCols, valor) {
+    if (colInicial !== COL_COMANDO_UNIDAD || numRows !== 1 || numCols !== 1) return null;
+    if (typeof esHojaDeUnidad !== 'function' || !esHojaDeUnidad(nombreHoja)) return null;
+    let cmd = comandoDeBarras(valor);
+    return cmd && COMANDOS_DE_LA_E.indexOf(cmd.codigo) !== -1 ? cmd : null;
+}
+
+// Menú: enseña UNA unidad oculta (cerrada con WMSCIERRA) para mirarla o
+// reabrirla con WMSABRE. Una y no todas: al reabrir una, las otras cerradas
+// seguirían a la vista estorbando.
+function mostrarUnidadOculta() {
+    const ss = SpreadsheetApp.getActiveSpreadsheet();
+    const ui = SpreadsheetApp.getUi();
+    let ocultas = ss.getSheets().filter(h => h.isSheetHidden() && esHojaDeUnidad(h.getName()));
+    if (ocultas.length === 0) {
+        ui.alert("🔓 Unidades ocultas", "No hay ninguna unidad oculta.", ui.ButtonSet.OK);
+        return;
+    }
+    let lista = ocultas.map((h, i) => (i + 1) + ". " + h.getName()).join("\n");
+    let r = ui.prompt("🔓 Unidades ocultas",
+        lista + "\n\nEscribe el número de la que quieres ver (o TODAS):", ui.ButtonSet.OK_CANCEL);
+    if (r.getSelectedButton() !== ui.Button.OK) return;
+    let t = r.getResponseText().trim().toUpperCase();
+    let elegidas = t === "TODAS" ? ocultas : ocultas.filter((h, i) => String(i + 1) === t);
+    if (elegidas.length === 0) {
+        ui.alert("🔓 Unidades ocultas", "«" + t + "» no está en la lista.", ui.ButtonSet.OK);
+        return;
+    }
+    elegidas.forEach(h => h.showSheet());
+    elegidas[0].activate();
+    ss.toast("Para abrirla escanea WMSABRE; para guardarla otra vez, WMSCIERRA.", "🔓 A la vista", 10);
 }
 
 // -------------------------------------------------------------------------
@@ -329,9 +370,12 @@ function prepararHojaDeComandos() {
         "escanea el código. La celda se vacía sola y la acción se ejecuta; el " +
         "aviso sale abajo a la derecha.\n\n" +
         "Funciona en la pestaña DONDE ESTÉS: «" + comandosDeBarras()[0].codigo +
-        "» actualiza la pestaña en la que estás, no todas.");
+        "» actualiza la pestaña en la que estás, no todas.\n\n" +
+        "WMSCIERRA y WMSABRE solo en la pestaña de la unidad, en la columna A " +
+        "o en la E. Al cerrarla, la pestaña se oculta; para verla otra vez: " +
+        "menú «🔓 Mostrar una unidad oculta».");
     nota.setWrap(true);
-    hoja.setRowHeight(filas.length + 2, 120);
+    hoja.setRowHeight(filas.length + 2, 160);
 
     ss.setActiveSheet(hoja);
     ui.alert("🏷️ Comandos por código de barras",

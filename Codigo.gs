@@ -1484,6 +1484,20 @@ function procesarEdicion(e, esInstalable) {
       }
   } catch (err) { /* un reporte nunca puede tumbar un escaneo */ }
 
+  // WMSCIERRA / WMSABRE EN LA COLUMNA E DE LA UNIDAD. Ver
+  // `edicionEsComandoDeUnidad` en Comandos.gs. Antes del lock por lo mismo que
+  // los comandos de la A. El `colInicial === 5` va aquí para no leer la celda
+  // en cada escaneo.
+  if (colInicial === 5 && numRows === 1 && numCols === 1) {
+      try {
+          if (typeof edicionEsComandoDeUnidad === 'function') {
+              let cmd = edicionEsComandoDeUnidad(nombreHoja, colInicial, numRows, numCols,
+                                                 celda.getValue());
+              if (cmd) { atenderComando(e.source, hoja, filaInicial, cmd, colInicial); return; }
+          }
+      } catch (err) { /* un comando roto nunca puede impedir un escaneo */ }
+  }
+
   if (!tocaValida && !tocaMacho && !tocaSinInfo) return;
 
   // ¿ES UN COMANDO DE CÓDIGO DE BARRAS?
@@ -6163,6 +6177,15 @@ function onOpen() {
     // cierre dejó algo raro. Antes estaba enterrado en mantenimiento.
     .addItem('🧨 Reconstruir caché completo (TODAS, tarda)', 'RECONSTRUIR_CACHE_TOTAL')
     .addSeparator();
+
+  // Las unidades cerradas con WMSCIERRA se ocultan: esto enseña una para
+  // mirarla o reabrirla. Ver Comandos.gs.
+  try {
+      if (typeof mostrarUnidadOculta === 'function') {
+          menu.addItem('🔓 Mostrar una unidad oculta (cerrada)', 'mostrarUnidadOculta')
+              .addSeparator();
+      }
+  } catch (err) { /* Comandos.gs puede no estar pegado */ }
 
   // -----------------------------------------------------------------------
   // 📦 COSTALES
