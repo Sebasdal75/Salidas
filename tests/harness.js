@@ -8387,25 +8387,25 @@ ok("el titulo lo dice", comandoDeBarras("WMSHOUSE").titulo.indexOf("esta pestañ
 
     let rB = filas.map(f => [f[1]]);
     rB[3][0] = "➡ Salió en GLOBAL 1 20-AE-3H" + separadorResumen() + "Bultos: 98 (M-S GLOBALES)";
-    let n = marcarHousesSinPareja(filas, rB, filas.length, true);
+    let n = marcarAvisosDeHouse(filas, rB, filas.length, true);
     ok("el aviso va al final, detrás del resumen",
        rB[3][0] === "➡ Salió en GLOBAL 1 20-AE-3H" + separadorResumen() + "Bultos: 98 (M-S GLOBALES) · " + T);
     ok("y en la fila normal, detrás del estado", rB[4][0] === "✅ Guía · " + T && n === 3);
     ok("la que tiene pareja queda igual", rB[1][0] === "➡ Salió en GLOBAL 1 20-AE-3H");
     let otraVez = rB.map(f => [f[0]]);
-    marcarHousesSinPareja(filas, otraVez, filas.length, true);
+    marcarAvisosDeHouse(filas, otraVez, filas.length, true);
     ok("recalcular no lo repite", otraVez.every((f, i) => f[0] === rB[i][0]));
 
     // Llega la pareja: el aviso se quita solo.
     let conPareja = filas.concat([["1ZG2243A7QHBX00017", "✅ Guía", "G2243A7QHBX"]]);
     let rB2 = rB.concat([["✅ Guía"]]);
-    marcarHousesSinPareja(conPareja, rB2, conPareja.length, true);
+    marcarAvisosDeHouse(conPareja, rB2, conPareja.length, true);
     ok("cuando llega la pareja se quita", rB2[3][0].indexOf(T) === -1 && rB2[8][0] === "✅ Guía");
     ok("aunque estuviera delante del resumen",
-       sinAvisoHouseSinPareja("➡ Salió en X · " + T + separadorResumen() + "Bultos: 2") ===
+       sinAvisosDeHouse("➡ Salió en X · " + T + separadorResumen() + "Bultos: 2") ===
        "➡ Salió en X" + separadorResumen() + "Bultos: 2");
     let rT1 = rB.map(f => [f[0]]);
-    marcarHousesSinPareja(filas, rT1, filas.length, false);
+    marcarAvisosDeHouse(filas, rT1, filas.length, false);
     ok("fuera de las M-S GLOBALES no se pone (y se quita)", rT1.every(f => f[0].indexOf(T) === -1));
     ok("no se confunde con «Sin información»", !esAvisoSinInfo("✅ Guía · " + T));
     ok("ni sube el nivel de alerta", nivelAlerta("✅ Guía · " + T) === nivelAlerta("✅ Guía"));
@@ -8413,10 +8413,60 @@ ok("el titulo lo dice", comandoDeBarras("WMSHOUSE").titulo.indexOf("esta pestañ
 
     const F = require('fs').readFileSync('Codigo.gs', 'utf8');
     ok("la M-S lo marca solo en las GLOBALES",
-       F.indexOf('marcarHousesSinPareja(datosMasivos, resultadosB, ultimaFila, tipoStr === "M-S GLOBALES")') !== -1);
+       F.indexOf('marcarAvisosDeHouse(datosMasivos, resultadosB, ultimaFila, tipoStr === "M-S GLOBALES")') !== -1);
     ok("y el barrido de las M-S no lo borra ni reescribe en bucle",
-       F.indexOf("statusActual = sinAvisoHouseSinPareja(statusActual)") !== -1 &&
-       F.indexOf("conHouseSola ? conAvisoHouseSinPareja(textoEsperado) : textoEsperado") !== -1);
+       F.indexOf("statusActual = sinAvisosDeHouse(statusActual)") !== -1 &&
+       F.indexOf("conAvisosDeHouse(textoEsperado, avisosHouse) + cola") !== -1);
+})();
+
+// LA HOUSE TIENE QUE EMPEZAR POR LOS 6 DESPUÉS DEL 1Z, en las M-S y en las
+// unidades. Si no, es la house de otro bulto.
+(function () {
+    const NC = "🏠 House no cuadra", SP = "🏠 House sin pareja";
+    ok("cuadra: 1Z54Y651… con 54Y651…", houseCuadraConSu1Z("1Z54Y651DTCWW00009", "54Y651DTCWW"));
+    ok("no cuadra: 1Z54Y651… con G2243A…", !houseCuadraConSu1Z("1Z54Y651DTCWW00009", "G2243A7QHBX"));
+    ok("una guía corta no se mira", houseCuadraConSu1Z("V0399301629", "X06293PRK9X"));
+    let filas = [
+        ["6116004", "Bultos: 3", ""],
+        ["1Z54Y651DTCWW00009", "✅ Guía", "54Y651DTCWW"],
+        ["1Z54Y651DTCWW00018", "✅ Guía", "G2243A7QHBX"],
+        ["1ZX06293PRK9X00000", "✅ Guía", "x06293-prk9x"],
+        ["1Z999AA10123456784", "✅ Guía", "—"],
+        ["1Z999AA10123456793", "✅ Guía", "NOT ON FILE"]];
+    let malas = filasConHouseQueNoCuadra(filas, filas.length);
+    ok("se marca la que no cuadra", malas.has(2));
+    ok("y solo esa (mayúsculas y guiones dan igual; «—» y «NOT ON FILE» no se miran)",
+       malas.size === 1);
+
+    // En una unidad: solo «no cuadra».
+    let rU = filas.map(f => [f[1]]);
+    marcarAvisosDeHouse(filas, rU, filas.length, false);
+    ok("en la unidad sale «no cuadra»", rU[2][0] === "✅ Guía · " + NC);
+    ok("y no «sin pareja»", rU.every(f => f[0].indexOf(SP) === -1));
+    // En una M-S GLOBALES: los dos, en orden.
+    let rG = filas.map(f => [f[1]]);
+    marcarAvisosDeHouse(filas, rG, filas.length, true);
+    ok("en la M-S GLOBALES puede llevar los dos", rG[2][0] === "✅ Guía · " + NC + " · " + SP);
+    let rG2 = rG.map(f => [f[0]]);
+    marcarAvisosDeHouse(filas, rG2, filas.length, true);
+    ok("y recalcular no los repite", rG2.every((f, i) => f[0] === rG[i][0]));
+    // Se corrige la house: se quita solo.
+    let corregida = filas.map(f => f.slice());
+    corregida[2][2] = "54Y651DTCWW";
+    marcarAvisosDeHouse(corregida, rG2, corregida.length, true);
+    ok("corregida la house, el aviso se quita", rG2[2][0] === "✅ Guía");
+    ok("con el estado vacío va solo, y se quita igual",
+       conAvisosDeHouse("", [NC, SP]) === NC + " · " + SP && sinAvisosDeHouse(NC + " · " + SP) === "");
+    ok("el barrido sabe cuáles llevaba", avisosDeHouseEn("➡ Salió en X · " + NC).join() === NC);
+    ok("ni sube el nivel de alerta", nivelAlerta("✅ Guía · " + NC) === nivelAlerta("✅ Guía"));
+
+    const F = require('fs').readFileSync('Codigo.gs', 'utf8');
+    ok("las unidades lo marcan (sin «sin pareja»)",
+       F.indexOf("marcarAvisosDeHouse(datosMasivos, resultadosB, ultimaFila, false)") !== -1);
+    ok("y la O no copia el aviso de la A",
+       F.indexOf("sinAvisosDeHouse(cabezaEstado(estadoB))") !== -1);
+    ok("el CIERRE del reporte va en azul, no en rojo",
+       require('fs').readFileSync('Registros.gs', 'utf8').indexOf("const COLOR_REPORTE_CIERRE = '#e3edfb'") !== -1);
 })();
 
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");

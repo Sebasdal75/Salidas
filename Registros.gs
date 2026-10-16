@@ -247,7 +247,8 @@ const EVENTO_CIERRE = "CIERRE";
 const EVENTO_APERTURA = "APERTURA";
 const TXT_UNIDAD_CERRADA = "🔒 UNIDAD CERRADA";
 const TXT_UNIDAD_ABIERTA = "🔓 UNIDAD ABIERTA";
-const COLOR_REPORTE_CIERRE = '#f4cccc';
+// Azul, como la unidad pero más claro: el cierre es de la unidad, no un error.
+const COLOR_REPORTE_CIERRE = '#e3edfb';
 
 function hhmm(d) { let dos = x => ("0" + x).slice(-2); return dos(d.getHours()) + ":" + dos(d.getMinutes()); }
 
