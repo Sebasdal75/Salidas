@@ -8365,6 +8365,60 @@ ok("y a los comandos se les pasa la hoja (y la fila)",
 })();
 ok("el titulo lo dice", comandoDeBarras("WMSHOUSE").titulo.indexOf("esta pestaña") !== -1);
 
+// HOUSES SIN PAREJA EN LAS M-S GLOBALES: una house con una sola guía en la
+// pestaña es un bulto que falta (o que no va ahí). Se avisa en la B, al final.
+(function () {
+    const T = "🏠 House sin pareja";
+    let filas = [
+        ["6116004", "Bultos: 5 (M-S GLOBALES)", ""],
+        ["1Z54Y651DTCWW00009", "➡ Salió en GLOBAL 1 20-AE-3H", "54Y651DTCWW"],
+        ["1Z54Y651DTCWW00018", "➡ Salió en GLOBAL 1 20-AE-3H", "54Y651DTCWW"],
+        ["1ZG2243A7QHBX00008", "➡ Salió en GLOBAL 1 20-AE-3H", "G2243A7QHBX"],
+        ["1ZX06293PRK9X00000", "✅ Guía", "X06293PRK9X"],
+        ["1ZX06293PRK9X00000", "🔄 Duplicado local", "X06293PRK9X"],
+        ["1Z999AA10123456784", "✅ Guía", ""],
+        ["1Z999AA10123456793", "✅ Guía", "—"]];
+    let solas = filasConHouseSinPareja(filas, filas.length);
+    ok("la house con una sola guía se marca", solas.has(3));
+    ok("la que tiene pareja no", !solas.has(1) && !solas.has(2));
+    ok("la misma guía escaneada dos veces no es su pareja", solas.has(4) && solas.has(5));
+    ok("sin house todavía (vacía o «—») no se marca", !solas.has(6) && !solas.has(7));
+    ok("el pedimento no se mira", !solas.has(0));
+
+    let rB = filas.map(f => [f[1]]);
+    rB[3][0] = "➡ Salió en GLOBAL 1 20-AE-3H" + separadorResumen() + "Bultos: 98 (M-S GLOBALES)";
+    let n = marcarHousesSinPareja(filas, rB, filas.length, true);
+    ok("el aviso va al final, detrás del resumen",
+       rB[3][0] === "➡ Salió en GLOBAL 1 20-AE-3H" + separadorResumen() + "Bultos: 98 (M-S GLOBALES) · " + T);
+    ok("y en la fila normal, detrás del estado", rB[4][0] === "✅ Guía · " + T && n === 3);
+    ok("la que tiene pareja queda igual", rB[1][0] === "➡ Salió en GLOBAL 1 20-AE-3H");
+    let otraVez = rB.map(f => [f[0]]);
+    marcarHousesSinPareja(filas, otraVez, filas.length, true);
+    ok("recalcular no lo repite", otraVez.every((f, i) => f[0] === rB[i][0]));
+
+    // Llega la pareja: el aviso se quita solo.
+    let conPareja = filas.concat([["1ZG2243A7QHBX00017", "✅ Guía", "G2243A7QHBX"]]);
+    let rB2 = rB.concat([["✅ Guía"]]);
+    marcarHousesSinPareja(conPareja, rB2, conPareja.length, true);
+    ok("cuando llega la pareja se quita", rB2[3][0].indexOf(T) === -1 && rB2[8][0] === "✅ Guía");
+    ok("aunque estuviera delante del resumen",
+       sinAvisoHouseSinPareja("➡ Salió en X · " + T + separadorResumen() + "Bultos: 2") ===
+       "➡ Salió en X" + separadorResumen() + "Bultos: 2");
+    let rT1 = rB.map(f => [f[0]]);
+    marcarHousesSinPareja(filas, rT1, filas.length, false);
+    ok("fuera de las M-S GLOBALES no se pone (y se quita)", rT1.every(f => f[0].indexOf(T) === -1));
+    ok("no se confunde con «Sin información»", !esAvisoSinInfo("✅ Guía · " + T));
+    ok("ni sube el nivel de alerta", nivelAlerta("✅ Guía · " + T) === nivelAlerta("✅ Guía"));
+    ok("una guía movida sigue siendo movida", esEstadoSalida("➡ Salió en GLOBAL 1 · " + T));
+
+    const F = require('fs').readFileSync('Codigo.gs', 'utf8');
+    ok("la M-S lo marca solo en las GLOBALES",
+       F.indexOf('marcarHousesSinPareja(datosMasivos, resultadosB, ultimaFila, tipoStr === "M-S GLOBALES")') !== -1);
+    ok("y el barrido de las M-S no lo borra ni reescribe en bucle",
+       F.indexOf("statusActual = sinAvisoHouseSinPareja(statusActual)") !== -1 &&
+       F.indexOf("conHouseSola ? conAvisoHouseSinPareja(textoEsperado) : textoEsperado") !== -1);
+})();
+
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");
 // LO QUE ESTO CAZA, Y YA PASO: `globalBlobPedimentos` estaba declarado con
 // `let` en Salidas.gs y en Pedimentos.gs. En Apps Script todos los archivos

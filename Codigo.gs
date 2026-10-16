@@ -3414,6 +3414,76 @@ function conAvisoSinInfo(txt) {
 // mirando la lista, que es donde se resuelve.
 const TXT_SIN_HOUSE = TXT_SIN_INFO;
 
+// -------------------------------------------------------------------------
+// HOUSES SIN PAREJA EN LAS M-S GLOBALES
+// -------------------------------------------------------------------------
+//
+// En una M-S GLOBALES (las de múltiples) cada house lleva VARIOS bultos: una
+// house con una sola guía en la pestaña es un bulto que falta, o uno que no va
+// ahí. Se avisa en la B, detrás de todo, igual que «Sin información»:
+//
+//     ➡ Salió en GLOBAL 1 20-AE-3H · 🏠 House sin pareja
+//
+// Se cuentan GUÍAS DISTINTAS por house, no filas: la misma guía escaneada dos
+// veces es un duplicado, no su pareja. Una fila sin house todavía no cuenta ni
+// se marca.
+const TXT_HOUSE_SIN_PAREJA = "🏠 House sin pareja";
+
+function conAvisoHouseSinPareja(txt) {
+    let t = sinAvisoHouseSinPareja(txt);
+    return t === "" ? TXT_HOUSE_SIN_PAREJA : t + SEP_SIN_INFO + TXT_HOUSE_SIN_PAREJA;
+}
+
+// Quita el aviso esté donde esté: una guía movida conserva su texto de la
+// pasada anterior, y la que deja de ser la última del bloque lo arrastra
+// delante del resumen.
+function sinAvisoHouseSinPareja(txt) {
+    let t = String(txt === undefined || txt === null ? "" : txt);
+    t = t.split(SEP_SIN_INFO + TXT_HOUSE_SIN_PAREJA).join("");
+    return t.trim() === TXT_HOUSE_SIN_PAREJA ? "" : t;
+}
+
+// Las filas cuya house no tiene otra guía en la pestaña. Puro.
+function filasConHouseSinPareja(datosMasivos, ultimaFila) {
+    let guiasPorHouse = new Map();
+    let filasPorHouse = new Map();
+    for (let i = 0; i < ultimaFila; i++) {
+        let fila = datosMasivos[i] || [];
+        let g = String(fila[0] === undefined || fila[0] === null ? "" : fila[0])
+                .trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (g === "" || esCabeceraBloque(fila[0]) || !esGuiaUPSValida(g)) continue;
+        let crudo = String(fila[2] === undefined || fila[2] === null ? "" : fila[2]).trim();
+        let h = crudo.toUpperCase().replace(/[^A-Z0-9]/g, '');
+        if (h === "") continue;
+        // «—» (buscada y no está) se queda en "" arriba; un «NOT ON FILE»
+        // del transportista tampoco es una house.
+        try { if (typeof esTextoDeSinHouse === 'function' && esTextoDeSinHouse(crudo)) continue; }
+        catch (err) { /* House.gs puede no estar pegado */ }
+        if (!guiasPorHouse.has(h)) { guiasPorHouse.set(h, new Set()); filasPorHouse.set(h, []); }
+        guiasPorHouse.get(h).add(g);
+        filasPorHouse.get(h).push(i);
+    }
+    let out = new Set();
+    guiasPorHouse.forEach((guias, h) => {
+        if (guias.size === 1) filasPorHouse.get(h).forEach(i => out.add(i));
+    });
+    return out;
+}
+
+// La pasada final, como la de «Sin información»: quita el aviso de la pasada
+// anterior en todas las filas y lo vuelve a poner donde toca. `activo` es si la
+// pestaña es una M-S GLOBALES; si no, solo se quita.
+function marcarHousesSinPareja(datosMasivos, resultadosB, ultimaFila, activo) {
+    let solas = activo ? filasConHouseSinPareja(datosMasivos, ultimaFila) : new Set();
+    let n = 0;
+    for (let i = 0; i < ultimaFila; i++) {
+        let t = sinAvisoHouseSinPareja(resultadosB[i][0]);
+        if (solas.has(i)) { t = conAvisoHouseSinPareja(t); n++; }
+        resultadosB[i][0] = t;
+    }
+    return n;
+}
+
 function accesoTxtSinHouse() { return TXT_SIN_HOUSE; }
 function accesoTxtSinInfo() { return TXT_SIN_INFO; }
 function accesoHeaderSinInfo() { return HEADER_SIN_INFO; }
@@ -4305,6 +4375,11 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas, soloUna) {
             // se reescribiría en cada pasada, para siempre.
             let statusActual = cabezaEstado(vals[r][1]);
             let cola = colaResumen(vals[r][1]);
+            // Lo mismo con «🏠 House sin pareja»: lo pone actualizarMS. Se
+            // aparta para comparar y se devuelve al reescribir; si no, la celda
+            // no coincidiría nunca y se reescribiría en cada pasada.
+            let conHouseSola = statusActual !== sinAvisoHouseSinPareja(statusActual);
+            statusActual = sinAvisoHouseSinPareja(statusActual);
             let destino = escaneadosDestino.get(v);
 
             if (destino) {
@@ -4318,7 +4393,10 @@ function sincronizarSalidasMS(source, cacheInfo, guiasAfectadas, soloUna) {
 
                 // Al reescribir se devuelve la cola tal cual estaba, para no
                 // dejar la celda a medias hasta que actualizarMS la rehaga.
-                if (statusActual !== textoEsperado) { vals[r][1] = textoEsperado + cola; modificados = true; }
+                if (statusActual !== textoEsperado) {
+                    vals[r][1] = (conHouseSola ? conAvisoHouseSinPareja(textoEsperado) : textoEsperado) + cola;
+                    modificados = true;
+                }
             } else if (esEstadoSalida(statusActual)) {
                 vals[r][1] = cola; modificados = true;
             }
@@ -5930,6 +6008,8 @@ function actualizarMS(hoja, source, cacheInfo, repintarTodo, filaFinalSugerida, 
   let coloresAMS = coloresDeColumnaA(datosMasivos, resultadosB, ultimaFila, filasParejaDuplicada);
   marcarFilasSinInfo(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
   marcarFilasDeCostal(datosMasivos, resultadosB, coloresB, cacheInfo, ultimaFila, 0);
+  // «🏠 House sin pareja», solo en las M-S GLOBALES. Ver `marcarHousesSinPareja`.
+  marcarHousesSinPareja(datosMasivos, resultadosB, ultimaFila, tipoStr === "M-S GLOBALES");
 
   aplicarCambiosOptimizado(hoja, 2, 12, 1, 11, resultadosB, resultadosHoras, datosMasivos, coloresB, fontLinesA, fontColorsA,
                            coloresAMS, repintarTodo, filasParejaDuplicada);
