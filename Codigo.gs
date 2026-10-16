@@ -1236,6 +1236,12 @@ function limpiarHistorialDiario() {
       quitarMantenimiento();
   }
 
+  // LOS TIEMPOS DE LOS PEDIMENTOS FINALES SON DEL DÍA: se vacían el registro y
+  // el reporte. Ver `vaciarTiemposDelDia` en Registros.gs.
+  try {
+      if (typeof vaciarTiemposDelDia === 'function') vaciarTiemposDelDia(ss);
+  } catch (err) { /* que falle esto no puede dejar el historial sin vaciar */ }
+
   return vaciarHistorialBorrados(ss);
 }
 
@@ -1291,7 +1297,8 @@ function instalarLimpiezaHistorial() {
            .timeBased().atHour(HORA_LIMPIEZA_HISTORIAL).everyDays(1).create();
 
   ss.toast('✅ Cada día alrededor de las ' + HORA_LIMPIEZA_HISTORIAL + ':00: ' +
-           'se barre de TODAS las M-S lo que ya salió, y después se vacía el ' +
+           'se barre de TODAS las M-S lo que ya salió, se vacían los tiempos de ' +
+           'los pedimentos finales (registro y reporte) y después el ' +
            'historial. Para cambiar la hora, edita HORA_LIMPIEZA_HISTORIAL al ' +
            'inicio del código y vuelve a instalarlo.',
            'Limpieza de la noche activa', 10);

@@ -5,20 +5,24 @@
 // Lo que tiene que quedar apuntado para mirarlo después:
 //
 //   · SIS_TIEMPOS_REGISTRO — cada pedimento final, con la hora en que se
-//     escaneó, y la llegada de cada bloque. Solo crece. Los papeles llegan por
+//     escaneó, y la llegada de cada bloque. Va oculto. Los papeles llegan por
 //     tandas —diez, luego cincuenta…— y esto es lo que permite medirlas.
 //
 //   · SIS_TIEMPOS_PEDIMENTOS — el REPORTE que sale del registro, agrupado por
-//     día y por unidad, con cada bloque resumido (cuántos, desde, hasta,
-//     minutos) y sus pedimentos debajo. Se rehace, no se escribe a mano.
+//     unidad, con cada bloque resumido (cuántos, desde, hasta, minutos) y sus
+//     pedimentos debajo. Se rehace, no se escribe a mano.
+//
+//   LOS DOS SON DEL DÍA. Se pidió así: cada noche, con la limpieza de las
+//   22:00, se vacían los dos (`vaciarTiemposDelDia`), y el reporte solo enseña
+//   lo de hoy aunque la limpieza no haya corrido.
 //
 //   · SIS_REPORTE_ERRORES — lo que se escribe en la columna D de una unidad
 //     («ERROR FALTARON 2 BULTOS»), con su unidad, su fila, su pedimento y su
 //     guía.
 //
 // EMPIEZAN POR «SIS_», y eso basta para que el motor no las tome por pestañas
-// de escaneo (ver `esHojaInterna`) ni la macro por unidades. NO se ocultan: son
-// para leerlas.
+// de escaneo (ver `esHojaInterna`) ni la macro por unidades. Se ven, salvo el
+// registro crudo de tiempos, que va oculto.
 //
 // SE AÑADE CON `appendRow`, una fila por llamada. Es la única escritura de
 // Sheets que es atómica frente a otra ejecución que añade a la vez: con
@@ -59,6 +63,31 @@ function ocultarRegistroDeTiempos(ss) {
         let h = ss.getSheetByName(HOJA_SIS_TIEMPOS);
         if (h && !h.isSheetHidden()) h.hideSheet();
     } catch (err) { /* que se vea no rompe nada */ }
+}
+
+// LA LIMPIEZA DE LA NOCHE: vacía el registro de tiempos (deja los títulos) y
+// rehace el reporte, que con el registro vacío queda solo con sus títulos. La
+// llama `limpiarHistorialDiario` (Codigo.gs) a las 22:00. Va con el turno de
+// PEDIMENTOS FINALES para no cruzarse con un escaneo que esté apuntando.
+// Devuelve cuántas filas borró.
+function vaciarTiemposDelDia(ss) {
+    let borradas = 0;
+    let hacer = () => {
+        let reg = ss.getSheetByName(HOJA_SIS_TIEMPOS);
+        if (reg && reg.getLastRow() > 1) {
+            let lr = reg.getLastRow();
+            reg.getRange(2, 1, lr - 1, Math.max(reg.getLastColumn(), CABECERA_SIS_TIEMPOS.length)).clearContent();
+            borradas = lr - 1;
+        }
+        rehacerReporteDeTiempos(ss);
+        return borradas;
+    };
+    if (typeof conTurnoDeFinales === 'function') {
+        let r = conTurnoDeFinales(60000, hacer, true);
+        // Sin turno (un escaneo muy largo), se hace igual: es de noche.
+        return r === null ? hacer() : r;
+    }
+    return hacer();
 }
 
 // Añade filas a un registro, creándolo si no existe.
@@ -176,9 +205,11 @@ function atenderReporteDeUnidad(ss, hoja, filaInicial, notas) {
 // WMSACT en PEDIMENTOS FINALES, con su botón del menú, y solo en el repaso de
 // cinco minutos si entró algo nuevo.
 //
-// Solo los últimos días: el registro crudo lo guarda todo, pero un reporte de
-// meses tardaría en rehacerse y nadie lo lee.
-const DIAS_REPORTE_TIEMPOS = 7;
+// SOLO HOY. Se pidió que el registro y el reporte empiecen vacíos cada día.
+// Con 1, el reporte enseña solo lo de hoy y «Forzar actualización» no vuelve a
+// traer al registro lo de ayer que siga escrito en PEDIMENTOS FINALES. (Antes
+// eran 7 días.)
+const DIAS_REPORTE_TIEMPOS = 1;
 const FILAS_MAX_LEIDAS_TIEMPOS = 6000;
 const CABECERA_REPORTE_TIEMPOS = ["UNIDAD / BLOQUE / PEDIMENTO", "FECHA", "HORA", "PEDIMENTOS",
                                   "DESDE", "HASTA", "MINUTOS", "DETALLE"];

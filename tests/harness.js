@@ -3045,6 +3045,26 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
     ocultarRegistroDeTiempos({ getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO"
         ? { isSheetHidden: () => false, hideSheet: () => { oculta = true; } } : null });
     ok("el registro de tiempos se oculta", oculta);
+
+    // LA LIMPIEZA DE LA NOCHE vacía el registro (deja los títulos) y el reporte.
+    let limpiado = null, reporteLimpio = false, tituloReporte = null;
+    let regNoche = { getLastRow: () => 41, getLastColumn: () => 6, isSheetHidden: () => true,
+        getRange: (f, c, nf, nc) => ({ clearContent: () => { limpiado = [f, c, nf, nc]; },
+                                       getValues: () => [] }) };
+    let repNoche = { clear: () => { reporteLimpio = true; }, setFrozenRows: () => {}, getMaxRows: () => 2,
+        insertRowsAfter: () => {},
+        getRange: (f, c, nf, nc) => ({ setValues: (v) => { if (f === 1) tituloReporte = v[0][0];
+                                                           return { setFontWeight: () => {} }; },
+                                       setNumberFormat: () => {}, setBackgrounds: () => {} }) };
+    let n = vaciarTiemposDelDia({ getSheetByName: (nm) =>
+        nm === "SIS_TIEMPOS_REGISTRO" ? regNoche : nm === "SIS_TIEMPOS_PEDIMENTOS" ? repNoche : null });
+    ok("la limpieza de la noche vacía el registro y deja los títulos",
+       n === 40 && limpiado && limpiado[0] === 2 && limpiado[2] === 40 && limpiado[3] === 6);
+    ok("y el reporte queda solo con sus títulos", reporteLimpio && tituloReporte === "UNIDAD / BLOQUE / PEDIMENTO");
+    let fuenteC = require('fs').readFileSync('Codigo.gs', 'utf8');
+    let iL = fuenteC.indexOf("function limpiarHistorialDiario");
+    ok("la limpieza de las 22:00 la llama",
+       fuenteC.substring(iL, fuenteC.indexOf("\n}\n", iL)).indexOf("vaciarTiemposDelDia(ss)") !== -1);
     ocultarRegistroDeTiempos({ getSheetByName: () => null });   // si no existe, nada
 
     ok("una llegada que ahora es otro bloque se renombra, por su hora",
@@ -3062,7 +3082,8 @@ ok("sin cache no revienta", avisoDeSinHouseYaSabida(null, G4) === "");
             getValues: () => rejilla.slice(f - 1, f - 1 + nf).map(r => r.slice(c - 1, c - 1 + nc)),
             setValues: () => {}, setBackgrounds: () => {} }) };
     let ssW = { getSheets: () => [unidad, hojaW], getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? regW : null };
-    let ayer = Date.now() - H(9, 3).getTime() > 6 * 86400000;
+    // El registro es del día: lo de otro día ya no se vuelve a apuntar.
+    let ayer = new Date().toDateString() !== H(9, 3).toDateString();
     recalcularPedimentosFinales(ssW, hojaW);
     ok("WMSACT apunta lo que la hoja tiene y el registro no",
        ayer || (apuntadoW.some(a => a[2] === "6116010") && !apuntadoW.some(a => a[2] === "6116004")));

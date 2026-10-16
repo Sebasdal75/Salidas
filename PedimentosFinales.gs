@@ -1163,11 +1163,11 @@ function prepararPedimentosFinales() {
         "del de arriba en cuanto escaneas el siguiente (o con «🔄 Forzar " +
         "Actualización», o en el " +
         "repaso de cinco minutos). Cada hora queda apuntada en un registro " +
-        "oculto (SIS_TIEMPOS_REGISTRO, no lo borres: de ahí sale el reporte), " +
-        "que no se borra aunque limpies esta pestaña, y " +
-        "«SIS_TIEMPOS_PEDIMENTOS» lo enseña AGRUPADO POR UNIDAD, con cada bloque " +
-        "resumido. Ese reporte se pone al día con «🔄 Forzar Actualización» " +
-        "en esta pestaña, o solo cada cinco " +
+        "oculto (SIS_TIEMPOS_REGISTRO) y «SIS_TIEMPOS_PEDIMENTOS» lo enseña " +
+        "AGRUPADO POR UNIDAD, con cada bloque resumido. Los dos son del DÍA: " +
+        "se vacían solos cada noche con la limpieza de las 22:00 (menú " +
+        "«🌙 Poner la limpieza de la noche»). El reporte se pone al día con " +
+        "«🔄 Forzar Actualización» en esta pestaña, o solo cada cinco " +
         "minutos.\n\n" +
         "Solo se compara contra la columna A de la unidad que escaneaste: nada " +
         "de bultos ni de M-S.\n\n" +
