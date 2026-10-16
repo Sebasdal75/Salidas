@@ -225,6 +225,86 @@ function reporteDeTiemposPendiente() {
 }
 
 function minutosEntre(a, b) { return Math.round((b - a) / 60000); }
+
+// -------------------------------------------------------------------------
+// CERRAR Y ABRIR UNA UNIDAD
+// -------------------------------------------------------------------------
+//
+// Cuando UPS dice que la unidad ya es todo, se escanea WMSCIERRA (en la pestaña
+// de la unidad o en su espacio de PEDIMENTOS FINALES) y se apunta la hora en el
+// registro de tiempos. WMSABRE la vuelve a abrir —un error, o llegó algo más—.
+// Sirve para medir CUÁNTO TARDAN EN PASAR LOS PEDIMENTOS DESPUÉS DEL CIERRE: el
+// reporte pone la fila «🔒 CIERRE DE LA UNIDAD» con el primer y el último papel
+// que llegaron después, y a cada bloque le dice cuánto después del cierre llegó.
+//
+// Van al mismo registro que los papeles, con el pedimento vacío y en la columna
+// BLOQUE «CIERRE» o «APERTURA»: así se vacían con él cada noche.
+//
+// VALE EL PRIMER CIERRE desde la última apertura: escanear WMSCIERRA dos veces
+// no mueve la hora a la segunda, porque lo que se mide es cuándo dijo UPS que
+// era todo.
+const EVENTO_CIERRE = "CIERRE";
+const EVENTO_APERTURA = "APERTURA";
+const TXT_UNIDAD_CERRADA = "🔒 UNIDAD CERRADA";
+const TXT_UNIDAD_ABIERTA = "🔓 UNIDAD ABIERTA";
+const COLOR_REPORTE_CIERRE = '#f4cccc';
+
+function hhmm(d) { let dos = x => ("0" + x).slice(-2); return dos(d.getHours()) + ":" + dos(d.getMinutes()); }
+
+// ¿Esta fila del registro es un cierre o una apertura? Devuelve el tipo o "".
+function eventoDeUnidad(f) {
+    let ped = String((f || [])[2] === undefined || f[2] === null ? "" : f[2]).trim();
+    if (ped !== "") return "";
+    let b = String((f || [])[5] || "").trim().toUpperCase();
+    return (b === EVENTO_CIERRE || b === EVENTO_APERTURA) ? b : "";
+}
+
+// De los cierres y aperturas de una unidad: desde cuándo está cerrada (o null),
+// y si la última vez se reabrió, cuándo. Puro.
+function cierreDeLosEventos(eventos) {
+    let cierre = null, reabierta = null;
+    (eventos || []).slice().sort((a, b) => a.fecha - b.fecha).forEach(e => {
+        if (e.tipo === EVENTO_CIERRE && !cierre) { cierre = e.fecha; reabierta = null; }
+        else if (e.tipo === EVENTO_APERTURA && cierre) { reabierta = e.fecha; cierre = null; }
+    });
+    return { cierre: cierre, reabierta: reabierta };
+}
+
+// Los cierres y aperturas de HOY de una unidad, leídos del registro.
+function eventosDeHoy(ss, unidad) {
+    let reg = ss.getSheetByName(HOJA_SIS_TIEMPOS);
+    if (!reg || reg.getLastRow() < 2) return [];
+    let lr = reg.getLastRow();
+    let desdeFila = Math.max(2, lr - FILAS_MAX_LEIDAS_TIEMPOS + 1);
+    let hoy = claveDeDia(new Date());
+    let clave = unidadDeRegistro(unidad);
+    return reg.getRange(desdeFila, 1, lr - desdeFila + 1, CABECERA_SIS_TIEMPOS.length).getValues()
+        .filter(f => esFechaValida(f[0]) && claveDeDia(f[0]) === hoy &&
+                     eventoDeUnidad(f) !== "" && unidadDeRegistro(f[1]) === clave)
+        .map(f => ({ tipo: eventoDeUnidad(f), fecha: f[0] }));
+}
+
+// WMSCIERRA. Devuelve el texto del aviso.
+function cerrarUnidad(ss, unidad, ahora) {
+    let estado = cierreDeLosEventos(eventosDeHoy(ss, unidad));
+    if (estado.cierre) return "🔒 " + unidad + " ya estaba cerrada desde las " + hhmm(estado.cierre);
+    let cuando = ahora || new Date();
+    anotarEnRegistro(ss, HOJA_SIS_TIEMPOS, CABECERA_SIS_TIEMPOS,
+                     [[cuando, unidad, "", TXT_UNIDAD_CERRADA, "", EVENTO_CIERRE]]);
+    try { rehacerReporteDeTiempos(ss); } catch (err) { /* lo rehace el repaso */ }
+    return "🔒 " + unidad + " cerrada a las " + hhmm(cuando);
+}
+
+// WMSABRE. Devuelve el texto del aviso.
+function abrirUnidad(ss, unidad, ahora) {
+    let estado = cierreDeLosEventos(eventosDeHoy(ss, unidad));
+    if (!estado.cierre) return "🔓 " + unidad + " no estaba cerrada";
+    let cuando = ahora || new Date();
+    anotarEnRegistro(ss, HOJA_SIS_TIEMPOS, CABECERA_SIS_TIEMPOS,
+                     [[cuando, unidad, "", TXT_UNIDAD_ABIERTA, "", EVENTO_APERTURA]]);
+    try { rehacerReporteDeTiempos(ss); } catch (err) { /* lo rehace el repaso */ }
+    return "🔓 " + unidad + " abierta otra vez. Escanea WMSCIERRA cuando UPS diga que ya es todo";
+}
 function esFechaValida(v) { return v instanceof Date && !isNaN(v.getTime()); }
 function claveDeDia(d) { return d.getFullYear() * 10000 + (d.getMonth() + 1) * 100 + d.getDate(); }
 function numeroDeBloque(etiqueta) {
@@ -254,13 +334,21 @@ function construirReporteDeTiempos(filas, desde) {
         let bloque = String(f[5] || "").trim() || "(sin bloque)";
         let kd = claveDeDia(fecha);
         if (!dias.has(kd)) { dias.set(kd, new Map()); pedsDelDia.set(kd, new Set()); }
+        // Un cierre o una apertura de la unidad: no es un bloque.
+        let evento = eventoDeUnidad(f);
+        if (evento !== "") {
+            let porU = dias.get(kd);
+            if (!porU.has(unidad)) porU.set(unidad, { unidad: unidad, primera: fecha, bloques: new Map(), eventos: [] });
+            porU.get(unidad).eventos.push({ tipo: evento, fecha: fecha });
+            return;
+        }
         if (ped !== "") {
             if (pedsDelDia.get(kd).has(ped)) return;
             pedsDelDia.get(kd).add(ped);
         }
         let porUnidad = dias.get(kd);
         if (!porUnidad.has(unidad)) {
-            porUnidad.set(unidad, { unidad: unidad, primera: fecha, bloques: new Map() });
+            porUnidad.set(unidad, { unidad: unidad, primera: fecha, bloques: new Map(), eventos: [] });
         }
         let g = porUnidad.get(unidad);
         if (fecha < g.primera) g.primera = fecha;
@@ -297,11 +385,32 @@ function construirReporteDeTiempos(filas, desde) {
             todas.sort((a, b) => a - b);
             let total = todas.length;
             let conBloque = bloques.filter(b => b.etiqueta !== "(sin bloque)").length;
+            let estado = cierreDeLosEventos(g.eventos);
+            let detalleUnidad = [conBloque ? conBloque + (conBloque === 1 ? " bloque" : " bloques") : "",
+                                 estado.cierre ? "🔒 cerrada " + hhmm(estado.cierre)
+                                 : estado.reabierta ? "🔓 reabierta " + hhmm(estado.reabierta) : ""]
+                                .filter(x => x !== "").join(" · ");
             out.push(["🚚 " + g.unidad, g.primera, g.primera, total,
                       total ? todas[0] : "", total ? todas[total - 1] : "",
-                      total ? minutosEntre(todas[0], todas[total - 1]) : "",
-                      conBloque ? conBloque + (conBloque === 1 ? " bloque" : " bloques") : ""]);
+                      total ? minutosEntre(todas[0], todas[total - 1]) : "", detalleUnidad]);
             tipos.push("unidad");
+            // EL CIERRE: cuánto tardaron los papeles en pasar después. Los
+            // PEDIMENTOS, DESDE, HASTA y MINUTOS de esta fila son solo los papeles
+            // de DESPUÉS del cierre, y los minutos van del cierre al último.
+            if (estado.cierre) {
+                let despues = todas.filter(h => h >= estado.cierre);
+                let antes = total - despues.length;
+                let nd = despues.length;
+                let txt = nd
+                    ? "el primer papel llegó " + minutosEntre(estado.cierre, despues[0]) +
+                      " min después del cierre; el último, " + minutosEntre(estado.cierre, despues[nd - 1]) + " min después"
+                    : "todavía no llega ningún papel después del cierre";
+                if (antes > 0) txt += " · " + antes + (antes === 1 ? " papel llegó" : " papeles llegaron") + " antes del cierre";
+                out.push(["🔒 CIERRE DE LA UNIDAD", estado.cierre, estado.cierre, nd,
+                          nd ? despues[0] : "", nd ? despues[nd - 1] : "",
+                          nd ? minutosEntre(estado.cierre, despues[nd - 1]) : "", txt]);
+                tipos.push("cierre");
+            }
             let anterior = null;   // {etiqueta, fin} del bloque de arriba
             bloques.forEach(b => {
                 let hs = b.peds.map(p => p.hora).sort((a, c) => a - c);
@@ -314,6 +423,12 @@ function construirReporteDeTiempos(filas, desde) {
                                             anterior ? anterior.fin : null,
                                             anterior ? anterior.etiqueta : "")
                     : "";
+                // Y cuánto después del cierre llegó, si fue después.
+                let inicio = inicioDe(b);
+                if (estado.cierre && inicio !== Infinity && inicio >= estado.cierre.getTime()) {
+                    let tras = Math.round((inicio - estado.cierre.getTime()) / 60000) + " min después del cierre";
+                    espera = espera === "" ? "llegó " + tras : espera + " · " + tras;
+                }
                 out.push(["📦 " + b.etiqueta, b.llego || "", b.llego || "", n,
                           n ? hs[0] : "", n ? hs[n - 1] : "", n ? minutosEntre(hs[0], hs[n - 1]) : "",
                           espera]);
@@ -409,6 +524,7 @@ function cuadrarRegistroConLaHoja(ss, filas, yaVan) {
         if (c === "") return;
         hay.add(c);
         let ped = pedimentoDeRegistro(f[2]);
+        if (eventoDeUnidad(f) !== "") return;   // un cierre o apertura no es una llegada
         if (ped !== "") apuntar(pedimentos, dia(f) + ped, i);
         else {
             apuntar(llegadas, base(f) + segundo(f[0]), i);
@@ -535,7 +651,8 @@ function rehacerReporteDeTiempos(ss) {
         h.getRange(2, 4, r.filas.length, 1).setNumberFormat("0");
         h.getRange(2, 7, r.filas.length, 1).setNumberFormat("0");
         h.getRange(2, 1, r.filas.length, ancho).setBackgrounds(r.tipos.map(t => {
-            let c = t === "unidad" ? COLOR_REPORTE_UNIDAD : t === "bloque" ? COLOR_REPORTE_BLOQUE : '#ffffff';
+            let c = t === "unidad" ? COLOR_REPORTE_UNIDAD : t === "bloque" ? COLOR_REPORTE_BLOQUE
+                  : t === "cierre" ? COLOR_REPORTE_CIERRE : '#ffffff';
             return new Array(ancho).fill(c);
         }));
     }

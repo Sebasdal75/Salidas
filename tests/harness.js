@@ -8243,8 +8243,87 @@ ok("los dos estan en el menu",
 const FUENTE_CMD_H = require('fs').readFileSync('Comandos.gs', 'utf8');
 ok("WMSHOUSE trabaja sobre la pestaña donde se escanea",
    FUENTE_CMD_H.indexOf("correrRellenoDeHouses(hoja ? hoja.getName() : \"\")") !== -1);
-ok("y a los comandos se les pasa la hoja",
-   FUENTE_CMD_H.indexOf("cmd.correr(ss, hoja)") !== -1);
+ok("y a los comandos se les pasa la hoja (y la fila)",
+   FUENTE_CMD_H.indexOf("cmd.correr(ss, hoja, fila)") !== -1);
+
+// CERRAR Y ABRIR UNA UNIDAD: WMSCIERRA / WMSABRE, y el tiempo de los papeles
+// después del cierre en el reporte.
+(function () {
+    ok("WMSCIERRA y WMSABRE son comandos", !!comandoDeBarras("wmscierra") && !!comandoDeBarras("WMS ABRE"));
+    ok("ninguno mide lo que una guía (11 o 18)",
+       ["WMSCIERRA", "WMSABRE"].every(c => c.length !== 11 && c.length !== 18));
+    ok("y salen en la hoja para imprimir",
+       comandosDeBarras().some(c => c.codigo === "WMSCIERRA") && comandosDeBarras().some(c => c.codigo === "WMSABRE"));
+
+    const D = (h, m) => new Date(2026, 9, 16, h, m, 0);
+    let c = cierreDeLosEventos([{ tipo: "CIERRE", fecha: D(12, 0) }, { tipo: "CIERRE", fecha: D(12, 5) }]);
+    ok("vale el PRIMER cierre (escanearlo dos veces no mueve la hora)", c.cierre.getTime() === D(12, 0).getTime());
+    c = cierreDeLosEventos([{ tipo: "CIERRE", fecha: D(12, 0) }, { tipo: "APERTURA", fecha: D(12, 10) }]);
+    ok("abierta otra vez: ya no está cerrada", c.cierre === null && c.reabierta.getTime() === D(12, 10).getTime());
+    c = cierreDeLosEventos([{ tipo: "APERTURA", fecha: D(12, 20) }, { tipo: "CIERRE", fecha: D(12, 0) },
+                            { tipo: "APERTURA", fecha: D(12, 10) }, { tipo: "CIERRE", fecha: D(12, 30) }]);
+    ok("cerrada, abierta y cerrada otra vez: vale el último cierre", c.cierre.getTime() === D(12, 30).getTime());
+
+    // El reporte.
+    let reg = [
+        [D(11, 0), "GLOBAL 1", "6100001", "✅", "", "BLOQUE 1"],
+        [D(12, 0), "GLOBAL 1", "", "🔒 UNIDAD CERRADA", "", "CIERRE"],
+        [D(12, 20), "GLOBAL 1", "", "📦 LLEGÓ EL BLOQUE 2", "", "BLOQUE 2"],
+        [D(12, 20), "GLOBAL 1", "6100002", "✅", "", "BLOQUE 2"],
+        [D(12, 45), "GLOBAL 1", "6100003", "✅", "", "BLOQUE 2"]];
+    let r = construirReporteDeTiempos(reg, D(0, 0));
+    let col = r.filas.map(f => f[0]);
+    ok("el cierre no es un bloque", col.indexOf("📦 CIERRE") === -1 && col.indexOf("📦 BLOQUE 2") !== -1);
+    let fc = r.filas[col.indexOf("🔒 CIERRE DE LA UNIDAD")];
+    ok("sale la fila del cierre, debajo de la unidad",
+       col.indexOf("🔒 CIERRE DE LA UNIDAD") === 1 && r.tipos[1] === "cierre");
+    ok("con los papeles de DESPUÉS del cierre y los minutos hasta el último",
+       fc[3] === 2 && fc[4].getTime() === D(12, 20).getTime() && fc[5].getTime() === D(12, 45).getTime() && fc[6] === 45);
+    ok("y lo dice en palabras",
+       fc[7] === "el primer papel llegó 20 min después del cierre; el último, 45 min después · 1 papel llegó antes del cierre");
+    ok("la unidad dice que está cerrada", r.filas[0][7].indexOf("🔒 cerrada 12:00") !== -1);
+    ok("el bloque dice cuánto después del cierre llegó",
+       r.filas[col.indexOf("📦 BLOQUE 2")][7].indexOf("20 min después del cierre") !== -1);
+    ok("el de antes del cierre no", r.filas[col.indexOf("📦 BLOQUE 1")][7].indexOf("cierre") === -1);
+    let sinPapeles = construirReporteDeTiempos([[D(12, 0), "A1", "", "🔒 UNIDAD CERRADA", "", "CIERRE"]], D(0, 0));
+    ok("cerrada y sin papeles todavía",
+       sinPapeles.filas[1][7] === "todavía no llega ningún papel después del cierre");
+
+    // Los comandos de verdad, contra un registro simulado.
+    let filas = [["FECHA Y HORA", "UNIDAD", "PEDIMENTO", "RESULTADO AL ESCANEARLO", "PATENTE", "BLOQUE"]];
+    let regH = { appendRow: (f) => filas.push(f), getLastRow: () => filas.length, getMaxColumns: () => 6,
+        isSheetHidden: () => true, getLastColumn: () => 6,
+        getRange: (f, cc, nf, nc) => ({ getValue: () => "BLOQUE", getValues: () => filas.slice(f - 1, f - 1 + nf) }) };
+    let ssH = { getSheetByName: (n) => n === "SIS_TIEMPOS_REGISTRO" ? regH : null };
+    let ahora = new Date();
+    ok("WMSABRE sin cerrar antes lo dice", abrirUnidad(ssH, "GLOBAL 1", ahora).indexOf("no estaba cerrada") !== -1);
+    ok("WMSCIERRA la cierra", cerrarUnidad(ssH, "GLOBAL 1", ahora).indexOf("cerrada a las") !== -1 &&
+       filas.length === 2 && filas[1][5] === "CIERRE" && filas[1][1] === "GLOBAL 1");
+    ok("cerrarla otra vez no apunta nada", cerrarUnidad(ssH, "global 1", new Date(ahora.getTime() + 60000))
+       .indexOf("ya estaba cerrada") !== -1 && filas.length === 2);
+    ok("WMSABRE la abre", abrirUnidad(ssH, "GLOBAL 1", new Date(ahora.getTime() + 120000)).indexOf("abierta otra vez") !== -1 &&
+       filas.length === 3 && filas[2][5] === "APERTURA");
+    ok("otra unidad no se entera", abrirUnidad(ssH, "GLOBAL 2", ahora).indexOf("no estaba cerrada") !== -1);
+
+    // ¿De qué unidad? De la pestaña, o del espacio en PEDIMENTOS FINALES.
+    let colF = [["UNIDAD Y SUS PEDIMENTOS"], ["global 1"], ["6116004"], ["WMSCIERRA"], ["A1"], ["WMSABRE"]];
+    let finales = { getName: () => "PEDIMENTOS FINALES",
+                    getRange: (f, cc, nf) => ({ getValues: () => colF.slice(0, nf) }) };
+    let unidadesH = [{ getName: () => "GLOBAL 1 20-AE-3H" }, { getName: () => "A1 76-AZ-8E" }, finales];
+    let ssU = { getSheets: () => unidadesH };
+    ok("en PEDIMENTOS FINALES, la unidad de ese espacio",
+       unidadDondeSeEscanea(ssU, finales, 4) === "GLOBAL 1 20-AE-3H" &&
+       unidadDondeSeEscanea(ssU, finales, 6) === "A1 76-AZ-8E");
+    ok("en la pestaña de la unidad, esa", unidadDondeSeEscanea(ssU, { getName: () => "GLOBAL 1 20-AE-3H" }, 9) === "GLOBAL 1 20-AE-3H");
+    let lanzo = "";
+    try { unidadDondeSeEscanea(ssU, { getName: () => "M-S T1" }, 3); } catch (e) { lanzo = e.message; }
+    ok("en otra pestaña lo dice", lanzo.indexOf("pestaña de la unidad") !== -1);
+    lanzo = "";
+    let colSin = [["UNIDAD Y SUS PEDIMENTOS"], ["WMSCIERRA"]];
+    try { unidadDondeSeEscanea(ssU, { getName: () => "PEDIMENTOS FINALES",
+          getRange: (f, cc, nf) => ({ getValues: () => colSin.slice(0, nf) }) }, 2); } catch (e) { lanzo = e.message; }
+    ok("en PEDIMENTOS FINALES sin unidad arriba, lo dice", lanzo.indexOf("debajo de la unidad") !== -1);
+})();
 ok("el titulo lo dice", comandoDeBarras("WMSHOUSE").titulo.indexOf("esta pestaña") !== -1);
 
 console.log("\n=== 24. Ningun nombre repetido entre archivos ===");

@@ -123,8 +123,48 @@ function comandosDeBarras() {
                 }
                 return correrRellenoDeHouses(hoja ? hoja.getName() : "").corto;
             }
+        },
+        {
+            codigo: "WMSCIERRA",
+            titulo: "Cerrar esta unidad (UPS dijo que es todo)",
+            correr: function (ss, hoja, fila) {
+                // La hora del cierre va al registro de tiempos: con ella se mide
+                // cuánto tardan los pedimentos en pasar después. Ver
+                // `cerrarUnidad` en Registros.gs.
+                if (typeof cerrarUnidad !== 'function') throw new Error("El módulo de tiempos no está instalado");
+                return cerrarUnidad(ss, unidadDondeSeEscanea(ss, hoja, fila));
+            }
+        },
+        {
+            codigo: "WMSABRE",
+            titulo: "Volver a abrir esta unidad",
+            correr: function (ss, hoja, fila) {
+                if (typeof abrirUnidad !== 'function') throw new Error("El módulo de tiempos no está instalado");
+                return abrirUnidad(ss, unidadDondeSeEscanea(ss, hoja, fila));
+            }
         }
     ];
+}
+
+// ¿De qué unidad habla un comando? De la pestaña donde se escanea, si es una
+// unidad; o, en PEDIMENTOS FINALES, de la unidad del espacio donde se escanea
+// (la que está arriba de esa fila). Si no se puede saber, lo dice: un cierre
+// apuntado a la unidad equivocada estropea la cuenta de tiempos.
+function unidadDondeSeEscanea(ss, hoja, fila) {
+    let nombre = hoja ? hoja.getName() : "";
+    if (typeof esHojaPedimentosFinales === 'function' && esHojaPedimentosFinales(nombre)) {
+        let f = Math.max(Number(fila) || 0, 1);
+        let bloques = bloquesDePedimentosFinales(hoja.getRange(1, 1, f, 1).getValues());
+        let b = bloques.filter(x => x.desde <= f - 1 && x.hasta >= f - 1)[0];
+        if (!b || b.filaUnidad === -1) {
+            throw new Error("Escanéalo debajo de la unidad, en su espacio de PEDIMENTOS FINALES");
+        }
+        let r = resolverUnidad(b.unidad, unidadesDelArchivo(ss));
+        if (!r.unidad) throw new Error("No encuentro la unidad «" + b.unidad + "»");
+        return r.unidad.nombre;
+    }
+    if (typeof esHojaDeUnidad === 'function' && esHojaDeUnidad(nombre)) return nombre;
+    throw new Error("Escanéalo en la pestaña de la unidad o en su espacio de PEDIMENTOS FINALES");
 }
 
 // ¿Lo que se acaba de escribir es un comando? Devuelve el comando o null.
@@ -206,9 +246,10 @@ function atenderComando(ss, hoja, fila, cmd) {
     let resultado, fallo = "";
     globalComandoEnCurso = true;
     try {
-        // Se pasa la HOJA donde se escaneó: hay comandos que trabajan solo
-        // sobre esa. Los que no la usan, la ignoran.
-        resultado = cmd.correr(ss, hoja);
+        // Se pasa la HOJA y la FILA donde se escaneó: hay comandos que trabajan
+        // solo sobre esa (o, en PEDIMENTOS FINALES, sobre la unidad de esa
+        // fila). Los que no las usan, las ignoran.
+        resultado = cmd.correr(ss, hoja, fila);
     } catch (err) {
         fallo = err.message;
     } finally {
